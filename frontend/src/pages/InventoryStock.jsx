@@ -1,6 +1,6 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ClipboardList, Package, PackagePlus, Scale, Search, Wallet, X } from 'lucide-react'
+import { ClipboardList, Link2, Package, PackagePlus, Scale, Search, Wallet, X } from 'lucide-react'
 import Modal from '../components/common/Modal'
 import StocktakeModal from '../components/inventory/StocktakeModal'
 import ExpenseLogModal from '../components/finance/ExpenseLogModal'
@@ -42,6 +42,26 @@ function getStatus(item) {
   if (item.critical_threshold != null && stock <= Number(item.critical_threshold)) return 'Very Low Stock'
   if (stock <= Number(item.low_threshold)) return 'Low Stock'
   return 'In Stock'
+}
+
+const STATUS_SEVERITY = {
+  'Out of Stock': 0,
+  'Very Low Stock': 1,
+  'Low Stock': 2,
+  'In Stock': 3,
+}
+
+function compareStockUrgency(a, b) {
+  const statusA = getStatus(a)
+  const statusB = getStatus(b)
+  const rankA = STATUS_SEVERITY[statusA] ?? 3
+  const rankB = STATUS_SEVERITY[statusB] ?? 3
+
+  if (rankA !== rankB) {
+    return rankA - rankB
+  }
+
+  return (a.item_name || '').localeCompare(b.item_name || '')
 }
 
 function formatAmount(value, isWeight) {
@@ -133,11 +153,43 @@ function InventoryTable({ items, onRestock, onHistory, onAdjust, onEdit, onLink,
             return (
               <tr key={item.id} className="table-row">
                 <td className="text-heading break-words px-4 py-4 font-semibold">
-                  <span>{item.item_name}</span>
+                  <div>{item.item_name}</div>
                   {item.menu_links?.length ? (
-                    <p className="text-muted mt-0.5 text-xs font-normal">
-                      {item.menu_links.map((link) => link.menu_name).join(', ')}
-                    </p>
+                    <div className="relative mt-1 inline-block group">
+                      <span
+                        className="inline-flex items-center gap-1 rounded-md border border-emerald-500/25 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-800 transition-colors hover:bg-emerald-500/20 dark:border-emerald-500/30 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-900/50 cursor-pointer select-none"
+                        title={item.menu_links.map((link) => link.menu_name).join(', ')}
+                      >
+                        <Link2 className="h-3 w-3 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                        <span>
+                          {t('inventory.linkedRecipesCount', { count: item.menu_links.length })}
+                        </span>
+                      </span>
+
+                      {/* Tooltip on hover */}
+                      <div className="pointer-events-none invisible absolute left-0 top-full z-40 mt-1.5 w-64 rounded-xl border border-stone-200/90 bg-white/95 p-3 shadow-xl backdrop-blur-md ring-1 ring-black/5 transition-all duration-150 ease-out opacity-0 group-hover:pointer-events-auto group-hover:visible group-hover:opacity-100 dark:border-zinc-700/80 dark:bg-zinc-900/95">
+                        <div className="mb-2 flex items-center justify-between border-b border-stone-200/60 pb-1.5 dark:border-zinc-800">
+                          <span className="flex items-center gap-1.5 text-[11px] font-semibold text-stone-700 dark:text-zinc-200">
+                            <Link2 className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
+                            {t('inventory.linkedRecipesTitle', { count: item.menu_links.length })}
+                          </span>
+                          <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300">
+                            {item.menu_links.length}
+                          </span>
+                        </div>
+                        <ul className="max-h-48 space-y-1 overflow-y-auto pr-1 text-xs font-normal">
+                          {item.menu_links.map((link, idx) => (
+                            <li
+                              key={link.menu_id || idx}
+                              className="flex items-center gap-1.5 rounded px-1.5 py-0.5 text-stone-600 transition-colors hover:bg-stone-100/70 hover:text-stone-900 dark:text-zinc-300 dark:hover:bg-zinc-800/60 dark:hover:text-white"
+                            >
+                              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
+                              <span className="truncate">{link.menu_name}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
                   ) : null}
                 </td>
                 <td className="table-cell-muted break-words px-4 py-4">{item.category}</td>
@@ -886,6 +938,34 @@ function LinkModal({ item, stockItems, pickedStock, onRequestCreate, onClose, on
   )
 }
 
+const INVENTORY_CATEGORY_KEYS = {
+  All: 'all',
+  'Bar Supplies': 'barSupplies',
+  Coffee: 'coffee',
+  Tea: 'tea',
+  'Cold Drinks': 'coldDrinks',
+  Drinks: 'drinks',
+  Beer: 'beer',
+  Dairy: 'dairy',
+  Packaging: 'packaging',
+  Meat: 'meat',
+  Fish: 'fish',
+  Produce: 'produce',
+  Pantry: 'pantry',
+  'Bakery Prep': 'bakeryPrep',
+  Sauces: 'sauces',
+  Liquids: 'liquids',
+  Oils: 'oils',
+}
+
+function inventoryCategoryLabel(category, t) {
+  const key = INVENTORY_CATEGORY_KEYS[category]
+  if (key) {
+    return t(`inventory.categories.${key}`, { defaultValue: category })
+  }
+  return category
+}
+
 export default function InventoryStock() {
   const { t } = useTranslation()
   const { user } = useAuth()
@@ -894,6 +974,7 @@ export default function InventoryStock() {
   const [items, setItems] = useState([])
   const [isLoading, setIsLoading] = useState(true)
   const [usingFallbackInventory, setUsingFallbackInventory] = useState(false)
+  const [activeCategory, setActiveCategory] = useState('All')
   const [search, setSearch] = useState('')
   const [restockItem, setRestockItem] = useState(null)
   const [historyItem, setHistoryItem] = useState(null)
@@ -946,17 +1027,62 @@ export default function InventoryStock() {
     }
   }
 
-  const filteredItems = items.filter(
-    (item) =>
-      item.item_name.toLowerCase().includes(search.toLowerCase()) ||
-      item.category.toLowerCase().includes(search.toLowerCase())
-  )
+  const categories = useMemo(() => {
+    const found = new Set()
+    items.forEach((item) => {
+      const cat = String(item.category || '').trim()
+      if (cat) found.add(cat)
+    })
+    const priority = [
+      'Coffee',
+      'Tea',
+      'Cold Drinks',
+      'Drinks',
+      'Beer',
+      'Bar Supplies',
+      'Dairy',
+      'Packaging',
+      'Meat',
+      'Fish',
+      'Produce',
+      'Bakery Prep',
+      'Pantry',
+      'Sauces',
+      'Oils',
+      'Liquids',
+    ]
+    const sorted = Array.from(found).sort((a, b) => {
+      const indexA = priority.indexOf(a)
+      const indexB = priority.indexOf(b)
+      if (indexA !== -1 && indexB !== -1) return indexA - indexB
+      if (indexA !== -1) return -1
+      if (indexB !== -1) return 1
+      return a.localeCompare(b)
+    })
+    return ['All', ...sorted]
+  }, [items])
+
+  const filteredItems = useMemo(() => {
+    return items
+      .filter((item) => {
+        const matchesCategory =
+          activeCategory === 'All' ||
+          String(item.category || '').toLowerCase() === activeCategory.toLowerCase()
+        const query = search.trim().toLowerCase()
+        const matchesSearch =
+          !query ||
+          String(item.item_name || '').toLowerCase().includes(query) ||
+          String(item.category || '').toLowerCase().includes(query)
+        return matchesCategory && matchesSearch
+      })
+      .sort(compareStockUrgency)
+  }, [items, activeCategory, search])
 
   const countableItems = filteredItems.filter((item) => item.section === 'countable')
   const uncountableItems = filteredItems.filter((item) => item.section === 'uncountable')
 
   return (
-    <div className="space-y-8 pt-2">
+    <div className="space-y-6 pt-2">
       {usingFallbackInventory && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800/50 dark:bg-amber-950/40 dark:text-amber-200">
           {t('inventory.offlineData')}
@@ -994,51 +1120,78 @@ export default function InventoryStock() {
         </div>
       </div>
 
-      <section className="table-shell">
-        <div className="flex items-start gap-3 border-b px-6 py-4">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-olive-100 dark:bg-olive-900/40">
-            <Package className="h-5 w-5 text-forest-600 dark:text-forest-400" />
-          </div>
-          <div>
-            <h4 className="text-heading text-base font-semibold">{t('inventory.countableTitle')}</h4>
-            <p className="text-muted mt-0.5 text-sm">{t('inventory.countableDescription')}</p>
-          </div>
-        </div>
-        <InventoryTable
-          items={countableItems}
-          onRestock={setRestockItem}
-          onHistory={setHistoryItem}
-          onAdjust={setAdjustItem}
-          onEdit={(row) => setItemForm({ mode: 'edit', item: row })}
-          onLink={setLinkItem}
-          canManageItems={canManageItems}
-          canAdjustStock={canAdjustStock}
-          isLoading={isLoading}
-        />
-      </section>
+      <div className="flex flex-wrap gap-2">
+        {categories.map((category) => (
+          <button
+            key={category}
+            type="button"
+            onClick={() => setActiveCategory(category)}
+            className={`tab-pill ${
+              activeCategory === category ? 'tab-pill-active' : 'tab-pill-inactive'
+            }`}
+          >
+            {inventoryCategoryLabel(category, t)}
+          </button>
+        ))}
+      </div>
 
-      <section className="table-shell">
-        <div className="flex items-start gap-3 border-b px-6 py-4">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-olive-100 dark:bg-olive-900/40">
-            <Scale className="h-5 w-5 text-forest-600 dark:text-forest-400" />
-          </div>
-          <div>
-            <h4 className="text-heading text-base font-semibold">{t('inventory.uncountableTitle')}</h4>
-            <p className="text-muted mt-0.5 text-sm">{t('inventory.uncountableDescription')}</p>
-          </div>
+      {activeCategory !== 'All' && countableItems.length === 0 && uncountableItems.length === 0 ? (
+        <div className="table-shell px-6 py-12 text-center">
+          <p className="text-muted text-sm">{t('inventory.noMatches')}</p>
         </div>
-        <InventoryTable
-          items={uncountableItems}
-          onRestock={setRestockItem}
-          onHistory={setHistoryItem}
-          onAdjust={setAdjustItem}
-          onEdit={(row) => setItemForm({ mode: 'edit', item: row })}
-          onLink={setLinkItem}
-          canManageItems={canManageItems}
-          canAdjustStock={canAdjustStock}
-          isLoading={isLoading}
-        />
-      </section>
+      ) : (
+        <>
+          {(activeCategory === 'All' || countableItems.length > 0) && (
+            <section className="table-shell !overflow-visible">
+              <div className="flex items-start gap-3 border-b px-6 py-4">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-olive-100 dark:bg-olive-900/40">
+                  <Package className="h-5 w-5 text-forest-600 dark:text-forest-400" />
+                </div>
+                <div>
+                  <h4 className="text-heading text-base font-semibold">{t('inventory.countableTitle')}</h4>
+                  <p className="text-muted mt-0.5 text-sm">{t('inventory.countableDescription')}</p>
+                </div>
+              </div>
+              <InventoryTable
+                items={countableItems}
+                onRestock={setRestockItem}
+                onHistory={setHistoryItem}
+                onAdjust={setAdjustItem}
+                onEdit={(row) => setItemForm({ mode: 'edit', item: row })}
+                onLink={setLinkItem}
+                canManageItems={canManageItems}
+                canAdjustStock={canAdjustStock}
+                isLoading={isLoading}
+              />
+            </section>
+          )}
+
+          {(activeCategory === 'All' || uncountableItems.length > 0) && (
+            <section className="table-shell !overflow-visible">
+              <div className="flex items-start gap-3 border-b px-6 py-4">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-olive-100 dark:bg-olive-900/40">
+                  <Scale className="h-5 w-5 text-forest-600 dark:text-forest-400" />
+                </div>
+                <div>
+                  <h4 className="text-heading text-base font-semibold">{t('inventory.uncountableTitle')}</h4>
+                  <p className="text-muted mt-0.5 text-sm">{t('inventory.uncountableDescription')}</p>
+                </div>
+              </div>
+              <InventoryTable
+                items={uncountableItems}
+                onRestock={setRestockItem}
+                onHistory={setHistoryItem}
+                onAdjust={setAdjustItem}
+                onEdit={(row) => setItemForm({ mode: 'edit', item: row })}
+                onLink={setLinkItem}
+                canManageItems={canManageItems}
+                canAdjustStock={canAdjustStock}
+                isLoading={isLoading}
+              />
+            </section>
+          )}
+        </>
+      )}
 
       {stocktakeOpen && canManageItems ? (
         <StocktakeModal

@@ -16,7 +16,7 @@ import {
   groupActiveRows,
   reconcileActiveOrders,
 } from '../utils/activeOrdersStorage'
-import { getFloorTableLabel } from '../data/tables'
+import { getFloorTableLabel, TAKEOUT_BILL } from '../data/tables'
 
 import { apiFetch, getAuthToken } from '../services/apiClient'
 
@@ -161,9 +161,158 @@ export function POSProvider({ children }) {
     return null
   }, [])
 
+  const refreshFloorTables = useCallback(async () => {
+    const token = getAuthToken()
+    if (!token) return
+    try {
+      const res = await apiFetch('/tables', { token })
+      if (!res.ok) return
+      const data = await res.json()
+      if (data?.tables && Array.isArray(data.tables)) {
+        setTables((prev) => {
+          const prevById = new Map(prev.map((t) => [String(t.id), t]))
+          return data.tables.map((st) => {
+            const key = String(st.id)
+            const existing = prevById.get(key)
+            if (existing) {
+              const serverStatus = String(st.status || '').toLowerCase()
+              const preservedStatus =
+                existing.items?.length > 0
+                  ? existing.status || 'occupied'
+                  : existing.status === 'paid' || serverStatus === 'paid'
+                    ? 'paid'
+                    : 'empty'
+              return {
+                ...existing,
+                name: st.name || existing.name,
+                section: st.section || existing.section,
+                capacity: Number(st.capacity) || existing.capacity || 4,
+                status: preservedStatus,
+              }
+            }
+            return {
+              id: st.id,
+              name: st.name,
+              isTakeOut: false,
+              section: st.section || 'standard',
+              capacity: Number(st.capacity) || 4,
+              status: String(st.status || '').toLowerCase() === 'paid' ? 'paid' : 'empty',
+              orderTotal: null,
+              orderSummary: null,
+              items: [],
+            }
+          })
+        })
+      }
+    } catch (err) {
+      console.error('Failed refreshing floor tables:', err)
+    }
+  }, [])
+
+  const addTable = useCallback(async ({ name, section, capacity }) => {
+    const token = getAuthToken()
+    const response = await apiFetch('/tables', {
+      method: 'POST',
+      token,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, section, capacity }),
+    })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      throw new Error(data.message || 'Failed to create table')
+    }
+    await refreshFloorTables()
+    return data.table
+  }, [refreshFloorTables])
+
+  const transferTable = useCallback(async (fromId, toId) => {
+    const token = getAuthToken()
+    const response = await apiFetch('/tables/transfer', {
+      method: 'POST',
+      token,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from_table_id: fromId, to_table_id: toId }),
+    })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      throw new Error(data.message || 'Failed to transfer table')
+    }
+
+    setTables((prev) => {
+      const fromTable = prev.find((t) => t.id === fromId)
+      if (!fromTable) return prev
+
+      return prev.map((t) => {
+        if (t.id === fromId) {
+          return {
+            ...t,
+            status: 'empty',
+            items: [],
+            orderSummary: null,
+            orderTotal: null,
+          }
+        }
+        if (t.id === toId) {
+          return {
+            ...t,
+            status: fromTable.status,
+            items: [...fromTable.items],
+            orderSummary: fromTable.orderSummary,
+            orderTotal: fromTable.orderTotal,
+          }
+        }
+        return t
+      })
+    })
+
+    return data
+  }, [])
+
+  const clearTable = useCallback(async (targetId) => {
+    const token = getAuthToken()
+    const response = await apiFetch(`/tables/${targetId}/clear`, {
+      method: 'POST',
+      token,
+    })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      throw new Error(data.message || 'Failed to clear table')
+    }
+
+    if (targetId === 'takeout') {
+      setTakeOut({
+        ...TAKEOUT_BILL,
+        status: 'empty',
+        items: [],
+        orderSummary: null,
+        orderTotal: null,
+      })
+    } else {
+      setTables((prev) =>
+        prev.map((t) =>
+          String(t.id) === String(targetId)
+            ? {
+                ...t,
+                status: 'empty',
+                items: [],
+                orderSummary: null,
+                orderTotal: null,
+              }
+            : t,
+        ),
+      )
+    }
+
+    return data
+  }, [])
+
   useEffect(() => {
     writeActiveOrdersSnapshot({ tables, takeOut, invoiceCounter })
   }, [tables, takeOut, invoiceCounter])
+
+  useEffect(() => {
+    refreshFloorTables()
+  }, [refreshFloorTables])
 
   useEffect(() => {
     const token = getAuthToken()
@@ -209,9 +358,11 @@ export function POSProvider({ children }) {
   }
 
   const getActiveBills = useCallback(() => {
-    const tableBills = tables.filter((table) => table.status !== 'empty')
+    const tableBills = tables.filter(
+      (table) => table.status !== 'empty' && table.status !== 'paid' && table.items?.length > 0,
+    )
     const bills = [...tableBills]
-    if (takeOut.status !== 'empty') {
+    if (takeOut.status !== 'empty' && takeOut.status !== 'paid' && takeOut.items?.length > 0) {
       bills.push(takeOut)
     }
     return bills.sort((a, b) => String(a.name).localeCompare(String(b.name)))
@@ -343,7 +494,7 @@ export function POSProvider({ children }) {
     updateBillItems(destinationId, nextItems)
   }
 
-  const processPayment = async (destinationId, paymentMethod = 'Cash') => {
+  const processPayment = async (destinationId, paymentMethod = 'Cash', clearImmediately = true) => {
     const bill = getBillById(destinationId)
     if (!bill || bill.items.length === 0) return null
 
@@ -359,6 +510,7 @@ export function POSProvider({ children }) {
         body: JSON.stringify({
           ...buildOrderTargetPayload(destinationId),
           payment_method: paymentMethod,
+          clear_table: clearImmediately,
           subtotal,
           tax,
           total,
@@ -393,12 +545,26 @@ export function POSProvider({ children }) {
       })
       setInvoiceCounter((prev) => prev + 1)
 
-      const cleared = applyItemsToBill(bill, [])
-
-      if (destinationId === 'takeout') {
-        setTakeOut(cleared)
+      if (clearImmediately) {
+        const cleared = applyItemsToBill(bill, [])
+        if (destinationId === 'takeout') {
+          setTakeOut(cleared)
+        } else {
+          setTables((prev) => prev.map((table) => (table.id === destinationId ? cleared : table)))
+        }
       } else {
-        setTables((prev) => prev.map((table) => (table.id === destinationId ? cleared : table)))
+        const markedPaid = {
+          ...bill,
+          items: [],
+          orderTotal: null,
+          orderSummary: null,
+          status: 'paid',
+        }
+        if (destinationId === 'takeout') {
+          setTakeOut(markedPaid)
+        } else {
+          setTables((prev) => prev.map((table) => (table.id === destinationId ? markedPaid : table)))
+        }
       }
 
       return transaction
@@ -430,6 +596,10 @@ export function POSProvider({ children }) {
         clearOrderTarget,
         clearPaymentTarget,
         registerNavigate,
+        refreshFloorTables,
+        addTable,
+        transferTable,
+        clearTable,
       }}
     >
       {children}

@@ -52,6 +52,9 @@ async function ensureColumn(db, table, column, definition) {
 }
 
 async function ensureFloorTables(db) {
+  try {
+    await db.execute('ALTER TABLE `tables` MODIFY table_name VARCHAR(60) NOT NULL')
+  } catch {}
   await ensureColumn(db, 'tables', 'section', "VARCHAR(20) NOT NULL DEFAULT 'standard' AFTER table_name")
   await ensureColumn(db, 'tables', 'capacity', 'INT NOT NULL DEFAULT 4 AFTER section')
 
@@ -281,16 +284,9 @@ const SELECT_SQL = `
 async function listFloorTables(db) {
   await ensureReservationsSchema(db)
   const [rows] = await db.execute(
-    'SELECT id, table_name, section, capacity, status FROM tables ORDER BY id',
+    'SELECT id, table_name, section, capacity, status FROM tables ORDER BY CASE WHEN LOWER(section) = "vip" THEN 1 ELSE 0 END, id ASC',
   )
-  const byId = new Map(rows.map((row) => [row.id, serializeFloorTable(row)]))
-  return FLOOR_TABLES.map((seed) => byId.get(seed.id) || {
-    id: seed.id,
-    name: seed.table_name,
-    section: seed.section,
-    capacity: seed.capacity,
-    status: 'Empty',
-  })
+  return rows.map(serializeFloorTable)
 }
 
 async function findTable(db, tableId) {

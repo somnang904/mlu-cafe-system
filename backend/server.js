@@ -161,7 +161,7 @@ app.use(helmet({
             baseUri: ["'self'"],
         },
     },
-    crossOriginResourcePolicy: { policy: 'same-site' },
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
     referrerPolicy: { policy: 'no-referrer' },
     hsts: env.isProduction ? { maxAge: 31536000, includeSubDomains: true } : false,
 }));
@@ -212,6 +212,17 @@ app.get('/api/health', async (_req, res) => {
         });
     }
 });
+
+// ==========================================
+// 🖼️ STATIC UPLOADS (menu images, uploads — public access for <img> tags)
+// ==========================================
+const uploadsDir = path.join(__dirname, 'uploads');
+const menuUploadsDir = path.join(uploadsDir, 'menu');
+if (!fs.existsSync(menuUploadsDir)) {
+    fs.mkdirSync(menuUploadsDir, { recursive: true });
+}
+app.use('/api/uploads', express.static(uploadsDir, { maxAge: '7d' }));
+app.use('/uploads', express.static(uploadsDir, { maxAge: '7d' }));
 
 // ==========================================
 // 🔐 PUBLIC AUTH (login, password reset — no JWT)
@@ -284,7 +295,7 @@ app.get('/api/users', requireAdmin, async (req, res) => {
              FROM users
              ORDER BY CASE WHEN LOWER(role) = 'admin' THEN 0 ELSE 1 END, display_name ASC`,
         );
-        
+
         // Safely parse the permissions JSON string back into an array for React
         const users = rows.map((u) => ({
             id: u.id,
@@ -664,6 +675,48 @@ app.delete('/api/users/:id', requireAdmin, async (req, res) => {
 // ☕ MENU MANAGEMENT API ROUTES
 // ==========================================
 
+const menuImageUpload = multer({
+    storage: multer.diskStorage({
+        destination: (_req, _file, cb) => cb(null, menuUploadsDir),
+        filename: (_req, file, cb) => {
+            const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
+            const cleanName = path.basename(file.originalname, ext).replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 30) || 'photo';
+            const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+            cb(null, `${cleanName}-${unique}${ext}`);
+        },
+    }),
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB limit
+    fileFilter: (_req, file, cb) => {
+        const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+        if (!allowedTypes.includes(file.mimetype.toLowerCase())) {
+            cb(new Error('Only JPEG, PNG, WebP, and GIF image files are allowed'));
+            return;
+        }
+        cb(null, true);
+    },
+});
+
+// UPLOAD MENU ITEM IMAGE FILE
+app.post('/api/menu/upload-image', requirePermission('menu'), (req, res) => {
+    menuImageUpload.single('image')(req, res, (err) => {
+        if (err) {
+            if (err.code === 'LIMIT_FILE_SIZE') {
+                return res.status(400).json({ message: 'Image file must be under 10 MB' });
+            }
+            return res.status(400).json({ message: err.message || 'Failed to upload image' });
+        }
+        if (!req.file) {
+            return res.status(400).json({ message: 'Please select an image file to upload' });
+        }
+        const fileUrl = `/api/uploads/menu/${req.file.filename}`;
+        return res.status(200).json({
+            ok: true,
+            imageUrl: fileUrl,
+            filename: req.file.filename,
+        });
+    });
+});
+
 // 1. GET ALL MENU ITEMS (To display them on your frontend grid)
 app.get('/api/menu', async (req, res) => {
     try {
@@ -782,7 +835,7 @@ app.put('/api/menu/:id', requirePermission('menu'), async (req, res) => {
             module: 'Menu Management',
             description: priceChanged
                 ? `Updated menu item #${itemId} "${name}". Price $${oldPrice.toFixed(2)} → $${newPrice.toFixed(2)}` +
-                  (Number(previous.hot_price) !== Number(prices.hot_price) || Number(previous.iced_price) !== Number(prices.iced_price)
+                (Number(previous.hot_price) !== Number(prices.hot_price) || Number(previous.iced_price) !== Number(prices.iced_price)
                     ? `; hot $${Number(previous.hot_price).toFixed(2)} → $${Number(prices.hot_price).toFixed(2)}; iced $${Number(previous.iced_price).toFixed(2)} → $${Number(prices.iced_price).toFixed(2)}`
                     : '')
                 : `Updated menu item #${itemId} "${name}" (price $${newPrice.toFixed(2)})`,
@@ -805,7 +858,7 @@ app.delete('/api/menu/:id', requirePermission('menu'), async (req, res) => {
 
     try {
         const [result] = await db.execute('DELETE FROM menu_items WHERE id = ?', [itemId]);
-        
+
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: "Item not found" });
         }
@@ -986,6 +1039,7 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
         target_id,
         payment_method,
         table_id,
+        clear_table = true,
     } = req.body ?? {};
 
     if (!target_id) {
@@ -1065,15 +1119,19 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
                 throw error;
             }
 
-            return { orderId, finalTotal, invoiceId };
+            if (resolvedTableId) {
+                const nextTableStatus = clear_table === false ? 'Paid' : 'Empty';
+                await conn.execute('UPDATE tables SET status = ? WHERE id = ?', [nextTableStatus, resolvedTableId]);
+            }
+
+            return { orderId, finalTotal, invoiceId, tableStatus: clear_table === false ? 'Paid' : 'Empty' };
         });
 
         await auditFromRequest(db, req, {
             action: 'payment_process',
             module: 'Payment',
-            description: `Payment received via ${method} for ${
-                target.key === 'takeout' ? 'Take Out' : `Table ${target.key}`
-            } / Invoice ${outcome.invoiceId} ($${outcome.finalTotal.toFixed(2)})`,
+            description: `Payment received via ${method} for ${target.key === 'takeout' ? 'Take Out' : `Table ${target.key}`
+                } / Invoice ${outcome.invoiceId} ($${outcome.finalTotal.toFixed(2)})`,
         });
 
         res.status(200).json({
@@ -1722,7 +1780,7 @@ app.get('/api/system/backup/excel', sensitiveOperationLimiter, requireBackupDown
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         );
     } catch (error) {
-        fs.promises.unlink(filePath).catch(() => {});
+        fs.promises.unlink(filePath).catch(() => { });
         await auditFromRequest(db, req, {
             action: 'export_business_excel',
             module: 'Backup',
@@ -1817,7 +1875,7 @@ app.post('/api/system/backup/restore', sensitiveOperationLimiter, requireAdmin, 
             });
             handleBackupError(res, error, 'Failed to restore database from SQL backup');
         } finally {
-            fs.promises.unlink(uploadedPath).catch(() => {});
+            fs.promises.unlink(uploadedPath).catch(() => { });
         }
     });
 });
@@ -1950,6 +2008,233 @@ app.get('/api/tables', requireReservationsAccess, async (_req, res) => {
         res.status(500).json({ message: 'Failed to load floor tables' })
     }
 })
+
+app.post('/api/tables', requireReservationsAccess, async (req, res) => {
+    try {
+        const rawName = String(req.body?.name || '').trim();
+        const section = String(req.body?.section || 'standard').trim().toLowerCase() === 'vip' ? 'vip' : 'standard';
+        const parsedCapacity = Number.parseInt(req.body?.capacity, 10);
+        const capacity = Number.isInteger(parsedCapacity) && parsedCapacity > 0 ? parsedCapacity : (section === 'vip' ? 12 : 4);
+
+        if (!rawName) {
+            return res.status(400).json({ message: 'Table name is required' });
+        }
+        if (rawName.length > 60) {
+            return res.status(400).json({ message: 'Table name cannot exceed 60 characters' });
+        }
+
+        const [existing] = await db.execute(
+            'SELECT id FROM tables WHERE LOWER(table_name) = LOWER(?) LIMIT 1',
+            [rawName],
+        );
+        if (existing.length > 0) {
+            return res.status(409).json({ message: 'A table with this name already exists' });
+        }
+
+        const [result] = await db.execute(
+            'INSERT INTO tables (table_name, section, capacity, status) VALUES (?, ?, ?, "Empty")',
+            [rawName, section, capacity],
+        );
+
+        const newTable = {
+            id: result.insertId,
+            name: rawName,
+            section,
+            capacity,
+            status: 'Empty',
+        };
+
+        await auditFromRequest(db, req, {
+            action: 'create_table',
+            module: 'Tables',
+            description: `Created new table "${rawName}" (Section: ${section}, Capacity: ${capacity})`,
+        });
+
+        res.status(201).json({ message: 'Table created successfully', table: newTable });
+    } catch (error) {
+        console.error('❌ CREATE TABLE ERROR:', error.message);
+        res.status(500).json({ message: 'Failed to create table', errorId: logError(error, { route: 'POST /api/tables' }) });
+    }
+});
+
+app.post('/api/tables/transfer', requirePosFloorAccess, async (req, res) => {
+    const fromId = Number.parseInt(req.body?.from_table_id, 10);
+    const toId = Number.parseInt(req.body?.to_table_id, 10);
+
+    if (!Number.isInteger(fromId) || fromId <= 0 || !Number.isInteger(toId) || toId <= 0) {
+        return res.status(400).json({ message: 'Valid source and destination table IDs are required' });
+    }
+    if (fromId === toId) {
+        return res.status(400).json({ message: 'Source and destination tables must be different' });
+    }
+
+    try {
+        await withTransaction(db, async (conn) => {
+            const [tables] = await conn.execute(
+                'SELECT id, table_name, status FROM tables WHERE id IN (?, ?)',
+                [fromId, toId],
+            );
+            const sourceTable = tables.find((t) => t.id === fromId);
+            const destTable = tables.find((t) => t.id === toId);
+
+            if (!sourceTable) {
+                const err = new Error('Source table does not exist');
+                err.status = 404;
+                throw err;
+            }
+            if (!destTable) {
+                const err = new Error('Destination table does not exist');
+                err.status = 404;
+                throw err;
+            }
+
+            const [destOrders] = await conn.execute(
+                `SELECT id FROM orders
+                 WHERE (target_id = ? OR table_id = ?) AND source_type = 'Table' AND status = 'Pending'
+                 LIMIT 1`,
+                [toId, toId],
+            );
+            if (destOrders.length > 0) {
+                const err = new Error(`${destTable.table_name} is already occupied with an active order`);
+                err.status = 400;
+                throw err;
+            }
+
+            const [sourceOrders] = await conn.execute(
+                `SELECT id FROM orders
+                 WHERE (target_id = ? OR table_id = ?) AND source_type = 'Table' AND status = 'Pending'
+                 LIMIT 1`,
+                [fromId, fromId],
+            );
+
+            if (sourceOrders.length > 0) {
+                const orderId = sourceOrders[0].id;
+                await conn.execute(
+                    'UPDATE orders SET target_id = ?, table_id = ?, updated_at = NOW() WHERE id = ?',
+                    [toId, toId, orderId],
+                );
+            }
+
+            await conn.execute(
+                `UPDATE reservations
+                 SET table_id = ?
+                 WHERE table_id = ? AND reservation_date = CURDATE() AND status = 'Seated'`,
+                [toId, fromId],
+            );
+
+            await conn.execute('UPDATE tables SET status = "Empty" WHERE id = ?', [fromId]);
+            await conn.execute('UPDATE tables SET status = "Occupied" WHERE id = ?', [toId]);
+        });
+
+        await auditFromRequest(db, req, {
+            action: 'transfer_table',
+            module: 'Tables',
+            description: `Transferred table order from table #${fromId} to table #${toId}`,
+        });
+
+        res.status(200).json({
+            message: 'Table transferred successfully',
+            from_table_id: fromId,
+            to_table_id: toId,
+        });
+    } catch (error) {
+        if (error.status === 400 || error.status === 404) {
+            return res.status(error.status).json({ message: error.message });
+        }
+        console.error('❌ TRANSFER TABLE ERROR:', error.message);
+        res.status(500).json({ message: 'Failed to transfer table', errorId: logError(error, { route: 'POST /api/tables/transfer' }) });
+    }
+});
+
+app.post('/api/tables/:id/clear', requirePosFloorAccess, async (req, res) => {
+    const rawId = req.params.id;
+    let target;
+    try {
+        target = normalizeIncomingTarget(rawId);
+    } catch (err) {
+        return res.status(400).json({ message: err.message });
+    }
+
+    try {
+        const { sql, params } = pendingOrderWhereClause(target);
+        await withTransaction(db, async (conn) => {
+            const [pendingOrders] = await conn.execute(
+                `SELECT id FROM orders WHERE ${sql} LIMIT 1`,
+                params,
+            );
+
+            if (pendingOrders.length > 0) {
+                const orderId = pendingOrders[0].id;
+                await reconcileOrderStock(conn, orderId, [], req.user?.id ?? null);
+                await conn.execute(
+                    "UPDATE orders SET status = 'Canceled', updated_at = NOW() WHERE id = ?",
+                    [orderId],
+                );
+            }
+
+            if (target.sourceType === 'Table' && target.tableId) {
+                await conn.execute('UPDATE tables SET status = "Empty" WHERE id = ?', [target.tableId]);
+            }
+        });
+
+        await auditFromRequest(db, req, {
+            action: 'clear_table',
+            module: 'Tables',
+            description: `Cleared table/ticket "${target.key}"`,
+        });
+
+        res.status(200).json({ message: 'Table cleared successfully', target_id: target.key });
+    } catch (error) {
+        console.error('❌ CLEAR TABLE ERROR:', error.message);
+        res.status(500).json({ message: 'Failed to clear table', errorId: logError(error, { route: `POST /api/tables/${rawId}/clear` }) });
+    }
+});
+
+app.delete('/api/tables/:id', requireReservationsAccess, async (req, res) => {
+    const tableId = Number.parseInt(req.params.id, 10);
+    if (!Number.isInteger(tableId) || tableId <= 0) {
+        return res.status(400).json({ message: 'Invalid table ID' });
+    }
+
+    try {
+        const [existing] = await db.execute('SELECT id, table_name FROM tables WHERE id = ? LIMIT 1', [tableId]);
+        if (!existing.length) {
+            return res.status(404).json({ message: 'Table not found' });
+        }
+
+        const [orders] = await db.execute(
+            "SELECT id FROM orders WHERE (target_id = ? OR table_id = ?) AND status = 'Pending' LIMIT 1",
+            [tableId, tableId],
+        );
+        if (orders.length > 0) {
+            return res.status(400).json({ message: 'Cannot delete table with active pending orders. Clear the table first.' });
+        }
+
+        const [reservations] = await db.execute(
+            `SELECT id FROM reservations
+             WHERE table_id = ? AND reservation_date >= CURDATE()
+               AND status IN ('Pending', 'Confirmed', 'Paid', 'Reserved', 'Seated')
+             LIMIT 1`,
+            [tableId],
+        );
+        if (reservations.length > 0) {
+            return res.status(400).json({ message: 'Cannot delete table with active or upcoming reservations.' });
+        }
+
+        await db.execute('DELETE FROM tables WHERE id = ?', [tableId]);
+
+        await auditFromRequest(db, req, {
+            action: 'delete_table',
+            module: 'Tables',
+            description: `Deleted table #${tableId} (${existing[0].table_name})`,
+        });
+
+        res.status(200).json({ message: 'Table deleted successfully', id: tableId });
+    } catch (error) {
+        console.error('❌ DELETE TABLE ERROR:', error.message);
+        res.status(500).json({ message: 'Failed to delete table', errorId: logError(error, { route: `DELETE /api/tables/${tableId}` }) });
+    }
+});
 
 app.get('/api/reports', requireReportsAccess, async (req, res) => {
     try {

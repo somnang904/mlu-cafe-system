@@ -19,6 +19,13 @@ export function resolveMenuImageSrc(imageUrl) {
     return `${MENU_IMAGE_THUMB_DIR}/${menuMatch[1]}.webp`
   }
 
+  if (trimmed.startsWith('/api/uploads/') || trimmed.startsWith('/uploads/')) {
+    const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:5500/api'
+    const origin = apiBase.startsWith('http') ? new URL(apiBase).origin : ''
+    const normalized = trimmed.startsWith('/api') ? trimmed : `/api${trimmed}`
+    return `${origin}${normalized}`
+  }
+
   return trimmed
 }
 

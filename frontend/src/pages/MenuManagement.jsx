@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Pencil, Plus, Search, Trash2, X } from 'lucide-react'
+import { Pencil, Plus, Search, Trash2, X, Upload, Link, Loader2 } from 'lucide-react'
 import { apiFetch } from '../services/apiClient'
 import { cacheMenuItems, getMenuFallback } from '../utils/offlineFallbacks'
 import MenuItemImage from '../components/menu/MenuItemImage'
@@ -44,6 +44,10 @@ export default function MenuManagement() {
   const [items, setItems] = useState([])
   const [isLoadingMenu, setIsLoadingMenu] = useState(true)
   const [usingFallbackMenu, setUsingFallbackMenu] = useState(false)
+  const [imageMode, setImageMode] = useState('upload')
+  const [isUploading, setIsUploading] = useState(false)
+  const [uploadError, setUploadError] = useState('')
+  const fileInputRef = useRef(null)
   const [activeCategory, setActiveCategory] = useState('All')
   const [search, setSearch] = useState('')
   const [showDetailsModal, setShowDetailsModal] = useState(false)
@@ -104,6 +108,8 @@ export default function MenuManagement() {
       image_url: item.image_url || '',
       use_servings: item.hot_price != null || item.iced_price != null,
     })
+    setImageMode(item.image_url && !item.image_url.startsWith('/api/uploads') && item.image_url.startsWith('http') ? 'link' : 'upload')
+    setUploadError('')
     setShowDetailsModal(true)
   }
 
@@ -208,13 +214,48 @@ export default function MenuManagement() {
     setIsEditing(false)
     setEditingId(null)
     setForm(EMPTY_FORM)
+    setImageMode('upload')
+    setUploadError('')
   }, [])
 
   const openAddModal = () => {
     setIsEditing(false)
     setEditingId(null)
     setForm(EMPTY_FORM)
+    setImageMode('upload')
+    setUploadError('')
     setShowDetailsModal(true)
+  }
+
+  const handleFileUpload = async (event) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    setIsUploading(true)
+    setUploadError('')
+
+    try {
+      const formData = new FormData()
+      formData.append('image', file)
+
+      const response = await apiFetch('/menu/upload-image', {
+        method: 'POST',
+        body: formData,
+      })
+
+      const data = await response.json()
+      if (response.ok && data.imageUrl) {
+        setForm((prev) => ({ ...prev, image_url: data.imageUrl }))
+      } else {
+        setUploadError(data.message || t('menuAdmin.uploadError'))
+      }
+    } catch (err) {
+      console.error('Upload error:', err)
+      setUploadError(t('menuAdmin.uploadError'))
+    } finally {
+      setIsUploading(false)
+      if (event.target) event.target.value = ''
+    }
   }
 
   const detailsPanelRef = useModalKeyboard({
@@ -475,29 +516,147 @@ export default function MenuManagement() {
               )}
 
               <div>
-                <label htmlFor="item-image-url" className="mb-1.5 block text-sm font-medium text-stone-700 dark:text-zinc-300">
-                  {t('menuAdmin.imagePath')}
-                </label>
-                <div className="flex items-start gap-4">
-                  <input
-                    id="item-image-url"
-                    type="text"
-                    value={form.image_url}
-                    onChange={(e) => setForm({ ...form, image_url: e.target.value })}
-                    placeholder={t('menuAdmin.imagePathPlaceholder')}
-                    className="input-field min-w-0 flex-1"
-                  />
-                  <MenuItemImage
-                    imageUrl={form.image_url}
-                    alt={
-                      form.name
-                        ? t('menuAdmin.namedPreview', { name: form.name })
-                        : t('menuAdmin.itemPreview')
-                    }
-                    className="h-20 w-20 shrink-0 rounded-xl border border-slate-100 object-cover dark:border-zinc-800"
-                    fallbackClassName="flex h-20 w-20 shrink-0 items-center justify-center rounded-xl border border-slate-100 bg-slate-50 dark:border-zinc-800 dark:bg-zinc-800"
-                  />
+                <div className="mb-2 flex items-center justify-between">
+                  <label className="text-sm font-medium text-stone-700 dark:text-zinc-300">
+                    {t('menuAdmin.imagePath')}
+                  </label>
+                  <div className="flex rounded-lg bg-stone-100 p-0.5 dark:bg-zinc-800">
+                    <button
+                      type="button"
+                      onClick={() => setImageMode('upload')}
+                      className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition ${
+                        imageMode === 'upload'
+                          ? 'bg-white text-forest-700 shadow-sm dark:bg-zinc-700 dark:text-forest-300'
+                          : 'text-stone-500 hover:text-stone-800 dark:text-zinc-400 dark:hover:text-zinc-200'
+                      }`}
+                    >
+                      <Upload className="h-3.5 w-3.5" />
+                      {t('menuAdmin.imageSourceUpload')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setImageMode('link')}
+                      className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition ${
+                        imageMode === 'link'
+                          ? 'bg-white text-forest-700 shadow-sm dark:bg-zinc-700 dark:text-forest-300'
+                          : 'text-stone-500 hover:text-stone-800 dark:text-zinc-400 dark:hover:text-zinc-200'
+                      }`}
+                    >
+                      <Link className="h-3.5 w-3.5" />
+                      {t('menuAdmin.imageSourceLink')}
+                    </button>
+                  </div>
                 </div>
+
+                {imageMode === 'upload' ? (
+                  <div className="space-y-3">
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      onChange={handleFileUpload}
+                      accept="image/png,image/jpeg,image/webp,image/gif"
+                      className="hidden"
+                    />
+
+                    {form.image_url ? (
+                      <div className="flex items-center gap-4 rounded-2xl border border-stone-200 bg-stone-50/60 p-3 dark:border-zinc-800 dark:bg-zinc-800/40">
+                        <MenuItemImage
+                          imageUrl={form.image_url}
+                          alt={
+                            form.name
+                              ? t('menuAdmin.namedPreview', { name: form.name })
+                              : t('menuAdmin.itemPreview')
+                          }
+                          className="h-20 w-20 shrink-0 rounded-xl border border-stone-200 object-cover shadow-sm dark:border-zinc-700"
+                          fallbackClassName="flex h-20 w-20 shrink-0 items-center justify-center rounded-xl border border-stone-200 bg-slate-50 dark:border-zinc-700 dark:bg-zinc-800"
+                        />
+                        <div className="flex flex-1 flex-col gap-2 min-w-0">
+                          <p className="truncate text-xs font-mono text-stone-600 dark:text-zinc-400">
+                            {form.image_url}
+                          </p>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => fileInputRef.current?.click()}
+                              disabled={isUploading}
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 shadow-sm transition hover:bg-stone-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+                            >
+                              {isUploading ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin text-forest-600" />
+                              ) : (
+                                <Upload className="h-3.5 w-3.5" />
+                              )}
+                              {t('menuAdmin.changePhoto')}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setForm({ ...form, image_url: '' })}
+                              className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                              {t('menuAdmin.removePhoto')}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isUploading}
+                        className="group flex w-full flex-col items-center justify-center rounded-2xl border-2 border-dashed border-stone-300 bg-stone-50/50 p-6 text-center transition hover:border-forest-500 hover:bg-forest-50/30 dark:border-zinc-700 dark:bg-zinc-800/30 dark:hover:border-forest-500 dark:hover:bg-forest-950/20"
+                      >
+                        {isUploading ? (
+                          <div className="flex flex-col items-center gap-2">
+                            <Loader2 className="h-8 w-8 animate-spin text-forest-500" />
+                            <p className="text-sm font-medium text-forest-600 dark:text-forest-400">
+                              {t('menuAdmin.uploadingImage')}
+                            </p>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-forest-50 text-forest-600 transition group-hover:scale-110 dark:bg-forest-950/60 dark:text-forest-400">
+                              <Upload className="h-6 w-6" />
+                            </div>
+                            <p className="text-sm font-semibold text-stone-800 dark:text-zinc-200">
+                              {t('menuAdmin.chooseImageFile')}
+                            </p>
+                            <p className="mt-1 text-xs text-stone-500 dark:text-zinc-400">
+                              {t('menuAdmin.chooseImagePrompt')}
+                            </p>
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="flex items-start gap-4">
+                      <input
+                        id="item-image-url"
+                        type="text"
+                        value={form.image_url}
+                        onChange={(e) => setForm({ ...form, image_url: e.target.value })}
+                        placeholder={t('menuAdmin.imagePathPlaceholder')}
+                        className="input-field min-w-0 flex-1"
+                      />
+                      <MenuItemImage
+                        imageUrl={form.image_url}
+                        alt={
+                          form.name
+                            ? t('menuAdmin.namedPreview', { name: form.name })
+                            : t('menuAdmin.itemPreview')
+                        }
+                        className="h-20 w-20 shrink-0 rounded-xl border border-slate-100 object-cover dark:border-zinc-800"
+                        fallbackClassName="flex h-20 w-20 shrink-0 items-center justify-center rounded-xl border border-slate-100 bg-slate-50 dark:border-zinc-800 dark:bg-zinc-800"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {uploadError ? (
+                  <p className="mt-1.5 text-xs font-medium text-red-500 dark:text-red-400">{uploadError}</p>
+                ) : null}
                 <p className="text-muted mt-1.5 text-xs">{t('menuAdmin.imageHelp')}</p>
               </div>
 

@@ -66,10 +66,14 @@ export async function apiFetch(path, options = {}) {
   const fetchOptions = { ...options }
   delete fetchOptions.token
   delete fetchOptions.activity
+  const isFormData = typeof FormData !== 'undefined' && fetchOptions.body instanceof FormData
   const headers = {
-    ...(fetchOptions.body ? { 'Content-Type': 'application/json' } : {}),
+    ...(fetchOptions.body && !isFormData ? { 'Content-Type': 'application/json' } : {}),
     ...(await deviceHeaders()),
     ...(fetchOptions.headers || {}),
+  }
+  if (isFormData) {
+    delete headers['Content-Type']
   }
 
   if (!isPublicApiPath(normalizedPath) && !token) {

@@ -66,7 +66,8 @@ export function hydrateFromSnapshot(snapshot) {
   const tables = floorTables.map((table) => {
     const cached = snapshot.tables.find((entry) => entry.id === table.id)
     if (!cached || !cached.items?.length) {
-      return { ...table, status: 'empty', items: [], orderSummary: null, orderTotal: null }
+      const preservedStatus = cached?.status === 'paid' ? 'paid' : 'empty'
+      return { ...table, status: preservedStatus, items: [], orderSummary: null, orderTotal: null }
     }
     return applyItemsToBill(table, cached.items, statusForItems(cached.items))
   })
@@ -128,6 +129,9 @@ export function reconcileActiveOrders(prevTables, prevTakeOut, groupedOrders) {
 
     if (hasServerData) {
       if (table.items?.length > 0) {
+        return table
+      }
+      if (table.status === 'paid') {
         return table
       }
       return {

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { CreditCard, Minus, Receipt } from 'lucide-react'
+import { CheckCircle2, CreditCard, Minus, Receipt } from 'lucide-react'
 import { usePOS } from '../context/POSContext'
 import { useConnection } from '../context/ConnectionContext'
 import { useNotifications } from '../context/NotificationContext'
@@ -186,7 +186,7 @@ function BillManager({
             ) : null}
             <PaymentModule
               disabled={bill.items.length === 0 || !serverReachable}
-              onConfirm={(method) => onPaymentComplete(method)}
+              onConfirm={(method, options) => onPaymentComplete(method, options)}
             />
           </div>
         </div>
@@ -236,10 +236,11 @@ export default function Payment() {
 
   const selectedBill = selectedId != null ? getBillById(selectedId) : null
 
-  const handlePaymentComplete = async (paymentMethod) => {
+  const handlePaymentComplete = async (paymentMethod, options = {}) => {
     if (!selectedBill) return
     const sourceLabel = selectedBill.name || selectedBill.source || t('payment.orderSource')
-    const transaction = await processPayment(selectedBill.id, paymentMethod)
+    const clearImmediately = options.clearImmediately ?? true
+    const transaction = await processPayment(selectedBill.id, paymentMethod, clearImmediately)
     if (!transaction) {
       pushBanner({
         title: t('connection.serverDown'),
@@ -252,10 +253,11 @@ export default function Payment() {
       setCompletedReceipt(transaction)
       pushBanner({
         title: t('payment.receivedTitle'),
-        message: t('payment.receivedMessage', {
-          source: sourceLabel,
-          invoice: transaction.id,
-        }),
+        message:
+          t('payment.receivedMessage', {
+            source: sourceLabel,
+            invoice: transaction.id,
+          }) + (!clearImmediately ? ` · ${t('payment.tableMarkedPaid')}` : ''),
         tone: 'success',
       })
       loadSalesHistory?.()
@@ -309,7 +311,17 @@ export default function Payment() {
               <CreditCard className="text-muted mb-4 h-12 w-12 opacity-30" />
               <p className="text-heading font-semibold">{t('payment.selectBill')}</p>
             </div>
-          ) : null}
+          ) : (
+            <div className="flex flex-1 flex-col items-center justify-center px-6 py-16 text-center">
+              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400">
+                <CheckCircle2 className="h-8 w-8" />
+              </div>
+              <p className="text-heading text-lg font-bold">{t('payment.allSettledTitle')}</p>
+              <p className="text-muted mt-1 max-w-sm text-sm">
+                {t('payment.allSettledDescription')}
+              </p>
+            </div>
+          )}
         </div>
       </div>
 

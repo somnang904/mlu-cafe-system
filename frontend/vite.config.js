@@ -72,4 +72,16 @@ function omitFullsizeMenuPhotos() {
 
 export default defineConfig({
   plugins: [react(), menuImageDevMiddleware(), omitFullsizeMenuPhotos()],
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://localhost:5500',
+        changeOrigin: true,
+      },
+      '/uploads': {
+        target: 'http://localhost:5500',
+        changeOrigin: true,
+      },
+    },
+  },
 })

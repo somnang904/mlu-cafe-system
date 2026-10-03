@@ -61,6 +61,13 @@ export const TABLE_STATUS_META = {
       'bg-violet-50 text-violet-800 ring-violet-300/80 dark:bg-violet-950/40 dark:text-violet-200 dark:ring-violet-700/50',
     card: 'border-violet-300/80 bg-violet-50/40 dark:border-violet-700/40 dark:bg-violet-950/20',
   },
+  paid: {
+    label: 'Paid',
+    labelKey: 'statuses.paid',
+    badge:
+      'bg-teal-50 text-teal-800 ring-teal-300/80 dark:bg-teal-950/40 dark:text-teal-200 dark:ring-teal-700/50',
+    card: 'border-teal-300/80 bg-teal-50/35 dark:border-teal-700/40 dark:bg-teal-950/20',
+  },
 }
 
 /** Cashier queue badge — all open unbilled orders display as awaiting checkout */
@@ -71,7 +78,7 @@ export const PAYMENT_QUEUE_STATUS = {
     'bg-orange-100 text-orange-900 ring-orange-400/80 dark:bg-orange-950/45 dark:text-orange-200 dark:ring-orange-600/50',
 }
 
-export const FLOOR_STATUS_KEYS = ['empty', 'occupied', 'reserved']
+export const FLOOR_STATUS_KEYS = ['empty', 'occupied', 'paid', 'reserved']
 
 export function getFloorTableLabel(tableId) {
   if (tableId === 'takeout') return 'Take Out'

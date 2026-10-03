@@ -10,10 +10,25 @@ const PAYMENT_METHODS = [
 export default function PaymentModule({ disabled, onConfirm }) {
   const { t } = useTranslation()
   const [method, setMethod] = useState('Cash')
+  const [clearImmediately, setClearImmediately] = useState(() => {
+    try {
+      const saved = localStorage.getItem('mlu_pos_clear_immediately')
+      return saved !== null ? saved === 'true' : true
+    } catch {
+      return true
+    }
+  })
+
+  const handleToggleClear = (val) => {
+    setClearImmediately(val)
+    try {
+      localStorage.setItem('mlu_pos_clear_immediately', String(val))
+    } catch {}
+  }
 
   const handleConfirm = () => {
     if (disabled || !method) return
-    onConfirm?.(method)
+    onConfirm?.(method, { clearImmediately })
   }
 
   return (
@@ -49,6 +64,27 @@ export default function PaymentModule({ disabled, onConfirm }) {
             )
           })}
         </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200/90 bg-slate-50/70 p-3.5 transition dark:border-zinc-800 dark:bg-zinc-900/60">
+        <label className="flex cursor-pointer items-start justify-between gap-3">
+          <div className="flex-1 select-none">
+            <span className="text-heading text-xs font-semibold">
+              {t('payment.clearTableAfterPayment')}
+            </span>
+            <p className="text-muted mt-0.5 text-xs leading-normal">
+              {clearImmediately
+                ? t('payment.clearImmediatelyDesc')
+                : t('payment.keepSeatedDesc')}
+            </p>
+          </div>
+          <input
+            type="checkbox"
+            checked={clearImmediately}
+            onChange={(e) => handleToggleClear(e.target.checked)}
+            className="mt-0.5 h-4 w-4 cursor-pointer rounded border-slate-300 text-emerald-600 accent-emerald-600 focus:ring-emerald-500 dark:border-zinc-700"
+          />
+        </label>
       </div>
 
       <button
