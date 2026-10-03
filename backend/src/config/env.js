@@ -37,6 +37,49 @@ function assertRequiredEnv() {
     }
     console.warn(`⚠️  ${note}`)
   }
+
+  if (!isProduction) return
+
+  const frontendUrl = String(process.env.FRONTEND_URL || '').trim().replace(/\/$/, '')
+  if (!frontendUrl) {
+    console.error('❌ FRONTEND_URL is required in production (public HTTPS origin of the React app).')
+    process.exit(1)
+  }
+
+  let frontendOrigin
+  try {
+    frontendOrigin = new URL(frontendUrl)
+  } catch {
+    console.error('❌ FRONTEND_URL must be a valid absolute URL, e.g. https://cafe.example.com')
+    process.exit(1)
+  }
+
+  if (frontendOrigin.protocol !== 'https:') {
+    console.error('❌ FRONTEND_URL must use https:// in production.')
+    process.exit(1)
+  }
+
+  const host = frontendOrigin.hostname.toLowerCase()
+  if (host === 'localhost' || host === '127.0.0.1' || host === '::1') {
+    console.error('❌ FRONTEND_URL cannot be localhost in production. Set your public site origin.')
+    process.exit(1)
+  }
+
+  const dbUser = String(process.env.DB_USER || '').trim().toLowerCase()
+  if (dbUser === 'root') {
+    console.warn('⚠️  DB_USER=root in production. Prefer a dedicated least-privilege MySQL user (see DEPLOYMENT.md).')
+  }
+
+  const smtpHost = String(process.env.SMTP_HOST || '').trim()
+  const smtpUser = String(process.env.SMTP_USER || '').trim()
+  const smtpPass = String(process.env.SMTP_PASS || '').trim()
+  if (!smtpHost || !smtpUser || !smtpPass) {
+    console.warn('⚠️  SMTP is not configured. Reservation confirmation emails will fail until SMTP_* is set.')
+  }
+
+  if (String(process.env.TRUST_PROXY || '').toLowerCase() !== 'true') {
+    console.warn('⚠️  TRUST_PROXY is not true. Enable it when nginx/Cloudflare terminates TLS in front of Node.')
+  }
 }
 
 function parseIntOr(value, fallback) {

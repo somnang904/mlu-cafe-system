@@ -31,6 +31,7 @@ const EMPTY_FORM = {
   hot_price: '',
   iced_price: '',
   image_url: '',
+  use_servings: false,
 }
 
 function categoryLabel(category, t) {
@@ -101,6 +102,7 @@ export default function MenuManagement() {
       hot_price: item.hot_price != null ? String(item.hot_price) : '',
       iced_price: item.iced_price != null ? String(item.iced_price) : '',
       image_url: item.image_url || '',
+      use_servings: item.hot_price != null || item.iced_price != null,
     })
     setShowDetailsModal(true)
   }
@@ -109,7 +111,7 @@ export default function MenuManagement() {
     event.preventDefault()
     if (!form.name) return
 
-    const drink = isDrinkMenuCategory(form.category)
+    const drink = isDrinkMenuCategory(form.category) || form.use_servings
     if (drink && form.hot_price === '' && form.iced_price === '') {
       alert(t('menuAdmin.errors.servingPrice'))
       return
@@ -401,7 +403,23 @@ export default function MenuManagement() {
                 </select>
               </div>
 
-              {isDrinkMenuCategory(form.category) ? (
+              {!isDrinkMenuCategory(form.category) && (
+                <label
+                  htmlFor="item-use-servings"
+                  className="flex cursor-pointer items-center gap-2 text-sm font-medium text-stone-700 dark:text-zinc-300"
+                >
+                  <input
+                    id="item-use-servings"
+                    type="checkbox"
+                    checked={form.use_servings}
+                    onChange={(e) => setForm({ ...form, use_servings: e.target.checked })}
+                    className="h-4 w-4 rounded border-stone-300 accent-forest-500"
+                  />
+                  {t('menuAdmin.useServings')}
+                </label>
+              )}
+
+              {isDrinkMenuCategory(form.category) || form.use_servings ? (
                 <div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>

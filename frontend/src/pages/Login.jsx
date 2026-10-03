@@ -23,8 +23,6 @@ export default function Login({ onLogin }) {
     return () => clearInterval(timer)
   }, [lockedUntil])
 
-  const [resetOpen, setResetOpen] = useState(false)
-
   useEffect(() => {
     if (consumeConnectionLost()) {
       setShowConnectionNotice(true)
@@ -63,15 +61,6 @@ export default function Login({ onLogin }) {
     } finally {
       setIsLoading(false)
     }
-  }
-
-  const openResetModal = (event) => {
-    event.preventDefault()
-    setResetOpen(true)
-  }
-
-  const closeResetModal = () => {
-    setResetOpen(false)
   }
 
   return (
@@ -137,15 +126,6 @@ export default function Login({ onLogin }) {
                     disabled={isLoading || lockSeconds > 0}
                     className="w-full rounded-xl border border-slate-200/80 bg-white/85 px-4 py-3.5 text-base text-slate-900 transition-shadow focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-60 lg:min-h-[52px] lg:px-5 lg:text-lg dark:border-zinc-600/80 dark:bg-zinc-800/90 dark:text-zinc-100 dark:focus:ring-emerald-500 [&:-webkit-autofill]:bg-transparent [&:-webkit-autofill]:shadow-[inset_0_0_0px_1000px_rgb(255_255_255_/_0.9)] [&:-webkit-autofill]:[-webkit-text-fill-color:#1d1d1f] dark:[&:-webkit-autofill]:shadow-[inset_0_0_0px_1000px_rgb(39_39_42_/_0.95)] dark:[&:-webkit-autofill]:[-webkit-text-fill-color:#fafafa]"
                   />
-                  <div className="mt-2.5 flex justify-end">
-                    <button
-                      type="button"
-                      className="text-sm font-medium text-slate-600 transition-colors hover:text-emerald-600 dark:text-zinc-300 dark:hover:text-emerald-400"
-                      onClick={openResetModal}
-                    >
-                      {t('auth.forgotPassword')}
-                    </button>
-                  </div>
                 </div>
 
                 {showConnectionNotice && !error ? (
@@ -181,50 +161,6 @@ export default function Login({ onLogin }) {
           </div>
         </div>
       </div>
-
-      {resetOpen ? (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-          <button
-            type="button"
-            className="modal-backdrop"
-            aria-label={t('a11y.closePasswordReset')}
-            onClick={closeResetModal}
-          />
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="reset-title"
-            className="modal-panel relative z-10 w-full max-w-md p-6"
-          >
-            <button
-              type="button"
-              onClick={closeResetModal}
-              className="absolute right-4 top-4 rounded-full p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-              aria-label={t('common.close')}
-            >
-              <X className="h-4 w-4" />
-            </button>
-
-            <h2 id="reset-title" className="pr-8 text-xl font-semibold text-slate-900 dark:text-zinc-100">
-              {t('auth.resetPassword')}
-            </h2>
-            <p className="mt-2 text-sm text-slate-500 dark:text-zinc-400">
-              {t('auth.resetInstructions')}
-            </p>
-
-            <div className="mt-5 flex justify-end">
-              <button
-                type="button"
-                onClick={closeResetModal}
-                className="rounded-full bg-[#10b981] px-5 py-2 text-sm font-semibold text-white hover:bg-[#059669]"
-              >
-                {t('common.close')}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
     </div>
   )
 }

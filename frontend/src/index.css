@@ -52,12 +52,13 @@
   }
 
   /*
-   * Khmer glyphs often look smaller than Latin at the same CSS size.
-   * Prefer Noto Sans Khmer and bump the root size so UI labels match English optically.
+   * Use same root font-size as English so Khmer text appears visually equal.
+   * Khmer glyphs are inherently taller than Latin, so we keep line-height slightly
+   * larger to prevent ascenders/descenders from clipping.
    */
   html[lang='km'] {
     font-family: 'Noto Sans Khmer', 'Noto Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
-    font-size: 17.5px;
+    font-size: 15px;
     line-height: 1.55;
   }
 

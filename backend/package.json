@@ -12,6 +12,7 @@
     "seed:sales": "node src/scripts/seed12MonthsSales.js",
     "seed:desserts": "node src/scripts/setupDessertRecipes.js",
     "seed:expenses": "node src/scripts/seedExpenses.js",
+    "check:prod": "node scripts/check-production.js",
     "test": "node --test test/loginSecurity.test.js test/stockLedger.test.js test/stockPrecision.test.js test/inventoryItems.test.js test/stocktake.test.js test/sessionLifetime.test.js test/permissionsPolicy.test.js"
   },
   "keywords": [],

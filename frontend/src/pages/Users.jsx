@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { KeyRound, ShieldCheck, Trash2, UserPlus, X } from 'lucide-react'
+import { KeyRound, Pencil, ShieldCheck, Trash2, UserPlus, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { apiFetch } from '../services/apiClient'
 import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal'
@@ -474,8 +474,7 @@ export default function Users() {
               {users.map((user) => (
                 <tr
                   key={user.id}
-                  onClick={() => openEditModal(user)}
-                  className="table-row cursor-pointer hover:bg-stone-50/50 dark:hover:bg-obsidian-900/20"
+                  className="table-row hover:bg-stone-50/50 dark:hover:bg-obsidian-900/20"
                 >
                   <td className="px-6 py-4">
                     <p className="text-heading text-sm font-semibold">{user.display_name}</p>
@@ -513,6 +512,18 @@ export default function Users() {
                       className="rounded-lg p-2 text-stone-400 transition hover:bg-forest-50 hover:text-forest-700 disabled:opacity-40 dark:hover:bg-forest-950/40 dark:hover:text-forest-300"
                     >
                       <KeyRound className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        openEditModal(user)
+                      }}
+                      title={t('users.editUser')}
+                      aria-label={t('users.editUser')}
+                      className="rounded-lg p-2 text-stone-400 transition hover:bg-forest-50 hover:text-forest-700 dark:hover:bg-forest-950/40 dark:hover:text-forest-300"
+                    >
+                      <Pencil className="h-4 w-4" />
                     </button>
                     {(() => {
                       const { canDelete, title } = getDeleteGuard(user)

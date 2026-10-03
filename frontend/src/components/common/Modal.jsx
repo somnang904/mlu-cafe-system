@@ -77,7 +77,7 @@ export default function Modal({
     <div className={`fixed inset-0 ${stacked ? 'z-[120]' : 'z-[100]'} flex items-center justify-center p-4 overscroll-contain`}>
       <button
         type="button"
-        className="modal-backdrop"
+        className="modal-backdrop fixed inset-0 bg-black/70 backdrop-blur-md"
         tabIndex={-1}
         aria-label={closeLabel}
         onClick={requestClose}
@@ -88,7 +88,7 @@ export default function Modal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className={`relative z-10 flex min-h-0 max-h-[90vh] w-full ${maxWidth} flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl outline-none`}
+        className={`relative z-10 flex min-h-0 max-h-[90vh] w-full ${maxWidth} flex-col overflow-hidden rounded-2xl border border-border bg-white dark:bg-[#151915] shadow-2xl outline-none`}
       >
         <div className={`flex shrink-0 justify-between gap-3 px-6 pt-6 ${header ? 'items-start' : 'items-center'}`}>
           {header ? (

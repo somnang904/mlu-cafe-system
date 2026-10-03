@@ -279,7 +279,9 @@ function savedMenuPrice(row, item) {
   const iced = parseOptionalMoney(row.iced_price)
   if (hot != null && iced == null) return hot
   if (iced != null && hot == null) return iced
-  return parseOptionalMoney(row.price)
+  const base = parseOptionalMoney(row.price)
+  if (base != null) return base
+  return hot ?? iced ?? null
 }
 
 async function resolveLinePrice(db, item) {

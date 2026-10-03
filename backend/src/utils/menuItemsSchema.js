@@ -45,41 +45,44 @@ function isFoodCategory(category) {
 }
 
 function normalizeMenuPrices(body, category) {
-  if (isFoodCategory(category)) {
-    const price = parseOptionalMoney(body?.price)
-    if (price == null) {
-      return { error: 'Please fill in all fields (Name, Category, Price)' }
-    }
-    return { price, hot_price: null, iced_price: null }
-  }
-
   const hot = parseOptionalMoney(body?.hot_price)
   const iced = parseOptionalMoney(body?.iced_price)
-  if (hot == null && iced == null) {
-    const price = parseOptionalMoney(body?.price)
-    if (price == null) {
-      return { error: 'Enter a Hot price, an Iced price, or both' }
+
+  // Any item may offer Hot/Ice servings (e.g. Matcha under Cold Drinks).
+  if (hot != null || iced != null) {
+    const offered = [hot, iced].filter((value) => value != null)
+    return {
+      price: Math.min(...offered),
+      hot_price: hot,
+      iced_price: iced,
     }
-    return { price, hot_price: null, iced_price: null }
   }
 
-  const offered = [hot, iced].filter((value) => value != null)
-  return {
-    price: Math.min(...offered),
-    hot_price: hot,
-    iced_price: iced,
+  const price = parseOptionalMoney(body?.price)
+  if (price == null) {
+    return {
+      error: isFoodCategory(category)
+        ? 'Please fill in all fields (Name, Category, Price)'
+        : 'Enter a Hot price, an Iced price, or both',
+    }
   }
+  return { price, hot_price: null, iced_price: null }
 }
 
 function serializeMenuItem(row) {
-  const price = Number.parseFloat(row?.price)
+  const rawPrice = Number.parseFloat(row?.price)
+  const hot = parseOptionalMoney(row?.hot_price)
+  const iced = parseOptionalMoney(row?.iced_price)
+  const fallback = hot ?? iced ?? 0
+  const price = Number.isFinite(rawPrice) && rawPrice > 0 ? rawPrice : fallback
+
   return {
     id: row.id,
     name: row.name,
     category: row.category,
-    price: Number.isFinite(price) ? price : 0,
-    hot_price: parseOptionalMoney(row?.hot_price),
-    iced_price: parseOptionalMoney(row?.iced_price),
+    price,
+    hot_price: hot,
+    iced_price: iced,
     image_url: normalizeMenuImageUrl(row.image_url),
     is_available: row.is_available === 0 || row.is_available === false ? false : true,
   }

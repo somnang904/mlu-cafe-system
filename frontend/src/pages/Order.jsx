@@ -520,36 +520,40 @@ export default function Order() {
                     </div>
 
                     {showServingButtons ? (
-                      <div
-                        className={`mt-3 grid min-w-0 gap-1.5 ${
-                          hotServing && icedServing ? 'grid-cols-2' : 'grid-cols-1'
-                        }`}
-                        role="group"
-                        aria-label={t('order.serving.title')}
-                      >
-                        {hotServing ? (
-                          <button
-                            type="button"
-                            onClick={() => handleHotServing(item)}
-                            className="min-h-10 min-w-0 whitespace-nowrap rounded-xl bg-forest-500 px-1.5 py-2 text-center text-xs font-semibold text-white shadow-sm transition hover:bg-forest-600 active:scale-[0.98] dark:bg-forest-600 dark:hover:bg-forest-500 sm:px-2 sm:text-sm"
-                          >
-                            {t('order.serving.hot')}
-                          </button>
-                        ) : null}
-                        {icedServing ? (
-                          <button
-                            type="button"
-                            onClick={() => handleColdServing(item)}
-                            className="min-h-10 min-w-0 whitespace-nowrap rounded-xl border border-cocoa-200 bg-cocoa-50 px-1.5 py-2 text-center text-xs font-semibold text-cocoa-800 transition hover:bg-cocoa-100 active:scale-[0.98] dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700 sm:px-2 sm:text-sm"
-                          >
-                            {t('order.serving.ice')}
-                          </button>
-                        ) : null}
+                      <div className="mt-3">
+                        <div
+                          className={`grid min-w-0 gap-1.5 ${
+                            hotServing && icedServing ? 'grid-cols-2' : 'grid-cols-1'
+                          }`}
+                          role="group"
+                          aria-label={t('order.serving.title')}
+                        >
+                          {hotServing ? (
+                            <button
+                              type="button"
+                              onClick={() => handleHotServing(item)}
+                              className="min-h-10 min-w-0 whitespace-nowrap rounded-xl bg-forest-500 px-1.5 py-2 text-center text-xs font-semibold text-white shadow-sm transition hover:bg-forest-600 active:scale-[0.98] dark:bg-forest-600 dark:hover:bg-forest-500 sm:px-2 sm:text-sm"
+                            >
+                              {t('order.serving.hot')}
+                              {` $${hotServing.price.toFixed(2)}`}
+                            </button>
+                          ) : null}
+                          {icedServing ? (
+                            <button
+                              type="button"
+                              onClick={() => handleColdServing(item)}
+                              className="min-h-10 min-w-0 whitespace-nowrap rounded-xl border border-cocoa-200 bg-cocoa-50 px-1.5 py-2 text-center text-xs font-semibold text-cocoa-800 transition hover:bg-cocoa-100 active:scale-[0.98] dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700 sm:px-2 sm:text-sm"
+                            >
+                              {t('order.serving.ice')}
+                              {` $${icedServing.price.toFixed(2)}`}
+                            </button>
+                          ) : null}
+                        </div>
                       </div>
                     ) : (
-                      <p className="mt-3 text-center text-base font-bold tabular-nums text-forest-600 dark:text-forest-400">
+                      <div className="mt-3 flex min-h-10 items-center justify-center rounded-xl border border-forest-200 bg-forest-50 px-2 py-2 text-center text-sm font-bold tabular-nums text-forest-700 shadow-sm transition duration-200 group-hover:border-forest-500 group-hover:bg-forest-500 group-hover:text-white group-hover:shadow-md group-active:scale-[0.98] dark:border-forest-800/60 dark:bg-forest-950/40 dark:text-forest-300 dark:group-hover:bg-forest-600 dark:group-hover:text-white">
                         {formatMenuPrice(item)}
-                      </p>
+                      </div>
                     )}
                   </div>
                 )

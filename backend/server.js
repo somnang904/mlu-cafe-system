@@ -138,8 +138,11 @@ app.disable('x-powered-by');
 
 // req.secure already follows the trust-proxy setting, so X-Forwarded-Proto is
 // honored only when TRUST_PROXY is on. 308 keeps the original method and body.
+// Health checks stay on the original scheme so reverse-proxy / load-balancer
+// probes over plain HTTP do not get stuck in a redirect loop.
 if (env.isProduction) {
     app.use((req, res, next) => {
+        if (String(req.originalUrl || '').startsWith('/api/health')) return next();
         if (req.secure) return next();
         const host = req.get('host');
         if (!host) return next();
@@ -183,6 +186,32 @@ app.use(cors({
 app.use(express.json({ limit: env.security.jsonBodyLimit }));
 app.use(express.urlencoded({ extended: false, limit: env.security.jsonBodyLimit }));
 app.use(sanitizeRequest);
+
+// ==========================================
+// 🩺 PUBLIC HEALTH (no auth — for uptime / deploy probes)
+// ==========================================
+app.get('/api/health', async (_req, res) => {
+    const started = Date.now();
+    try {
+        await db.execute('SELECT 1');
+        return res.status(200).json({
+            ok: true,
+            service: 'mlu-kitchen-cafe-api',
+            database: 'up',
+            uptimeSec: Math.round(process.uptime()),
+            latencyMs: Date.now() - started,
+        });
+    } catch (error) {
+        logError(error, { route: 'GET /api/health' });
+        return res.status(503).json({
+            ok: false,
+            service: 'mlu-kitchen-cafe-api',
+            database: 'down',
+            uptimeSec: Math.round(process.uptime()),
+            latencyMs: Date.now() - started,
+        });
+    }
+});
 
 // ==========================================
 // 🔐 PUBLIC AUTH (login, password reset — no JWT)

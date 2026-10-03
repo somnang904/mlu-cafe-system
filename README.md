@@ -215,21 +215,31 @@ Open <http://localhost:5173> and sign in with the admin account you seeded.
 
 ## Production build
 
+See **[DEPLOYMENT.md](DEPLOYMENT.md)** for the full go-live checklist (DB user, HTTPS, nginx,
+CSP, health check).
+
 ```bash
+# 1) Set production URLs in backend/.env and frontend/.env.production
+# 2) Build the static site (bakes VITE_API_URL into the bundle)
 npm run build
+
+# 3) Preflight — exits 1 if blockers remain
+npm run check:prod
 ```
 
 This emits a static bundle to `frontend/dist/`. Serve that directory with any static host
 (Nginx, Apache, Netlify, Vercel), and run the backend with `npm start` behind a process
-manager such as PM2 or a systemd unit.
+manager such as PM2 or a systemd unit. Uptime probes can hit `GET /api/health`.
 
 Before deploying, make sure you have:
 
 - set a strong, unique `JWT_SECRET` (at least 32 random characters — the server refuses to
   boot in production with a weak one)
 - pointed `DB_*` at your production database with a least-privilege user
-- set `FRONTEND_URL` to your real frontend origin so CORS is correctly restricted
-- set `VITE_API_URL` to your public API URL **before** running the build
+- set `FRONTEND_URL` to your real **https** frontend origin so CORS is correctly restricted
+  (localhost is rejected when `NODE_ENV=production`)
+- set `VITE_API_URL` (in `frontend/.env.production`) to your public API URL **before**
+  running the build
 - set `NODE_ENV=production`
 - set `TRUST_PROXY=true` **only if** you run behind a reverse proxy (see below)
 
