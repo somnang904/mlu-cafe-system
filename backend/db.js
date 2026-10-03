@@ -17,6 +17,11 @@ const pool = mysql.createPool({
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
+  timezone: '+07:00',
+})
+
+pool.on('connection', (connection) => {
+  connection.query("SET time_zone = '+07:00'")
 })
 
 module.exports = pool.promise()
