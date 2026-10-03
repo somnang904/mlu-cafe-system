@@ -55,6 +55,9 @@ async function ensureFloorTables(db) {
   try {
     await db.execute('ALTER TABLE `tables` MODIFY table_name VARCHAR(60) NOT NULL')
   } catch {}
+  try {
+    await db.execute("ALTER TABLE `tables` MODIFY COLUMN `status` VARCHAR(30) NOT NULL DEFAULT 'Empty'")
+  } catch {}
   await ensureColumn(db, 'tables', 'section', "VARCHAR(20) NOT NULL DEFAULT 'standard' AFTER table_name")
   await ensureColumn(db, 'tables', 'capacity', 'INT NOT NULL DEFAULT 4 AFTER section')
 

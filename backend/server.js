@@ -1120,8 +1120,12 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
             }
 
             if (resolvedTableId) {
-                const nextTableStatus = clear_table === false ? 'Paid' : 'Empty';
-                await conn.execute('UPDATE tables SET status = ? WHERE id = ?', [nextTableStatus, resolvedTableId]);
+                try {
+                    const nextTableStatus = clear_table === false ? 'Paid' : 'Empty';
+                    await conn.execute('UPDATE tables SET status = ? WHERE id = ?', [nextTableStatus, resolvedTableId]);
+                } catch (tableStatusErr) {
+                    console.warn('⚠️ Could not update table status in checkout:', tableStatusErr.message);
+                }
             }
 
             return { orderId, finalTotal, invoiceId, tableStatus: clear_table === false ? 'Paid' : 'Empty' };
