@@ -314,43 +314,62 @@ export function POSProvider({ children }) {
     refreshFloorTables()
   }, [refreshFloorTables])
 
-  useEffect(() => {
+  const refreshActiveOrders = useCallback(async () => {
     const token = getAuthToken()
-    if (!token) return undefined
+    if (!token) return
 
-    let cancelled = false
-    apiFetch('/orders/active', { token })
-      .then(async (res) => {
-        if (cancelled || res.status === 401) return null
-        if (!res.ok) throw new Error(`Server status returned ${res.status}`)
-        return res.json()
-      })
-      .then((activeOrderRows) => {
-        if (cancelled || !activeOrderRows || !Array.isArray(activeOrderRows)) return
+    try {
+      const res = await apiFetch('/orders/active', { token })
+      if (!res.ok) return
+      const activeOrderRows = await res.json()
+      if (!activeOrderRows || !Array.isArray(activeOrderRows)) return
 
-        const groupedOrders = groupActiveRows(activeOrderRows)
-        const reconciled = reconcileActiveOrders(
-          tablesRef.current,
-          takeOutRef.current,
-          groupedOrders,
-        )
-        setTables(reconciled.tables)
-        setTakeOut(reconciled.takeOut)
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          console.error('Error fetching live table states:', err)
-        }
-      })
-
-    return () => {
-      cancelled = true
+      const groupedOrders = groupActiveRows(activeOrderRows)
+      const reconciled = reconcileActiveOrders(
+        tablesRef.current,
+        takeOutRef.current,
+        groupedOrders,
+      )
+      setTables(reconciled.tables)
+      setTakeOut(reconciled.takeOut)
+    } catch (_) {
+      // Background retry
     }
   }, [])
 
   useEffect(() => {
+    refreshActiveOrders()
     loadSalesHistory()
-  }, [loadSalesHistory])
+
+    const interval = setInterval(() => {
+      refreshActiveOrders()
+    }, 4000)
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        refreshActiveOrders()
+        loadSalesHistory()
+      }
+    }
+    window.addEventListener('focus', onVisibilityChange)
+    document.addEventListener('visibilitychange', onVisibilityChange)
+
+    let channel
+    try {
+      channel = new BroadcastChannel('mlu-pos-sync')
+      channel.onmessage = () => {
+        refreshActiveOrders()
+        loadSalesHistory()
+      }
+    } catch (_) {}
+
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('focus', onVisibilityChange)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      if (channel) channel.close()
+    }
+  }, [refreshActiveOrders, loadSalesHistory])
 
   const getBillById = (id) => {
     if (id === 'takeout') return takeOut
@@ -544,6 +563,14 @@ export function POSProvider({ children }) {
         console.error('Failed to refresh sales history after checkout:', err.message)
       })
       setInvoiceCounter((prev) => prev + 1)
+
+      // Notify all tabs and in-page listeners immediately for Realtime sync
+      try {
+        const channel = new BroadcastChannel('mlu-pos-sync')
+        channel.postMessage({ type: 'order-checkout', id: invoiceId })
+        channel.close()
+      } catch (_) {}
+      window.dispatchEvent(new CustomEvent('mlu-order-completed', { detail: transaction }))
 
       if (clearImmediately) {
         const cleared = applyItemsToBill(bill, [])

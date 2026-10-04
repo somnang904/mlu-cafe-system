@@ -13,13 +13,13 @@ import { useModalKeyboard } from '../hooks/useModalKeyboard'
 
 const statusStyles = {
   'In Stock':
-    'border border-emerald-500/30 bg-emerald-500/10 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-500/30 ring-1 ring-emerald-500/30',
+    'border border-emerald-500/30 bg-emerald-500/10 text-emerald-950 font-bold dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-500/30 ring-1 ring-emerald-500/30',
   'Low Stock':
-    'bg-amber-500/10 text-amber-900 ring-amber-500/30 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-500/30 ring-1',
+    'bg-amber-500/15 text-amber-950 font-bold ring-amber-500/40 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-500/30 ring-1',
   'Very Low Stock':
-    'bg-red-500/10 text-red-900 ring-red-500/30 dark:bg-red-950/40 dark:text-red-300 dark:ring-red-500/30 ring-1',
+    'bg-rose-500/15 text-rose-950 font-bold ring-rose-500/40 dark:bg-red-950/40 dark:text-red-300 dark:ring-red-500/30 ring-1',
   'Out of Stock':
-    'bg-red-500/10 text-red-900 ring-red-500/30 dark:bg-red-950/40 dark:text-red-300 dark:ring-red-500/30 ring-1',
+    'bg-rose-500/15 text-rose-950 font-bold ring-rose-500/40 dark:bg-red-950/40 dark:text-red-300 dark:ring-red-500/30 ring-1',
 }
 
 const barColors = {
@@ -1109,7 +1109,7 @@ export default function InventoryStock() {
           ) : null}
         </div>
         <div className="relative max-w-xs flex-1 sm:max-w-sm">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500 dark:text-zinc-400" />
           <input
             type="text"
             placeholder={t('inventory.searchPlaceholder')}

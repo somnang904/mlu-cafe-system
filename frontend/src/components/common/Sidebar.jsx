@@ -114,7 +114,7 @@ function SidebarNavButton({ item, isActive, onNavigate, compact = false }) {
 
         className={`h-[1.125rem] w-[1.125rem] shrink-0 transition-colors ${
 
-          isActive ? 'text-forest-600 dark:text-forest-400' : 'text-olive-400 group-hover:text-olive-600'
+          isActive ? 'text-forest-600 dark:text-forest-400' : 'text-slate-500 group-hover:text-slate-800 dark:text-zinc-400 dark:group-hover:text-zinc-200'
 
         }`}
 
@@ -182,13 +182,13 @@ function NavFolder({
 
           >
 
-            <FolderIcon className="h-[1.125rem] w-[1.125rem] shrink-0" />
+            <FolderIcon className="h-[1.125rem] w-[1.125rem] shrink-0 text-slate-500 dark:text-zinc-400" />
 
             <span className="flex-1 truncate text-left">{t(labelKey)}</span>
 
             <ChevronDown
 
-              className={`h-4 w-4 shrink-0 text-olive-400 transition-transform duration-300 ${
+              className={`h-4 w-4 shrink-0 text-slate-400 group-hover:text-slate-600 transition-transform duration-300 dark:text-zinc-400 ${
 
                 expanded ? 'rotate-180' : ''
 
@@ -435,7 +435,7 @@ export default function Sidebar({ activePage, onNavigate, mobileOpen = false, on
 
           }}
 
-          className="interactive-nav flex min-h-9 w-full cursor-pointer select-none items-center justify-center gap-0 rounded-xl px-2 py-1.5 text-sm font-medium text-red-500 transition hover:bg-red-50 lg:justify-start lg:gap-3 lg:px-3 dark:hover:bg-red-950/30"
+          className="interactive-nav flex min-h-9 w-full cursor-pointer select-none items-center justify-center gap-0 rounded-xl px-2 py-1.5 text-sm font-semibold text-rose-600 transition hover:bg-rose-50 lg:justify-start lg:gap-3 lg:px-3 dark:text-rose-400 dark:hover:bg-rose-950/30"
 
         >
 

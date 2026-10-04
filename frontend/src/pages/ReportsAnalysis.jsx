@@ -20,7 +20,7 @@ import { useNotifications } from '../context/NotificationContext'
 import { apiFetch, apiFetchDownload, saveBlobAsDownload } from '../services/apiClient'
 import {
   DEFAULT_HISTORY_DAYS,
-  buildMonthFilterOptions,
+  buildDynamicMonthFilterOptions,
   filterCompletedOrders,
   filterOrdersByMonth,
   formatMonthLabel,
@@ -281,18 +281,22 @@ export default function ReportsAnalysis() {
   const [expenseError, setExpenseError] = useState('')
   const [expenseTick, setExpenseTick] = useState(0)
 
-  const monthOptions = useMemo(
-    () => buildMonthFilterOptions(16, new Date(), t, t('reports.allMonthsInRange')),
-    [t],
+  const completedSales = useMemo(
+    () => filterCompletedOrders(salesHistory || []),
+    [salesHistory],
   )
 
-  useEffect(() => {
-    if (selectedMonth === 'all') {
-      loadSalesHistory({ days: DEFAULT_HISTORY_DAYS })
-    } else {
-      loadSalesHistory({ month: selectedMonth })
-    }
-  }, [selectedMonth, loadSalesHistory])
+  const monthOptions = useMemo(
+    () =>
+      buildDynamicMonthFilterOptions(
+        completedSales,
+        expenses,
+        new Date(),
+        t,
+        t('reports.allMonthsInRange'),
+      ),
+    [completedSales, expenses, t],
+  )
 
   const loadExpenses = useCallback(async () => {
     setExpenseError('')
@@ -307,14 +311,51 @@ export default function ReportsAnalysis() {
     }
   }, [t])
 
-  useEffect(() => {
+  const refreshReportData = useCallback(() => {
+    if (selectedMonth === 'all') {
+      loadSalesHistory({ days: DEFAULT_HISTORY_DAYS })
+    } else {
+      loadSalesHistory({ month: selectedMonth })
+    }
     loadExpenses()
-  }, [loadExpenses, expenseTick])
+  }, [selectedMonth, loadSalesHistory, loadExpenses])
 
-  const completedSales = useMemo(
-    () => filterCompletedOrders(salesHistory),
-    [salesHistory],
-  )
+  // Initial load + Realtime live sync polling & cross-tab events
+  useEffect(() => {
+    refreshReportData()
+
+    // Realtime polling every 4 seconds
+    const interval = setInterval(refreshReportData, 4000)
+
+    // Window focus & tab visibility handlers
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        refreshReportData()
+      }
+    }
+    window.addEventListener('focus', refreshReportData)
+    document.addEventListener('visibilitychange', onVisibilityChange)
+
+    // Cross-tab BroadcastChannel sync
+    let channel
+    try {
+      channel = new BroadcastChannel('mlu-pos-sync')
+      channel.onmessage = () => {
+        refreshReportData()
+      }
+    } catch (_) {}
+
+    // In-tab custom event
+    window.addEventListener('mlu-order-completed', refreshReportData)
+
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('focus', refreshReportData)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      window.removeEventListener('mlu-order-completed', refreshReportData)
+      if (channel) channel.close()
+    }
+  }, [refreshReportData, expenseTick])
 
   const monthScopedSales = useMemo(
     () => filterOrdersByMonth(completedSales, selectedMonth),

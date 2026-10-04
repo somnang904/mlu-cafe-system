@@ -7,7 +7,7 @@ import { usePOS } from '../context/POSContext'
 import { fetchReceiptTransaction } from '../utils/receiptHelpers'
 import {
   DEFAULT_HISTORY_DAYS,
-  buildMonthFilterOptions,
+  buildDynamicMonthFilterOptions,
   filterCompletedOrders,
   filterOrdersByMonth,
   formatMonthLabel,
@@ -41,14 +41,24 @@ export default function SalesHistory() {
   const [printingOrderId, setPrintingOrderId] = useState(null)
   const [receiptError, setReceiptError] = useState('')
 
+  const completedHistory = useMemo(
+    () => filterCompletedOrders(salesHistory || []),
+    [salesHistory],
+  )
+
   const monthOptions = useMemo(
-    () => buildMonthFilterOptions(16, new Date(), t, t('sales.allMonthsInRange')),
-    [t],
+    () =>
+      buildDynamicMonthFilterOptions(
+        completedHistory,
+        [],
+        new Date(),
+        t,
+        t('sales.allMonthsInRange'),
+      ),
+    [completedHistory, t],
   )
 
   useEffect(() => {
-    let cancelled = false
-
     async function loadMonthHistory() {
       try {
         if (selectedMonth === 'all') {
@@ -57,22 +67,41 @@ export default function SalesHistory() {
           await loadSalesHistory({ month: selectedMonth })
         }
       } catch (error) {
-        if (!cancelled) {
-          console.error('Failed to load sales history for selected month:', error)
-        }
+        // silent retry
       }
     }
 
     loadMonthHistory()
+
+    // Realtime polling every 4 seconds
+    const interval = setInterval(loadMonthHistory, 4000)
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        loadMonthHistory()
+      }
+    }
+    window.addEventListener('focus', loadMonthHistory)
+    document.addEventListener('visibilitychange', onVisibilityChange)
+
+    let channel
+    try {
+      channel = new BroadcastChannel('mlu-pos-sync')
+      channel.onmessage = () => {
+        loadMonthHistory()
+      }
+    } catch (_) {}
+
+    window.addEventListener('mlu-order-completed', loadMonthHistory)
+
     return () => {
-      cancelled = true
+      clearInterval(interval)
+      window.removeEventListener('focus', loadMonthHistory)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      window.removeEventListener('mlu-order-completed', loadMonthHistory)
+      if (channel) channel.close()
     }
   }, [selectedMonth, loadSalesHistory])
-
-  const completedHistory = useMemo(
-    () => filterCompletedOrders(salesHistory || []),
-    [salesHistory],
-  )
 
   const monthScopedHistory = useMemo(
     () => filterOrdersByMonth(completedHistory, selectedMonth),

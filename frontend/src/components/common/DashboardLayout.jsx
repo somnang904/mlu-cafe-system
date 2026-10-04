@@ -85,7 +85,7 @@ export default function DashboardLayout({ children, activePage, onNavigate }) {
               {headerName}
             </p>
             {navRoleLabel && navRoleLabel !== headerName ? (
-              <p className="truncate text-[11px] text-cocoa-600 dark:text-cocoa-300">{navRoleLabel}</p>
+              <p className="truncate text-xs font-medium text-slate-600 dark:text-zinc-400">{navRoleLabel}</p>
             ) : null}
           </div>
 

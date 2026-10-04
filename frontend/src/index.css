@@ -6,21 +6,21 @@
 @layer base {
   :root {
     --background: #eef2ea;
-    --foreground: #1c1916;
-    --card: rgba(255, 255, 255, 0.72);
-    --border: rgba(90, 110, 70, 0.14);
+    --foreground: #0f172a;
+    --card: rgba(255, 255, 255, 0.76);
+    --border: rgba(90, 110, 70, 0.16);
     --primary: #10b981;
     --primary-hover: #059669;
     --primary-foreground: #ffffff;
     --accent: #8b5e34;
-    --muted-foreground: #7a7168;
+    --muted-foreground: #475569;
     --accent-tint: #ecfdf5;
-    --glass-surface: rgba(255, 255, 255, 0.72);
-    --glass-surface-strong: rgba(255, 255, 255, 0.82);
-    --glass-border: rgba(255, 255, 255, 0.55);
-    --glass-border-outer: rgba(90, 110, 70, 0.14);
-    --glass-inset: rgba(255, 255, 255, 0.75);
-    --glass-shadow: 0 1px 0 rgba(255, 255, 255, 0.85) inset, 0 10px 28px rgba(40, 55, 35, 0.07);
+    --glass-surface: rgba(255, 255, 255, 0.76);
+    --glass-surface-strong: rgba(255, 255, 255, 0.88);
+    --glass-border: rgba(255, 255, 255, 0.6);
+    --glass-border-outer: rgba(90, 110, 70, 0.16);
+    --glass-inset: rgba(255, 255, 255, 0.8);
+    --glass-shadow: 0 1px 0 rgba(255, 255, 255, 0.9) inset, 0 10px 28px rgba(40, 55, 35, 0.07);
     --glass-blur: blur(12px) saturate(1.2);
   }
 
@@ -45,8 +45,14 @@
   }
 
   html {
-    @apply font-sans antialiased;
+    @apply font-sans;
     font-size: 16px;
+    -webkit-font-smoothing: auto;
+    -moz-osx-font-smoothing: auto;
+    text-rendering: optimizeLegibility;
+  }
+
+  html.dark {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
@@ -151,11 +157,11 @@
 
 @layer components {
   .page-title {
-    @apply text-[1.45rem] font-semibold tracking-tight text-slate-900 dark:text-zinc-100;
+    @apply text-[1.45rem] font-bold tracking-tight text-slate-900 dark:text-zinc-100;
   }
 
   .page-subtitle {
-    @apply mt-0.5 text-sm text-cocoa-600 dark:text-cocoa-300;
+    @apply mt-0.5 text-sm font-medium text-slate-600 dark:text-zinc-400;
   }
 
   .interactive-btn {
@@ -285,15 +291,15 @@
   }
 
   .text-heading {
-    @apply cursor-default select-none font-semibold text-slate-900 dark:text-zinc-100;
+    @apply cursor-default select-none font-bold text-slate-900 dark:text-zinc-100;
   }
 
   .text-body {
-    @apply cursor-default select-none text-slate-900/90 dark:text-zinc-100/90;
+    @apply cursor-default select-none font-normal text-slate-900 dark:text-zinc-100/90;
   }
 
   .text-muted {
-    @apply cursor-default select-none text-slate-500 dark:text-zinc-400;
+    @apply cursor-default select-none font-medium text-slate-600 dark:font-normal dark:text-zinc-400;
   }
 
   .text-brand {
@@ -539,42 +545,42 @@
   }
 
   .tab-pill-active {
-    @apply bg-forest-500 text-white;
+    @apply bg-forest-500 font-semibold text-white shadow-sm;
   }
 
   .tab-pill-inactive {
-    @apply text-slate-500 ring-1 ring-slate-200 hover:bg-slate-50
-           dark:text-zinc-400 dark:ring-zinc-700 dark:hover:bg-zinc-800;
-    background: var(--glass-surface);
+    @apply font-semibold text-slate-700 ring-1 ring-slate-300/80 hover:bg-slate-100 hover:text-slate-950
+           dark:font-medium dark:text-zinc-300 dark:ring-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-100;
+    background: var(--glass-surface-strong);
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
   }
 
   .table-head {
-    @apply border-b border-cocoa-100 bg-cocoa-50 text-xs font-semibold uppercase tracking-wider text-cocoa-800
+    @apply border-b border-stone-200/90 bg-stone-100/90 text-xs font-bold uppercase tracking-wider text-stone-700
            dark:border-zinc-800 dark:bg-zinc-800/80 dark:text-zinc-300;
   }
 
   .table-row {
-    @apply border-b border-slate-200 text-slate-900 transition-colors
-           hover:bg-slate-50
+    @apply border-b border-slate-200/80 text-slate-900 transition-colors
+           hover:bg-slate-50/80
            dark:border-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-800/50;
   }
 
   .table-divider {
-    @apply divide-y divide-slate-200 dark:divide-zinc-800;
+    @apply divide-y divide-slate-200/80 dark:divide-zinc-800;
   }
 
   .table-cell-muted {
-    @apply text-slate-500 dark:text-zinc-400;
+    @apply font-medium text-slate-700 dark:font-normal dark:text-zinc-300;
   }
 
   .nav-item-active {
-    @apply bg-forest-500/12 font-semibold text-forest-800 ring-1 ring-forest-500/15 dark:bg-forest-950/50 dark:text-forest-300 dark:ring-forest-500/20;
+    @apply bg-forest-500/12 font-bold text-forest-900 ring-1 ring-forest-500/20 dark:bg-forest-950/50 dark:font-semibold dark:text-forest-300 dark:ring-forest-500/20;
   }
 
   .nav-item-inactive {
-    @apply text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-zinc-400 dark:hover:bg-zinc-800/80 dark:hover:text-zinc-100;
+    @apply font-semibold text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:font-medium dark:text-zinc-400 dark:hover:bg-zinc-800/80 dark:hover:text-zinc-100;
   }
 }
 

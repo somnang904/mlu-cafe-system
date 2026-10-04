@@ -55,6 +55,52 @@ export function buildMonthFilterOptions(
   return options
 }
 
+export function buildDynamicMonthFilterOptions(
+  orders = [],
+  expenses = [],
+  referenceDate = new Date(),
+  t,
+  allMonthsLabel = 'All months in range',
+) {
+  const options = [{ value: 'all', label: allMonthsLabel }]
+  const monthSet = new Set()
+
+  // Always include the current active month so users can filter current month
+  monthSet.add(getCurrentMonthKey(referenceDate))
+
+  // Collect distinct months from actual completed orders
+  if (Array.isArray(orders)) {
+    for (const order of orders) {
+      const monthKey = getOrderMonthKey(order)
+      if (monthKey && /^\d{4}-\d{2}$/.test(monthKey)) {
+        monthSet.add(monthKey)
+      }
+    }
+  }
+
+  // Collect distinct months from actual expenses
+  if (Array.isArray(expenses)) {
+    for (const expense of expenses) {
+      const monthKey = String(expense?.expense_date || '').slice(0, 7)
+      if (monthKey && /^\d{4}-\d{2}$/.test(monthKey)) {
+        monthSet.add(monthKey)
+      }
+    }
+  }
+
+  // Sort descending: newest month first
+  const sortedMonths = Array.from(monthSet).sort((a, b) => b.localeCompare(a))
+
+  for (const value of sortedMonths) {
+    options.push({
+      value,
+      label: formatMonthLabel(value, t),
+    })
+  }
+
+  return options
+}
+
 export function normalizeOrderDate(order) {
   if (!order?.date) return null
   const raw = String(order.date).trim()
