@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { KeyRound, Pencil, ShieldCheck, Trash2, UserPlus, X } from 'lucide-react'
+import { Eye, EyeOff, KeyRound, Pencil, ShieldCheck, Trash2, UserPlus, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { apiFetch } from '../services/apiClient'
 import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal'
@@ -78,6 +78,8 @@ function UserFormModal({ mode, user, onClose, onSave }) {
   const [username, setUsername] = useState(user?.username || '')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [role, setRole] = useState(() => {
     if (editingExistingAdmin) return 'Admin'
     const normalized = String(user?.role || '').toLowerCase()
@@ -217,28 +219,50 @@ function UserFormModal({ mode, user, onClose, onSave }) {
               <label className="mb-1 block text-xs font-medium text-stone-600 dark:text-stone-300">
                 {isEdit ? t('users.newPasswordOptional') : t('users.password')}
               </label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder={isEdit ? t('users.keepCurrentPassword') : '••••••'}
-                autoComplete="new-password"
-                className="input-field px-3 py-2 text-sm"
-              />
+              <div className="relative flex items-center">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder={isEdit ? t('users.keepCurrentPassword') : '••••••'}
+                  autoComplete="new-password"
+                  className="input-field w-full px-3 py-2 pr-9 text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  className="absolute right-2 flex h-6 w-6 items-center justify-center text-stone-400 hover:text-stone-700 dark:hover:text-stone-200"
+                  tabIndex={-1}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
               {isEdit && (
                 <p className="mt-1 text-[11px] text-stone-400">{t('users.passwordResetHint')}</p>
               )}
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-stone-600 dark:text-stone-300">{t('users.confirmPassword')}</label>
-              <input
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder={isEdit ? t('users.reenterPassword') : '••••••'}
-                autoComplete="new-password"
-                className="input-field px-3 py-2 text-sm"
-              />
+              <div className="relative flex items-center">
+                <input
+                  type={showConfirmPassword ? 'text' : 'password'}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder={isEdit ? t('users.reenterPassword') : '••••••'}
+                  autoComplete="new-password"
+                  className="input-field w-full px-3 py-2 pr-9 text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword((prev) => !prev)}
+                  className="absolute right-2 flex h-6 w-6 items-center justify-center text-stone-400 hover:text-stone-700 dark:hover:text-stone-200"
+                  tabIndex={-1}
+                  aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
           </div>
 

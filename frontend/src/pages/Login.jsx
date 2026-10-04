@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { X } from 'lucide-react'
+import { Eye, EyeOff, X } from 'lucide-react'
 import ThemeToggle from '../components/ui/ThemeToggle'
 import LanguageToggle from '../components/ui/LanguageToggle'
 import { consumeConnectionLost } from '../services/sessionStorage'
@@ -10,6 +10,7 @@ export default function Login({ onLogin }) {
   const { t } = useTranslation()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
   const [lockedUntil, setLockedUntil] = useState(0)
@@ -116,16 +117,32 @@ export default function Login({ onLogin }) {
                   >
                     {t('auth.password')}
                   </label>
-                  <input
-                    id="login-password"
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    autoComplete="current-password"
-                    disabled={isLoading || lockSeconds > 0}
-                    className="w-full rounded-xl border border-slate-200/80 bg-white/85 px-4 py-3.5 text-base text-slate-900 transition-shadow focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-60 lg:min-h-[52px] lg:px-5 lg:text-lg dark:border-zinc-600/80 dark:bg-zinc-800/90 dark:text-zinc-100 dark:focus:ring-emerald-500 [&:-webkit-autofill]:bg-transparent [&:-webkit-autofill]:shadow-[inset_0_0_0px_1000px_rgb(255_255_255_/_0.9)] [&:-webkit-autofill]:[-webkit-text-fill-color:#1d1d1f] dark:[&:-webkit-autofill]:shadow-[inset_0_0_0px_1000px_rgb(39_39_42_/_0.95)] dark:[&:-webkit-autofill]:[-webkit-text-fill-color:#fafafa]"
-                  />
+                  <div className="relative flex items-center">
+                    <input
+                      id="login-password"
+                      type={showPassword ? 'text' : 'password'}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      required
+                      autoComplete="current-password"
+                      disabled={isLoading || lockSeconds > 0}
+                      className="w-full rounded-xl border border-slate-200/80 bg-white/85 px-4 py-3.5 pr-12 text-base text-slate-900 transition-shadow focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-60 lg:min-h-[52px] lg:px-5 lg:pr-14 lg:text-lg dark:border-zinc-600/80 dark:bg-zinc-800/90 dark:text-zinc-100 dark:focus:ring-emerald-500 [&:-webkit-autofill]:bg-transparent [&:-webkit-autofill]:shadow-[inset_0_0_0px_1000px_rgb(255_255_255_/_0.9)] [&:-webkit-autofill]:[-webkit-text-fill-color:#1d1d1f] dark:[&:-webkit-autofill]:shadow-[inset_0_0_0px_1000px_rgb(39_39_42_/_0.95)] dark:[&:-webkit-autofill]:[-webkit-text-fill-color:#fafafa]"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((prev) => !prev)}
+                      disabled={isLoading || lockSeconds > 0}
+                      className="absolute right-3 flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 disabled:pointer-events-none lg:right-3.5 lg:h-9 lg:w-9 dark:text-zinc-400 dark:hover:text-zinc-200"
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                      tabIndex={-1}
+                    >
+                      {showPassword ? (
+                        <EyeOff className="h-5 w-5" aria-hidden="true" />
+                      ) : (
+                        <Eye className="h-5 w-5" aria-hidden="true" />
+                      )}
+                    </button>
+                  </div>
                 </div>
 
                 {showConnectionNotice && !error ? (
