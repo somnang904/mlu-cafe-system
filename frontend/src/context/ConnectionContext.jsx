@@ -34,7 +34,8 @@ export function ConnectionProvider({ children }) {
     const probe = async () => {
       if (!getAuthToken()) return
       try {
-        await apiFetch('/settings')
+        // /health sits outside the API rate limiter, so this 8s probe never uses up the quota.
+        await apiFetch('/health')
         if (!cancelled) setBackendReachable(true)
       } catch {
         if (!cancelled) setBackendReachable(false)

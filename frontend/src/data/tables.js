@@ -65,8 +65,8 @@ export const TABLE_STATUS_META = {
     label: 'Paid',
     labelKey: 'statuses.paid',
     badge:
-      'bg-teal-50 text-teal-800 ring-teal-300/80 dark:bg-teal-950/40 dark:text-teal-200 dark:ring-teal-700/50',
-    card: 'border-teal-300/80 bg-teal-50/35 dark:border-teal-700/40 dark:bg-teal-950/20',
+      'bg-sky-50 text-sky-800 ring-sky-300/80 dark:bg-sky-950/40 dark:text-sky-200 dark:ring-sky-700/50',
+    card: 'border-sky-300/80 bg-sky-50/35 dark:border-sky-700/40 dark:bg-sky-950/20',
   },
 }
 

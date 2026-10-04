@@ -319,9 +319,13 @@ async function resolveMenuItemIdForInsert(db, item) {
   return rows.length > 0 ? parsed : null
 }
 
-async function insertOrderItem(db, orderId, item) {
+/**
+ * @param {{ price?: number | null }} [options] A price already decided by the caller
+ *   (an admin override, or a line's existing price); otherwise the menu price is used.
+ */
+async function insertOrderItem(db, orderId, item, { price: presetPrice = null } = {}) {
   const quantity = Number(item.quantity)
-  const price = await resolveLinePrice(db, item)
+  const price = presetPrice != null ? presetPrice : await resolveLinePrice(db, item)
   const subtotal = quantity * price
   const menuItemId = await resolveMenuItemIdForInsert(db, item)
   const itemName =
@@ -376,8 +380,43 @@ async function insertOrderItem(db, orderId, item) {
   }
 }
 
+function lineKey(menuItemId, notes) {
+  return `${menuItemId ?? ''}|${String(notes ?? '').trim()}`
+}
+
+/**
+ * Prices to keep when a bill is rewritten (PUT /orders/items).
+ * An admin's typed price wins; otherwise a line that already exists keeps its saved price,
+ * so an admin's earlier price edit survives a cashier changing quantities. New lines get null
+ * (insertOrderItem then uses the menu price).
+ */
+async function pickLinePrices(db, orderId, items, { isAdmin }) {
+  const existing = new Map()
+  if (orderId) {
+    const [rows] = await db.execute(
+      'SELECT menu_item_id, notes, price FROM order_items WHERE order_id = ?',
+      [orderId],
+    ).catch(async () => db.execute('SELECT menu_item_id, NULL AS notes, price FROM order_items WHERE order_id = ?', [orderId]))
+    for (const row of rows) {
+      existing.set(lineKey(row.menu_item_id, row.notes), Number(row.price))
+    }
+  }
+
+  return items.map((item) => {
+    if (isAdmin) {
+      const typed = parseOptionalMoney(item?.price ?? item?.unitPrice)
+      if (typed != null) return typed
+    }
+    const menuId = parseMenuItemIdFromItem(item)
+    if (!menuId) return null
+    const saved = existing.get(lineKey(menuId, item?.notes))
+    return Number.isFinite(saved) ? saved : null
+  })
+}
+
 module.exports = {
   TAKEOUT_KEY,
+  pickLinePrices,
   normalizeIncomingTarget,
   targetIdSelectSql,
   pendingOrderWhereClause,

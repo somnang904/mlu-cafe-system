@@ -22,6 +22,15 @@ import { apiFetch, getAuthToken } from '../services/apiClient'
 
 const POSContext = createContext(null)
 
+/** Brings tables that were merged onto `hostId` back to the floor (mirrors the server). */
+function releaseMergedTables(tables, hostId) {
+  return tables.map((t) =>
+    t.mergedInto != null && String(t.mergedInto) === String(hostId)
+      ? { ...t, mergedInto: null, status: 'empty', items: [], orderSummary: null, orderTotal: null }
+      : t,
+  )
+}
+
 function statusForTarget(items) {
   return items.length > 0 ? 'occupied' : 'empty'
 }
@@ -188,6 +197,7 @@ export function POSProvider({ children }) {
                 section: st.section || existing.section,
                 capacity: Number(st.capacity) || existing.capacity || 4,
                 status: preservedStatus,
+                mergedInto: st.mergedInto ?? null,
               }
             }
             return {
@@ -197,6 +207,7 @@ export function POSProvider({ children }) {
               section: st.section || 'standard',
               capacity: Number(st.capacity) || 4,
               status: String(st.status || '').toLowerCase() === 'paid' ? 'paid' : 'empty',
+              mergedInto: st.mergedInto ?? null,
               orderTotal: null,
               orderSummary: null,
               items: [],
@@ -261,6 +272,9 @@ export function POSProvider({ children }) {
             orderTotal: fromTable.orderTotal,
           }
         }
+        if (t.mergedInto === fromId) {
+          return { ...t, mergedInto: toId }
+        }
         return t
       })
     })
@@ -289,16 +303,19 @@ export function POSProvider({ children }) {
       })
     } else {
       setTables((prev) =>
-        prev.map((t) =>
-          String(t.id) === String(targetId)
-            ? {
-                ...t,
-                status: 'empty',
-                items: [],
-                orderSummary: null,
-                orderTotal: null,
-              }
-            : t,
+        releaseMergedTables(
+          prev.map((t) =>
+            String(t.id) === String(targetId)
+              ? {
+                  ...t,
+                  status: 'empty',
+                  items: [],
+                  orderSummary: null,
+                  orderTotal: null,
+                }
+              : t,
+          ),
+          targetId,
         ),
       )
     }
@@ -372,7 +389,7 @@ export function POSProvider({ children }) {
   }, [tables, takeOut])
 
   const assignmentTargets = [
-    ...tables.map((table) => ({
+    ...tables.filter((table) => table.mergedInto == null).map((table) => ({
       id: table.id,
       name: table.name,
       status: table.status,
@@ -577,7 +594,12 @@ export function POSProvider({ children }) {
         if (destinationId === 'takeout') {
           setTakeOut(cleared)
         } else {
-          setTables((prev) => prev.map((table) => (table.id === destinationId ? cleared : table)))
+          setTables((prev) =>
+            releaseMergedTables(
+              prev.map((table) => (table.id === destinationId ? cleared : table)),
+              destinationId,
+            ),
+          )
         }
       } else {
         const markedPaid = {
@@ -597,7 +619,7 @@ export function POSProvider({ children }) {
       return transaction
     } catch (err) {
       console.error('Failed logging transaction payment:', err.message)
-      return null
+      return { error: err.message || 'Payment failed' }
     }
   }
 
@@ -698,7 +720,13 @@ export function POSProvider({ children }) {
         if (clearImmediately) {
           const cleared = applyItemsToBill(bill, [])
           if (destinationId === 'takeout') setTakeOut(cleared)
-          else setTables((prev) => prev.map((t) => (t.id === destinationId ? cleared : t)))
+          else
+            setTables((prev) =>
+              releaseMergedTables(
+                prev.map((t) => (t.id === destinationId ? cleared : t)),
+                destinationId,
+              ),
+            )
         } else {
           const markedPaid = { ...bill, items: [], status: 'paid' }
           if (destinationId === 'takeout') setTakeOut(markedPaid)
@@ -771,16 +799,32 @@ export function POSProvider({ children }) {
         throw new Error(data.message || `Server status returned ${response.status}`)
       }
 
-      // Re-fetch active orders to sync floor
+      // Re-fetch active orders to sync floor. reconcileActiveOrders keeps local items it
+      // doesn't see on the server, so the two merged tables are set explicitly.
       const activeRes = await apiFetch('/orders/active')
-      if (activeRes.ok) {
-        const activeRows = await activeRes.json()
-        const grouped = groupActiveRows(activeRows)
-        setTables((prevTables) => {
-          const { tables: synced } = reconcileActiveOrders(prevTables, takeOut, grouped)
-          return synced
+      const grouped = activeRes.ok ? groupActiveRows(await activeRes.json()) : null
+      setTables((prevTables) => {
+        const fromTable = prevTables.find((t) => t.id === fromTableId)
+        const toTable = prevTables.find((t) => t.id === toTableId)
+        const serverItems = grouped?.[String(toTableId)]
+        const mergedItems = serverItems?.length
+          ? serverItems
+          : mergeCartIntoItems(toTable?.items || [], fromTable?.items || []).map(normalizeBillItem)
+        const base = grouped ? reconcileActiveOrders(prevTables, takeOut, grouped).tables : prevTables
+
+        return base.map((t) => {
+          if (t.id === fromTableId) {
+            return { ...t, status: 'empty', items: [], orderSummary: null, orderTotal: null, mergedInto: toTableId }
+          }
+          if (t.mergedInto === fromTableId) {
+            return { ...t, mergedInto: toTableId }
+          }
+          if (t.id === toTableId) {
+            return applyItemsToBill(t, mergedItems, statusForTarget(mergedItems))
+          }
+          return t
         })
-      }
+      })
 
       return data
     } catch (err) {

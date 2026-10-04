@@ -14,9 +14,6 @@ const PAYMENT_METHODS = [
   { id: 'Bank Scan', labelKey: 'payment.methods.bankScan', icon: ScanLine },
 ]
 
-const USD_PRESETS = [1, 5, 10, 20, 50, 100]
-const KHR_PRESETS = [5000, 10000, 20000, 50000, 100000]
-
 export default function PaymentModule({ disabled, billTotal = 0, onConfirm }) {
   const { t, i18n } = useTranslation()
   const [method, setMethod] = useState('Cash')
@@ -61,14 +58,6 @@ export default function PaymentModule({ disabled, billTotal = 0, onConfirm }) {
   const isCash = method === 'Cash'
   const isExactDisabled = isCash && (!changeCalculation.isSufficient && (parsedReceivedUsd > 0 || parsedReceivedKhr > 0))
 
-  const handleQuickUsd = (val) => {
-    setReceivedUsdInput(String(val))
-  }
-
-  const handleQuickKhr = (val) => {
-    setReceivedKhrInput(String(val))
-  }
-
   const handleExactCashUsd = () => {
     setReceivedUsdInput(Number(billTotal).toFixed(2))
     setReceivedKhrInput('')
@@ -108,33 +97,33 @@ export default function PaymentModule({ disabled, billTotal = 0, onConfirm }) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {/* Dual Currency Banner */}
-      <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4 dark:border-emerald-500/20 dark:bg-emerald-950/20">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-semibold uppercase tracking-wider text-emerald-800 dark:text-emerald-300">
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3 dark:border-emerald-500/20 dark:bg-emerald-950/20">
+        <div>
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-800 dark:text-emerald-300">
             {t('payment.totalDue', { defaultValue: 'Total Due' })}
           </span>
+          <p className="text-2xl font-bold leading-tight tabular-nums text-emerald-900 dark:text-emerald-300">
+            {formatUsd(billTotal)}
+          </p>
+        </div>
+        <div className="text-right">
           <span className="rounded-md bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
             $1 = {exchangeRate.toLocaleString()} ៛
           </span>
-        </div>
-        <div className="mt-2 flex flex-wrap items-baseline justify-between gap-2">
-          <span className="text-2xl font-bold tabular-nums text-emerald-900 dark:text-emerald-300">
-            {formatUsd(billTotal)}
-          </span>
-          <span className="text-lg font-bold tabular-nums text-emerald-700 dark:text-emerald-400">
+          <p className="mt-1 text-lg font-bold tabular-nums text-emerald-700 dark:text-emerald-400">
             {formatKhr(usdToKhr(billTotal, exchangeRate))}
-          </span>
+          </p>
         </div>
       </div>
 
       {/* Payment Method Selector */}
       <div>
-        <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-zinc-400">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-zinc-400">
           {t('payment.method')}
         </p>
-        <div className="mt-2 grid grid-cols-2 gap-2">
+        <div className="mt-1.5 grid grid-cols-2 gap-2">
           {PAYMENT_METHODS.map(({ id, labelKey, icon: Icon }) => {
             const isActive = method === id
             return (
@@ -143,14 +132,14 @@ export default function PaymentModule({ disabled, billTotal = 0, onConfirm }) {
                 type="button"
                 disabled={disabled}
                 onClick={() => setMethod(id)}
-                className={`flex flex-col items-center justify-center gap-2 rounded-2xl border p-4 transition ${
+                className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 transition ${
                   isActive
                     ? 'surface-emerald-selected ring-2 ring-emerald-500/30'
                     : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700 dark:hover:bg-zinc-800/50'
                 } disabled:cursor-not-allowed disabled:opacity-40`}
               >
                 <Icon
-                  className={`h-6 w-6 ${isActive ? 'text-emerald-900 dark:text-emerald-300' : 'text-slate-400 dark:text-zinc-500'}`}
+                  className={`h-5 w-5 ${isActive ? 'text-emerald-900 dark:text-emerald-300' : 'text-slate-400 dark:text-zinc-500'}`}
                 />
                 <span
                   className={`text-sm font-semibold ${isActive ? 'text-emerald-900 dark:text-emerald-300' : 'text-slate-700 dark:text-zinc-300'}`}
@@ -165,7 +154,7 @@ export default function PaymentModule({ disabled, billTotal = 0, onConfirm }) {
 
       {/* Cash Received & Change Calculator */}
       {isCash && (
-        <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 dark:border-zinc-800 dark:bg-zinc-900/60">
+        <div className="space-y-2.5 rounded-2xl border border-slate-200 bg-slate-50/70 p-3 dark:border-zinc-800 dark:bg-zinc-900/60">
           <div className="flex items-center justify-between">
             <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-700 dark:text-zinc-300">
               <Calculator className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
@@ -208,18 +197,6 @@ export default function PaymentModule({ disabled, billTotal = 0, onConfirm }) {
                   className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-7 pr-3 text-sm font-semibold tabular-nums text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
                 />
               </div>
-              <div className="mt-1.5 flex flex-wrap gap-1">
-                {USD_PRESETS.map((val) => (
-                  <button
-                    key={val}
-                    type="button"
-                    onClick={() => handleQuickUsd(val)}
-                    className="rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] font-medium text-slate-600 hover:bg-emerald-50 hover:text-emerald-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-emerald-950/40"
-                  >
-                    ${val}
-                  </button>
-                ))}
-              </div>
             </div>
 
             {/* KHR Input */}
@@ -239,24 +216,12 @@ export default function PaymentModule({ disabled, billTotal = 0, onConfirm }) {
                 />
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 font-semibold text-slate-400">៛</span>
               </div>
-              <div className="mt-1.5 flex flex-wrap gap-1">
-                {KHR_PRESETS.map((val) => (
-                  <button
-                    key={val}
-                    type="button"
-                    onClick={() => handleQuickKhr(val)}
-                    className="rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] font-medium text-slate-600 hover:bg-emerald-50 hover:text-emerald-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-emerald-950/40"
-                  >
-                    {val.toLocaleString()}៛
-                  </button>
-                ))}
-              </div>
             </div>
           </div>
 
           {/* Change or Remaining Due Display */}
           {(parsedReceivedUsd > 0 || parsedReceivedKhr > 0) && (
-            <div className="pt-2">
+            <div>
               {!changeCalculation.isSufficient ? (
                 <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-amber-900 dark:text-amber-300">
                   <div className="flex items-center justify-between text-xs font-semibold">
@@ -289,7 +254,7 @@ export default function PaymentModule({ disabled, billTotal = 0, onConfirm }) {
       )}
 
       {/* Clear Table Immediately Toggle */}
-      <div className="rounded-2xl border border-slate-200/90 bg-slate-50/70 p-3.5 transition dark:border-zinc-800 dark:bg-zinc-900/60">
+      <div className="rounded-2xl border border-slate-200/90 bg-slate-50/70 px-3 py-2.5 transition dark:border-zinc-800 dark:bg-zinc-900/60">
         <label className="flex cursor-pointer items-start justify-between gap-3">
           <div className="flex-1 select-none">
             <span className="text-heading text-xs font-semibold">
@@ -315,7 +280,7 @@ export default function PaymentModule({ disabled, billTotal = 0, onConfirm }) {
         type="button"
         disabled={disabled || isExactDisabled}
         onClick={handleConfirm}
-        className="btn-primary w-full py-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+        className="btn-primary w-full py-2.5 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
       >
         {t('payment.confirmComplete')}
       </button>

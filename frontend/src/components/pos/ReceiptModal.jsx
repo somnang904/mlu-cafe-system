@@ -1,4 +1,3 @@
-import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { BadgeCheck, Printer, X } from 'lucide-react'
 import { STORE } from '../../config/store'
@@ -14,18 +13,13 @@ function paymentMethodLabel(method, t) {
   return method
 }
 
-function ModalShell({ onClose, printLabel, documentContent, canPrint }) {
+function ModalShell({ onClose, printLabel, documentContent }) {
   const { t } = useTranslation()
   const panelRef = useModalKeyboard({
     isOpen: true,
     onEscape: onClose,
     primaryActionMode: 'never',
   })
-
-  const handlePrint = () => {
-    if (!canPrint) return
-    window.print()
-  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 print:relative print:inset-auto print:block print:bg-transparent print:p-0">
@@ -41,147 +35,105 @@ function ModalShell({ onClose, printLabel, documentContent, canPrint }) {
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
-        className="relative z-10 flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-3xl border border-slate-100 bg-white text-stone-900 shadow-2xl outline-none print:max-h-none print:max-w-none print:overflow-visible print:rounded-none print:border-0 print:shadow-none"
+        className="relative z-10 flex max-h-[94vh] w-full max-w-sm flex-col overflow-hidden rounded-3xl border border-slate-100 bg-white text-stone-900 shadow-2xl outline-none print:max-h-none print:max-w-none print:overflow-visible print:rounded-none print:border-0 print:shadow-none"
       >
         <button
           type="button"
           onClick={onClose}
-          className="absolute right-4 top-4 z-10 flex min-h-9 min-w-9 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 print:hidden"
+          className="absolute right-3 top-3 z-10 flex min-h-9 min-w-9 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 print:hidden"
           aria-label={t('a11y.close')}
         >
           <X className="h-5 w-5" />
         </button>
 
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-white p-6 text-stone-900 print:overflow-visible">
+        <div className="min-h-0 flex-1 overflow-y-auto bg-white px-5 pb-4 pt-5 text-stone-900 print:overflow-visible">
           {documentContent}
         </div>
 
-        <div className="flex shrink-0 flex-col gap-2 border-t border-slate-100 bg-slate-50 p-4 print:hidden">
+        <div className="flex shrink-0 gap-2 border-t border-slate-100 bg-slate-50 p-3 print:hidden">
           <button
             type="button"
-            onClick={handlePrint}
-            disabled={!canPrint}
-            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#10b981] py-3 font-semibold text-white transition hover:bg-[#0d9668] disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={onClose}
+            className="flex-1 rounded-2xl border border-slate-200 bg-white py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-100"
+          >
+            {t('common.done')}
+          </button>
+          <button
+            type="button"
+            onClick={() => window.print()}
+            className="flex flex-[2] items-center justify-center gap-2 rounded-2xl bg-[#10b981] py-2.5 text-sm font-semibold text-white transition hover:bg-[#0d9668]"
           >
             <Printer className="h-4 w-4" />
             {printLabel}
           </button>
-          <button
-            type="button"
-            onClick={onClose}
-            className="w-full rounded-2xl py-2.5 font-medium text-slate-600 transition hover:bg-slate-200/50"
-          >
-            {t('common.done')}
-          </button>
         </div>
       </div>
     </div>
   )
 }
 
-function ReceiptLocationQr({ onSettled }) {
-  const { t } = useTranslation()
-  const [failed, setFailed] = useState(false)
-  const imageRef = useRef(null)
-  const onSettledRef = useRef(onSettled)
-  onSettledRef.current = onSettled
-
-  useEffect(() => {
-    const image = imageRef.current
-    if (!image) return undefined
-    let settled = false
-    const finish = (loaded) => {
-      if (settled) return
-      settled = true
-      if (!loaded) setFailed(true)
-      onSettledRef.current?.()
-    }
-    if (image.complete) {
-      finish(image.naturalWidth > 0)
-      return undefined
-    }
-    const onLoad = () => finish(true)
-    const onError = () => finish(false)
-    image.addEventListener('load', onLoad)
-    image.addEventListener('error', onError)
-    return () => {
-      image.removeEventListener('load', onLoad)
-      image.removeEventListener('error', onError)
-    }
-  }, [])
-
-  if (failed) return null
-
-  return (
-    <div className="receipt-location-qr">
-      <div className="receipt-location-qr-frame">
-        <img
-          ref={imageRef}
-          data-receipt-qr=""
-          src={STORE.locationQr.src}
-          alt=""
-          draggable={false}
-        />
-      </div>
-      <p className="receipt-location-qr-caption">{t(STORE.locationQr.captionKey)}</p>
-    </div>
-  )
+function formatKhrAmount(value) {
+  return `${Math.round(Number(value)).toLocaleString()} ៛`
 }
 
-function ReceiptTemplate({ transaction, onQrSettled }) {
+function ReceiptTemplate({ transaction }) {
   const { t, i18n } = useTranslation()
   const paymentMethod = paymentMethodLabel(transaction.payment || 'Cash', t)
+  const rate = transaction.exchange_rate || 4100
+  const totalKhr = Math.round((transaction.total * rate) / 100) * 100
+  const hasReceived = transaction.received_usd > 0 || transaction.received_khr > 0
+  const hasChange = transaction.change_usd > 0 || transaction.change_khr > 0
 
   return (
     <div
       id="receipt-print-area"
-      className="relative mx-auto cursor-default select-none overflow-hidden rounded-xl bg-white p-1 text-stone-900 print:rounded-none print:border print:border-stone-400 print:p-4 print:shadow-none"
+      className="relative mx-auto cursor-default select-none bg-white text-stone-900 print:border print:border-stone-400 print:p-4"
     >
-      <div className="flex flex-col items-center border-b border-dashed border-emerald-200 pb-5 text-center">
-        <BrandLogo className="brand-logo mx-auto h-auto max-h-20 w-auto max-w-[140px] object-contain print:max-h-24 print:max-w-[160px]" />
-        <h2 className="mt-3 text-xl font-bold tracking-tight text-stone-900">{STORE.officialName}</h2>
-        <p className="mt-2 text-[11px] text-stone-500">{STORE.phone}</p>
-
-        <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-emerald-400 bg-emerald-50 px-4 py-1.5">
-          <BadgeCheck className="h-4 w-4 text-emerald-600" />
-          <span className="text-xs font-semibold uppercase tracking-wide text-emerald-800">
+      {/* Header */}
+      <div className="flex flex-col items-center text-center">
+        <BrandLogo className="brand-logo mx-auto h-auto max-h-14 w-auto max-w-[110px] object-contain print:max-h-24 print:max-w-[160px]" />
+        <h2 className="mt-2 text-base font-bold tracking-tight text-stone-900">{STORE.officialName}</h2>
+        <p className="text-[11px] text-stone-500">{STORE.phone}</p>
+        <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 ring-1 ring-emerald-300">
+          <BadgeCheck className="h-3.5 w-3.5 text-emerald-600" />
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-800">
             {t('payment.receiptTitle')}
           </span>
         </div>
       </div>
 
-      <div className="space-y-1 border-b border-dashed border-emerald-200 py-4 text-sm">
-        <div className="flex justify-between gap-4">
-          <span className="text-stone-500">{t('payment.receiptNo')}</span>
-          <span className="font-semibold tabular-nums">{transaction.id}</span>
+      {/* Receipt details */}
+      <div className="mt-4 grid grid-cols-3 gap-2 rounded-xl bg-stone-50 px-3 py-2.5 text-center print:grid-cols-1 print:bg-transparent print:text-left">
+        <div className="min-w-0">
+          <p className="text-[10px] uppercase tracking-wide text-stone-400">{t('payment.receiptNo')}</p>
+          <p className="truncate text-xs font-semibold tabular-nums">{transaction.id}</p>
         </div>
-        <div className="flex justify-between gap-4">
-          <span className="text-stone-500">{t('common.dateTime')}</span>
-          <span className="tabular-nums">{formatDateTimeDisplay(transaction.date, transaction.time)}</span>
+        <div className="min-w-0">
+          <p className="text-[10px] uppercase tracking-wide text-stone-400">{t('common.dateTime')}</p>
+          <p className="text-xs font-medium tabular-nums">{formatDateTimeDisplay(transaction.date, transaction.time)}</p>
         </div>
-        <div className="flex justify-between gap-4">
-          <span className="text-stone-500">{t('tables.table')}</span>
-          <span className="font-medium">{transaction.source}</span>
+        <div className="min-w-0">
+          <p className="text-[10px] uppercase tracking-wide text-stone-400">{t('tables.table')}</p>
+          <p className="truncate text-xs font-semibold">{transaction.source}</p>
         </div>
       </div>
 
-      <div className="py-4">
-        <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-stone-400">
+      {/* Items */}
+      <div className="mt-4">
+        <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-stone-400">
           {t('payment.items')}
         </p>
-        <div className="space-y-2.5">
+        <div className="max-h-40 space-y-2 overflow-y-auto pr-1 print:max-h-none print:overflow-visible">
           {transaction.items.map((item, index) => (
-            <div key={`${item.id ?? 'line'}-${item.name}-${index}`} className="flex justify-between gap-3 text-sm">
+            <div key={`${item.id ?? 'line'}-${item.name}-${index}`} className="flex items-start justify-between gap-3 text-sm">
               <div className="min-w-0 flex-1">
-                <p className="font-medium text-stone-900">
+                <p className="font-medium leading-snug text-stone-900">
+                  <span className="mr-1.5 tabular-nums text-stone-500">{item.qty}×</span>
                   {translateMenuName(item.name, i18n.language, t)}
                 </p>
                 {item.notes && !String(item.name || '').includes(item.notes) ? (
                   <p className="text-xs text-stone-500">{translateDrinkNotes(item.notes, t)}</p>
                 ) : null}
-                <p className="text-xs text-stone-500">
-                  {item.qty} × ${item.unitPrice.toFixed(2)}
-                </p>
               </div>
               <p className="shrink-0 font-semibold tabular-nums text-stone-900">
                 ${item.lineTotal.toFixed(2)}
@@ -191,66 +143,55 @@ function ReceiptTemplate({ transaction, onQrSettled }) {
         </div>
       </div>
 
-      <div className="space-y-1.5 border-t border-dashed border-emerald-200 pt-4 text-sm">
-        <div className="flex justify-between text-stone-600">
-          <span>{t('common.subtotal')}</span>
-          <span className="tabular-nums">${transaction.subtotal.toFixed(2)}</span>
+      {/* Total */}
+      <div className="mt-4 rounded-xl bg-emerald-50 px-4 py-3 ring-1 ring-emerald-200 print:bg-transparent">
+        <div className="flex items-baseline justify-between">
+          <span className="text-sm font-semibold text-emerald-900">{t('payment.totalPaid')}</span>
+          <span className="text-xl font-bold tabular-nums text-stone-900">${transaction.total.toFixed(2)}</span>
         </div>
-        <div className="flex justify-between border-t border-emerald-100 pt-2 text-base font-bold text-stone-900">
-          <span>{t('payment.totalPaid')} (USD)</span>
-          <span className="tabular-nums">${transaction.total.toFixed(2)}</span>
+        <div className="flex items-baseline justify-between text-xs">
+          <span className="text-emerald-700/80">1 USD = {rate.toLocaleString()} ៛</span>
+          <span className="font-semibold tabular-nums text-emerald-800">{formatKhrAmount(totalKhr)}</span>
         </div>
-        <div className="flex justify-between text-sm font-semibold text-emerald-800">
-          <span>{t('payment.totalPaid')} (KHR)</span>
-          <span className="tabular-nums">{((Math.round(transaction.total * (transaction.exchange_rate || 4100) / 100) * 100)).toLocaleString()} ៛</span>
-        </div>
-        <div className="text-right text-[10px] text-stone-400">
-          1 USD = {(transaction.exchange_rate || 4100).toLocaleString()} KHR
-        </div>
+      </div>
 
-        {/* Cash Received & Change Breakdown if recorded */}
-        {(transaction.received_usd > 0 || transaction.received_khr > 0 || transaction.change_usd > 0 || transaction.change_khr > 0) && (
-          <div className="mt-2 space-y-1 border-t border-dashed border-stone-200 pt-2 text-xs text-stone-600">
-            {(transaction.received_usd > 0 || transaction.received_khr > 0) && (
-              <div className="flex justify-between">
-                <span>{t('payment.received', { defaultValue: 'Cash Received' })}</span>
-                <span className="tabular-nums font-medium">
-                  {transaction.received_usd > 0 ? `$${Number(transaction.received_usd).toFixed(2)} ` : ''}
-                  {transaction.received_khr > 0 ? `${Number(transaction.received_khr).toLocaleString()} ៛` : ''}
-                </span>
-              </div>
-            )}
-            {(transaction.change_usd > 0 || transaction.change_khr > 0) && (
-              <div className="flex justify-between text-emerald-800 font-semibold">
-                <span>{t('payment.changeDue', { defaultValue: 'Change' })}</span>
-                <span className="tabular-nums">
-                  {transaction.change_usd > 0 ? `$${Number(transaction.change_usd).toFixed(2)} ` : ''}
-                  {transaction.change_khr > 0 ? `(${Number(transaction.change_khr).toLocaleString()} ៛)` : ''}
-                </span>
-              </div>
-            )}
+      {/* Payment info */}
+      <div className="mt-3 space-y-1 text-xs text-stone-600">
+        <div className="flex justify-between">
+          <span>{t('payment.paidVia')}</span>
+          <span className="font-semibold text-stone-900">{paymentMethod}</span>
+        </div>
+        {hasReceived && (
+          <div className="flex justify-between">
+            <span>{t('payment.received', { defaultValue: 'Cash Received' })}</span>
+            <span className="font-medium tabular-nums">
+              {[
+                transaction.received_usd > 0 ? `$${Number(transaction.received_usd).toFixed(2)}` : null,
+                transaction.received_khr > 0 ? formatKhrAmount(transaction.received_khr) : null,
+              ]
+                .filter(Boolean)
+                .join(' + ')}
+            </span>
+          </div>
+        )}
+        {hasChange && (
+          <div className="flex justify-between font-semibold text-emerald-800">
+            <span>{t('payment.changeDue', { defaultValue: 'Change' })}</span>
+            <span className="tabular-nums">
+              {transaction.change_usd > 0 ? `$${Number(transaction.change_usd).toFixed(2)}` : ''}
+              {transaction.change_khr > 0 ? ` (${formatKhrAmount(transaction.change_khr)})` : ''}
+            </span>
           </div>
         )}
       </div>
 
-      <div className="mt-4 rounded-lg border border-dashed border-emerald-400 bg-emerald-50 px-4 py-3 text-center">
-        <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
-          {t('payment.paidVia')}
-        </p>
-        <p className="mt-1 text-sm font-semibold uppercase tracking-wide text-emerald-900">
-          {paymentMethod}
-        </p>
-      </div>
-
-      <p className="receipt-thanks">{t(STORE.receiptThanksKey)}</p>
-      <ReceiptLocationQr onSettled={onQrSettled} />
+      <p className="receipt-thanks border-t border-dashed border-emerald-200 pt-3">{t(STORE.receiptThanksKey)}</p>
     </div>
   )
 }
 
 export default function ReceiptModal({ transaction, onClose }) {
   const { t } = useTranslation()
-  const [canPrint, setCanPrint] = useState(false)
   if (!transaction) return null
 
   const items = Array.isArray(transaction.items) ? transaction.items : []
@@ -271,13 +212,7 @@ export default function ReceiptModal({ transaction, onClose }) {
     <ModalShell
       onClose={onClose}
       printLabel={t('sales.printReceipt')}
-      canPrint={canPrint}
-      documentContent={
-        <ReceiptTemplate
-          transaction={normalizedTransaction}
-          onQrSettled={() => setCanPrint(true)}
-        />
-      }
+      documentContent={<ReceiptTemplate transaction={normalizedTransaction} />}
     />
   )
 }

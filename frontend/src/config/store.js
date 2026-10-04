@@ -12,10 +12,6 @@ export const STORE = {
   phone: 'Tel: 099 333 225',
   tagline: 'Kitchen & Cafe Management',
   documentTitle: 'Mlu Kitchen & Cafe Siem Reap',
-  locationQr: {
-    src: '/Location/qr-code.png',
-    captionKey: 'payment.scanForLocation',
-  },
   receiptThanksKey: 'payment.receiptThanks',
 }
 

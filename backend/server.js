@@ -21,6 +21,7 @@ const {
     resolveTableForeignKey,
     ensureOrderItemsSchema,
     formatOrderLineName,
+    pickLinePrices,
 } = require('./src/utils/orderTargets');
 const { normalizeAllowedRole, passwordPolicyError, assignableRoleError } = require('./src/utils/accountPolicy');
 const { generateTemporaryPassword, hashPassword } = require('./src/utils/userAccounts');
@@ -1147,6 +1148,7 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
                 try {
                     const nextTableStatus = clear_table === false ? 'Paid' : 'Empty';
                     await conn.execute('UPDATE tables SET status = ? WHERE id = ?', [nextTableStatus, resolvedTableId]);
+                    if (nextTableStatus === 'Empty') await releaseMergedTables(conn, resolvedTableId);
                 } catch (tableStatusErr) {
                     console.warn('⚠️ Could not update table status in checkout:', tableStatusErr.message);
                 }
@@ -1339,6 +1341,7 @@ app.post('/api/orders/split-checkout', requirePermission('payment'), async (req,
                 tableStatus = clear_table === false ? 'Paid' : 'Empty';
                 if (resolvedTableId) {
                     await conn.execute('UPDATE tables SET status = ? WHERE id = ?', [tableStatus, resolvedTableId]);
+                    if (tableStatus === 'Empty') await releaseMergedTables(conn, resolvedTableId);
                 }
             } else {
                 // Table still has remaining items
@@ -1552,10 +1555,11 @@ app.put('/api/orders/items', requireOrderWriteAccess, async (req, res) => {
                 if (items.length === 0) return null;
                 id = await createPendingOrder(conn, target, table_id);
             }
+            const prices = await pickLinePrices(conn, id, items, { isAdmin: isAdminRole(req.user?.role) });
             await reconcileOrderStock(conn, id, items, req.user?.id ?? null);
             await conn.execute('DELETE FROM order_items WHERE order_id = ?', [id]);
-            for (const item of items) {
-                await insertOrderItem(conn, id, item);
+            for (const [index, item] of items.entries()) {
+                await insertOrderItem(conn, id, item, { price: prices[index] });
             }
             return id;
         });
@@ -2556,6 +2560,9 @@ app.post('/api/tables/transfer', requirePosFloorAccess, async (req, res) => {
 
             await conn.execute('UPDATE tables SET status = "Empty" WHERE id = ?', [fromId]);
             await conn.execute('UPDATE tables SET status = "Occupied" WHERE id = ?', [toId]);
+            // Tables merged onto the moved table follow it to the new one.
+            await conn.execute('UPDATE tables SET merged_into = ? WHERE merged_into = ?', [toId, fromId])
+                .catch((err) => console.warn('⚠️ Could not move merged tables:', err.message));
         });
 
         await auditFromRequest(db, req, {
@@ -2578,6 +2585,16 @@ app.post('/api/tables/transfer', requirePosFloorAccess, async (req, res) => {
     }
 });
 
+// Tables merged onto `hostId` come back to the floor once the host table is freed.
+async function releaseMergedTables(conn, hostId) {
+    if (!hostId) return;
+    try {
+        await conn.execute('UPDATE tables SET merged_into = NULL, status = "Empty" WHERE merged_into = ?', [hostId]);
+    } catch (err) {
+        console.warn('⚠️ Could not release merged tables:', err.message);
+    }
+}
+
 app.post('/api/tables/merge', requirePosFloorAccess, async (req, res) => {
     const fromId = Number.parseInt(req.body?.from_table_id, 10);
     const toId = Number.parseInt(req.body?.to_table_id, 10);
@@ -2590,9 +2607,10 @@ app.post('/api/tables/merge', requirePosFloorAccess, async (req, res) => {
     }
 
     try {
+        await ensureReservationsSchema(db);
         await withTransaction(db, async (conn) => {
             const [tables] = await conn.execute(
-                'SELECT id, table_name, status FROM tables WHERE id IN (?, ?)',
+                'SELECT id, table_name, status, merged_into FROM tables WHERE id IN (?, ?)',
                 [fromId, toId],
             );
             const sourceTable = tables.find((t) => t.id === fromId);
@@ -2606,6 +2624,11 @@ app.post('/api/tables/merge', requirePosFloorAccess, async (req, res) => {
             if (!destTable) {
                 const err = new Error('Destination table does not exist');
                 err.status = 404;
+                throw err;
+            }
+            if (sourceTable.merged_into != null || destTable.merged_into != null) {
+                const err = new Error('That table is already merged into another table');
+                err.status = 400;
                 throw err;
             }
 
@@ -2662,7 +2685,9 @@ app.post('/api/tables/merge', requirePosFloorAccess, async (req, res) => {
                 [toId, fromId],
             );
 
-            await conn.execute('UPDATE tables SET status = "Empty" WHERE id = ?', [fromId]);
+            // The source table leaves the floor until the merged bill is cleared.
+            await conn.execute('UPDATE tables SET status = "Empty", merged_into = ? WHERE id = ?', [toId, fromId]);
+            await conn.execute('UPDATE tables SET merged_into = ? WHERE merged_into = ?', [toId, fromId]);
             await conn.execute('UPDATE tables SET status = "Occupied" WHERE id = ?', [toId]);
         });
 
@@ -2696,6 +2721,20 @@ app.post('/api/tables/:id/clear', requirePosFloorAccess, async (req, res) => {
 
     try {
         const { sql, params } = pendingOrderWhereClause(target);
+
+        // Clearing an unpaid ticket cancels it, so only an admin may do that.
+        if (!isAdminRole(req.user?.role)) {
+            const [pending] = await db.execute(`SELECT id FROM orders WHERE ${sql} LIMIT 1`, params);
+            const [unpaidItems] = pending.length
+                ? await db.execute('SELECT id FROM order_items WHERE order_id = ? LIMIT 1', [pending[0].id])
+                : [[]];
+            if (unpaidItems.length > 0) {
+                return res.status(403).json({
+                    message: 'This table has not been paid yet. Only an administrator can cancel an unpaid order.',
+                });
+            }
+        }
+
         await withTransaction(db, async (conn) => {
             const [pendingOrders] = await conn.execute(
                 `SELECT id FROM orders WHERE ${sql} LIMIT 1`,
@@ -2713,6 +2752,7 @@ app.post('/api/tables/:id/clear', requirePosFloorAccess, async (req, res) => {
 
             if (target.sourceType === 'Table' && target.tableId) {
                 await conn.execute('UPDATE tables SET status = "Empty" WHERE id = ?', [target.tableId]);
+                await releaseMergedTables(conn, target.tableId);
             }
         });
 

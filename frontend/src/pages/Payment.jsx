@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { CheckCircle2, Clock, CreditCard, Minus, Receipt, Scissors } from 'lucide-react'
 import { usePOS } from '../context/POSContext'
 import { useConnection } from '../context/ConnectionContext'
+import { useAuth } from '../context/AuthContext'
 import { useNotifications } from '../context/NotificationContext'
 import { PAYMENT_QUEUE_STATUS } from '../data/tables'
 import { calculateTotals } from '../utils/posHelpers'
@@ -69,6 +70,7 @@ function BillManager({
   serverReachable,
 }) {
   const { t, i18n } = useTranslation()
+  const { isAdmin } = useAuth()
   // Drafts hold only in-progress edits; anything untouched reads straight from the bill.
   const [priceDrafts, setPriceDrafts] = useState({})
   const [draftBillId, setDraftBillId] = useState(bill.id)
@@ -94,16 +96,16 @@ function BillManager({
   }
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="border-b border-border px-6 py-5">
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="shrink-0 border-b border-border px-5 py-3">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl surface-emerald text-emerald-900 dark:text-emerald-300">
-              <Receipt className="h-5 w-5" />
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl surface-emerald text-emerald-900 dark:text-emerald-300">
+              <Receipt className="h-4 w-4" />
             </div>
             <div>
-              <h3 className="text-heading text-lg font-bold">{bill.name}</h3>
-              <p className="text-muted text-sm">{t('payment.itemizedCheckout')}</p>
+              <h3 className="text-heading text-base font-bold leading-tight">{bill.name}</h3>
+              <p className="text-muted text-xs">{t('payment.itemizedCheckout')}</p>
             </div>
           </div>
 
@@ -120,11 +122,14 @@ function BillManager({
         </div>
       </div>
 
-      <div className="flex-1 space-y-3 overflow-y-auto p-6">
+      <div className="grid min-h-0 flex-1 grid-cols-1 xl:grid-cols-2">
+      {/* Left: items */}
+      <div className="flex min-h-0 flex-col xl:border-r xl:border-border">
+      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-4">
         {bill.items.map((item, index) => (
           <div
             key={`${item.id ?? 'line'}-${item.name}-${index}`}
-            className="surface-inset flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+            className="surface-inset flex flex-col gap-2 px-3.5 py-2.5 sm:flex-row sm:items-center sm:justify-between"
           >
             <div className="min-w-0 flex-1">
               <p className="text-heading font-medium">
@@ -138,7 +143,7 @@ function BillManager({
               </p>
             </div>
 
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={() => onDecrementItem(item.id)}
@@ -150,6 +155,11 @@ function BillManager({
                 <Minus className="h-4 w-4" />
               </button>
 
+              {!isAdmin ? (
+                <span className="text-muted text-xs tabular-nums">
+                  ${(item.unitPrice ?? item.price ?? 0).toFixed(2)} / {t('payment.each', { defaultValue: 'each' })}
+                </span>
+              ) : (
               <label className="flex items-center gap-2 text-xs">
                 <span className="text-muted font-medium">{t('payment.editPrice')}</span>
                 <div className="relative">
@@ -166,12 +176,13 @@ function BillManager({
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') handlePriceBlur(item.id)
                     }}
-                    className="w-24 rounded-lg border border-slate-200 bg-white py-1.5 pl-6 pr-2 text-sm tabular-nums text-slate-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                    className="w-20 rounded-lg border border-slate-200 bg-white py-1 pl-6 pr-2 text-sm tabular-nums text-slate-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
                   />
                 </div>
               </label>
+              )}
 
-              <p className="min-w-[4.5rem] text-right font-semibold tabular-nums text-forest-600 dark:text-forest-400">
+              <p className="min-w-[4rem] text-right font-semibold tabular-nums text-forest-600 dark:text-forest-400">
                 ${(item.lineTotal || 0).toFixed(2)}
               </p>
             </div>
@@ -179,35 +190,30 @@ function BillManager({
         ))}
       </div>
 
-      <div className="border-t border-slate-200 p-6 dark:border-zinc-800">
-        <div className="space-y-2 text-sm">
-          <div className="text-muted flex justify-between">
-            <span>{t('common.subtotal')}</span>
-            <span className="tabular-nums">${subtotal.toFixed(2)}</span>
-          </div>
-          <div className="text-heading flex justify-between border-t border-slate-200 pt-2 text-xl font-bold dark:border-zinc-800">
-            <span>{t('payment.totalDue')}</span>
-            <span className="tabular-nums text-forest-600 dark:text-forest-400">${total.toFixed(2)}</span>
-          </div>
+        <div className="text-heading flex shrink-0 items-center justify-between border-t border-border px-5 py-3 font-bold">
+          <span>
+            {t('payment.totalDue')}
+            <span className="text-muted ml-2 text-xs font-medium">
+              {t('payment.items')}: {bill.items.reduce((sum, item) => sum + (item.qty || item.quantity || 1), 0)}
+            </span>
+          </span>
+          <span className="text-lg tabular-nums text-forest-600 dark:text-forest-400">${subtotal.toFixed(2)}</span>
         </div>
+      </div>
 
-        <div className="mt-5 space-y-3">
-          <div>
-            <p className="mb-3 text-sm font-semibold text-forest-800 dark:text-mint-200">
-              {t('payment.processCheckout')}
-            </p>
-            {!serverReachable ? (
-              <p className="text-sm text-amber-800 dark:text-amber-200" role="status">
-                {t('connection.paymentPaused')}
-              </p>
-            ) : null}
-            <PaymentModule
-              disabled={bill.items.length === 0 || !serverReachable}
-              billTotal={total}
-              onConfirm={(method, options) => onPaymentComplete(method, options)}
-            />
-          </div>
-        </div>
+      {/* Right: take payment */}
+      <div className="min-h-0 overflow-y-auto border-t border-border p-4 xl:border-t-0">
+        {!serverReachable ? (
+          <p className="mb-3 text-sm text-amber-800 dark:text-amber-200" role="status">
+            {t('connection.paymentPaused')}
+          </p>
+        ) : null}
+        <PaymentModule
+          disabled={bill.items.length === 0 || !serverReachable}
+          billTotal={total}
+          onConfirm={(method, options) => onPaymentComplete(method, options)}
+        />
+      </div>
       </div>
     </div>
   )
@@ -262,12 +268,20 @@ export default function Payment() {
     const sourceLabel = selectedBill.name || selectedBill.source || t('payment.orderSource')
     const clearImmediately = options.clearImmediately ?? true
     const transaction = await processPayment(selectedBill.id, paymentMethod, clearImmediately, options)
-    if (!transaction) {
-      pushBanner({
-        title: t('connection.serverDown'),
-        message: t('connection.paymentPaused'),
-        tone: 'warning',
-      })
+    if (!transaction || transaction.error) {
+      pushBanner(
+        backendReachable
+          ? {
+              title: t('payment.failedTitle'),
+              message: transaction?.error || t('payment.failedMessage'),
+              tone: 'error',
+            }
+          : {
+              title: t('connection.serverDown'),
+              message: t('connection.paymentPaused'),
+              tone: 'warning',
+            },
+      )
       return
     }
     if (transaction) {
@@ -331,8 +345,8 @@ export default function Payment() {
   }
 
   return (
-    <div className="space-y-6 page-enter">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="flex flex-col gap-4 page-enter lg:h-[calc(100vh-5rem)] lg:min-h-0 lg:overflow-hidden">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
         <h3 className="page-title">{t('nav.payment')}</h3>
         <button
           type="button"
@@ -344,7 +358,7 @@ export default function Payment() {
         </button>
       </div>
 
-      <div className="flex min-h-[calc(100vh-12rem)] flex-col gap-4 lg:flex-row">
+      <div className="flex flex-col gap-4 lg:min-h-0 lg:flex-1 lg:flex-row">
         <div className="surface-panel flex max-h-[40vh] flex-col overflow-hidden shadow-sm lg:max-h-none lg:w-[min(100%,320px)] lg:shrink-0">
           <div className="border-b border-border px-5 py-4">
             <h4 className="text-heading font-semibold">{t('payment.activeBills')}</h4>

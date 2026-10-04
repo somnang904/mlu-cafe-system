@@ -60,6 +60,8 @@ async function ensureFloorTables(db) {
   } catch {}
   await ensureColumn(db, 'tables', 'section', "VARCHAR(20) NOT NULL DEFAULT 'standard' AFTER table_name")
   await ensureColumn(db, 'tables', 'capacity', 'INT NOT NULL DEFAULT 4 AFTER section')
+  // Set while a table's guests are merged onto another table; the table is hidden from the floor.
+  await ensureColumn(db, 'tables', 'merged_into', 'INT NULL DEFAULT NULL')
 
   for (const table of FLOOR_TABLES) {
     await db.execute(
@@ -207,6 +209,7 @@ function serializeFloorTable(row) {
     section: row.section || (String(row.table_name).startsWith('VIP') ? 'vip' : 'standard'),
     capacity: Number(row.capacity) || 4,
     status: row.status || 'Empty',
+    mergedInto: row.merged_into != null ? Number(row.merged_into) : null,
   }
 }
 
@@ -287,7 +290,7 @@ const SELECT_SQL = `
 async function listFloorTables(db) {
   await ensureReservationsSchema(db)
   const [rows] = await db.execute(
-    'SELECT id, table_name, section, capacity, status FROM tables ORDER BY CASE WHEN LOWER(section) = "vip" THEN 1 ELSE 0 END, id ASC',
+    'SELECT id, table_name, section, capacity, status, merged_into FROM tables ORDER BY CASE WHEN LOWER(section) = "vip" THEN 1 ELSE 0 END, id ASC',
   )
   return rows.map(serializeFloorTable)
 }

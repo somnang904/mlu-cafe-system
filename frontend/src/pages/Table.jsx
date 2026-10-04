@@ -1,23 +1,24 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ArrowLeftRight,
-  ArrowRight,
   BaggageClaim,
   Check,
+  CreditCard,
   Crown,
   GitMerge,
   LayoutGrid,
   Phone,
   Plus,
   Sparkles,
-  Trash2,
   UserCheck,
   Users,
   UtensilsCrossed,
   X,
+  XCircle,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { usePOS } from '../context/POSContext'
+import { useAuth } from '../context/AuthContext'
 import { useAlerts } from '../context/AlertsContext'
 import { FLOOR_STATUS_KEYS, TABLE_STATUS_META } from '../data/tables'
 import { canCheckInReservation, SEATED_STATUS, slotLabel } from '../data/reservations'
@@ -26,6 +27,10 @@ import { translateMenuSummary } from '../utils/menuNameTranslations'
 import { apiFetch, getAuthToken } from '../services/apiClient'
 import { useModalKeyboard } from '../hooks/useModalKeyboard'
 import MergeTableModal from '../components/pos/MergeTableModal'
+
+// Shared shape for the floor toolbar so buttons and counters line up at one height.
+const TOOLBAR_ITEM =
+  'inline-flex h-9 select-none items-center gap-1.5 whitespace-nowrap rounded-full px-4 text-sm font-semibold ring-1'
 
 function getFloorStatus(bill, reservation) {
   if (bill?.status === 'paid') return 'paid'
@@ -573,22 +578,22 @@ function ClearTableModal({ isOpen, onClose, bill, onClear }) {
           <div
             className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl ${
               isPaid
-                ? 'bg-teal-100 text-teal-700 dark:bg-teal-950/50 dark:text-teal-300'
+                ? 'bg-sky-100 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300'
                 : 'bg-red-100 text-red-600 dark:bg-red-950/50 dark:text-red-300'
             }`}
           >
-            {isPaid ? <Sparkles className="h-5 w-5" /> : <Trash2 className="h-5 w-5" />}
+            {isPaid ? <Sparkles className="h-5 w-5" /> : <XCircle className="h-5 w-5" />}
           </div>
           <div className="flex-1">
             <h4 className="text-heading text-lg font-bold">
               {isPaid
                 ? `${t('payment.clearNow')} - ${tableName}`
-                : t('tables.confirmClearTitle', { table: tableName })}
+                : t('tables.confirmCancelOrderTitle', { table: tableName })}
             </h4>
             <p className="mt-1 text-sm text-muted-foreground">
               {isPaid
                 ? t('payment.clearImmediatelyDesc')
-                : t('tables.confirmClearMessage')}
+                : t('tables.confirmCancelOrderMessage')}
             </p>
             {total > 0 && !isPaid && (
               <div className="mt-2 text-xs font-semibold text-red-600 dark:text-red-400">
@@ -611,7 +616,7 @@ function ClearTableModal({ isOpen, onClose, bill, onClear }) {
             onClick={onClose}
             className="btn-secondary flex-1 py-2 text-sm"
           >
-            {t('tables.cancelButton')}
+            {isPaid ? t('tables.cancelButton') : t('tables.keepOrder')}
           </button>
           <button
             type="button"
@@ -619,12 +624,12 @@ function ClearTableModal({ isOpen, onClose, bill, onClear }) {
             onClick={handleConfirm}
             className={`flex-1 rounded-xl py-2 text-sm font-semibold text-white disabled:opacity-60 ${
               isPaid
-                ? 'bg-teal-600 hover:bg-teal-500'
+                ? 'bg-sky-600 hover:bg-sky-500'
                 : 'bg-red-600 hover:bg-red-500'
             }`}
           >
             {busy ? <span className="spinner mr-1.5 inline-block h-3.5 w-3.5" /> : null}
-            {isPaid ? t('payment.clearNow') : t('tables.confirmClearButton')}
+            {isPaid ? t('payment.clearNow') : t('tables.cancelOrder')}
           </button>
         </div>
       </div>
@@ -640,8 +645,10 @@ function TableCard({
   onChangeTable,
   onClearTable,
   onOpenOrder,
+  mergedNames = [],
 }) {
   const { t, i18n } = useTranslation()
+  const { isAdmin } = useAuth()
   const floorStatus = getFloorStatus(bill, reservation)
   const meta = TABLE_STATUS_META[floorStatus] || TABLE_STATUS_META.empty
   const isEmpty = floorStatus === 'empty'
@@ -676,6 +683,9 @@ function TableCard({
           <p className={`flex items-center gap-1.5 text-lg font-bold ${isEmpty ? 'text-emerald-700 dark:text-emerald-400' : 'text-heading'}`}>
             {isVip ? <Crown className="h-4 w-4 text-violet-600 dark:text-violet-300" /> : null}
             {floorTableDisplayName(bill, t)}
+            {mergedNames.length > 0 ? (
+              <span className="text-base font-semibold text-muted-foreground">+ {mergedNames.join(' + ')}</span>
+            ) : null}
           </p>
           {!isEmpty && !isReserved && !isPaid && bill.orderSummary && hasItems && (
             <p className="text-muted mt-1 line-clamp-2 text-xs">
@@ -683,7 +693,7 @@ function TableCard({
             </p>
           )}
           {isPaid && (
-            <p className="mt-1 line-clamp-2 text-xs font-medium text-teal-700 dark:text-teal-300">
+            <p className="mt-1 line-clamp-2 text-xs font-medium text-sky-700 dark:text-sky-300">
               {t('payment.tableMarkedPaid')}
             </p>
           )}
@@ -733,7 +743,7 @@ function TableCard({
         )}
         {isPaid && (
           <div className="space-y-2">
-            <p className="text-xs font-medium text-teal-700 dark:text-teal-300">
+            <p className="text-xs font-medium text-sky-700 dark:text-sky-300">
               {t('payment.keepSeatedDesc')}
             </p>
             <div className="flex gap-2">
@@ -743,7 +753,7 @@ function TableCard({
                   event.stopPropagation()
                   onClearTable(bill)
                 }}
-                className="inline-flex flex-1 cursor-pointer select-none items-center justify-center gap-1.5 rounded-xl border border-teal-300 bg-teal-600 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-teal-700 dark:border-teal-600 dark:bg-teal-600 dark:hover:bg-teal-500"
+                className="inline-flex flex-1 cursor-pointer select-none items-center justify-center gap-1.5 rounded-xl border border-sky-300 bg-sky-600 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-sky-700 dark:border-sky-600 dark:bg-sky-600 dark:hover:bg-sky-500"
               >
                 <Sparkles className="h-3.5 w-3.5" />
                 {t('payment.clearNow')}
@@ -772,10 +782,10 @@ function TableCard({
                 event.stopPropagation()
                 onSendToCheckout(bill)
               }}
-              className="inline-flex w-full cursor-pointer select-none items-center justify-center gap-2 rounded-xl border border-forest-300/70 bg-white py-2 text-sm font-semibold text-forest-800 shadow-sm transition hover:bg-forest-50 dark:border-forest-700/50 dark:bg-obsidian-850 dark:text-mint-100 dark:hover:bg-forest-950/30"
+              className="inline-flex w-full cursor-pointer select-none items-center justify-center gap-2 rounded-xl bg-[#10b981] py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-600 active:scale-[0.99]"
             >
-              {t('tables.sendToCheckout')}
-              <ArrowRight className="h-4 w-4" />
+              <CreditCard className="h-4 w-4" />
+              {t('tables.goToPayment')}
             </button>
             <div className="flex gap-2">
               <button
@@ -790,18 +800,20 @@ function TableCard({
                 <ArrowLeftRight className="h-3.5 w-3.5" />
                 {t('tables.changeTable')}
               </button>
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation()
-                  onClearTable(bill)
-                }}
-                className="inline-flex flex-1 cursor-pointer select-none items-center justify-center gap-1.5 rounded-xl border border-red-200 bg-red-50/70 py-1.5 text-xs font-semibold text-red-700 transition hover:bg-red-100 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300 dark:hover:bg-red-900/60"
-                title={t('tables.clearTable')}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-                {t('tables.clearTable')}
-              </button>
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onClearTable(bill)
+                  }}
+                  className="inline-flex flex-1 cursor-pointer select-none items-center justify-center gap-1.5 rounded-xl border border-red-200 bg-red-50/70 py-1.5 text-xs font-semibold text-red-700 transition hover:bg-red-100 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300 dark:hover:bg-red-900/60"
+                  title={t('tables.cancelOrder')}
+                >
+                  <XCircle className="h-3.5 w-3.5" />
+                  {t('tables.cancelOrder')}
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -812,6 +824,7 @@ function TableCard({
 
 function TakeOutCard({ bill, onSendToCheckout, onClearTable }) {
   const { t, i18n } = useTranslation()
+  const { isAdmin } = useAuth()
   const floorStatus = getFloorStatus(bill)
   const meta = TABLE_STATUS_META[floorStatus] || TABLE_STATUS_META.empty
   const isEmpty = floorStatus === 'empty'
@@ -862,20 +875,22 @@ function TakeOutCard({ bill, onSendToCheckout, onClearTable }) {
               <button
                 type="button"
                 onClick={() => onSendToCheckout(bill)}
-                className="btn-primary inline-flex shrink-0 items-center gap-2 px-5 py-2.5 text-sm"
+                className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-[#10b981] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-600 active:scale-[0.99]"
               >
-                {t('tables.sendToCheckout')}
-                <ArrowRight className="h-4 w-4" />
+                <CreditCard className="h-4 w-4" />
+                {t('tables.goToPayment')}
               </button>
-              <button
-                type="button"
-                onClick={() => onClearTable(bill)}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50/70 px-3 py-2.5 text-sm font-semibold text-red-700 transition hover:bg-red-100 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300 dark:hover:bg-red-900/60"
-                title={t('tables.clearTable')}
-              >
-                <Trash2 className="h-4 w-4" />
-                <span className="hidden sm:inline">{t('tables.clearTable')}</span>
-              </button>
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={() => onClearTable(bill)}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50/70 px-3 py-2.5 text-sm font-semibold text-red-700 transition hover:bg-red-100 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300 dark:hover:bg-red-900/60"
+                  title={t('tables.cancelOrder')}
+                >
+                  <XCircle className="h-4 w-4" />
+                  <span className="hidden sm:inline">{t('tables.cancelOrder')}</span>
+                </button>
+              )}
             </div>
           )}
           {isPaid && (
@@ -883,7 +898,7 @@ function TakeOutCard({ bill, onSendToCheckout, onClearTable }) {
               <button
                 type="button"
                 onClick={() => onClearTable(bill)}
-                className="btn-primary inline-flex shrink-0 items-center gap-1.5 px-4 py-2.5 text-sm"
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-700 dark:bg-sky-600 dark:hover:bg-sky-500"
               >
                 <Sparkles className="h-4 w-4" />
                 {t('payment.clearNow')}
@@ -962,23 +977,34 @@ export default function Table() {
     }
   }, [loadFloorReservations])
 
+  // Tables merged onto another table are hidden until that bill is cleared.
+  const floorTables = useMemo(() => tables.filter((table) => table.mergedInto == null), [tables])
+  const mergedNamesByHost = useMemo(() => {
+    const byHost = {}
+    for (const table of tables) {
+      if (table.mergedInto == null) continue
+      ;(byHost[table.mergedInto] ||= []).push(table.name)
+    }
+    return byHost
+  }, [tables])
+
   const standardTables = useMemo(
-    () => tables.filter((table) => table.section !== 'vip' && !String(table.name).startsWith('VIP')),
-    [tables],
+    () => floorTables.filter((table) => table.section !== 'vip' && !String(table.name).startsWith('VIP')),
+    [floorTables],
   )
   const vipTables = useMemo(
-    () => tables.filter((table) => table.section === 'vip' || String(table.name).startsWith('VIP')),
-    [tables],
+    () => floorTables.filter((table) => table.section === 'vip' || String(table.name).startsWith('VIP')),
+    [floorTables],
   )
 
   const emptyTables = useMemo(() => {
-    return tables.filter(
+    return floorTables.filter(
       (t) =>
         (!transferSource || String(t.id) !== String(transferSource.id)) &&
         t.status === 'empty' &&
         (!floorReservations[t.id] || floorReservations[t.id].status !== SEATED_STATUS),
     )
-  }, [tables, transferSource, floorReservations])
+  }, [floorTables, transferSource, floorReservations])
 
   const reservedCount = Object.values(floorReservations).filter(
     (reservation) => reservation?.status && reservation.status !== SEATED_STATUS,
@@ -1012,8 +1038,9 @@ export default function Table() {
   }
 
   const handleClearTable = async (targetId) => {
+    const wasPaid = clearTarget?.status === 'paid'
     await clearTable(targetId)
-    showToast(t('tables.tableCleared'))
+    showToast(wasPaid ? t('tables.tableCleared') : t('tables.orderCanceled'))
     await loadFloorReservations()
     refreshAlerts?.()
   }
@@ -1098,11 +1125,11 @@ export default function Table() {
         <div>
           <h3 className="page-title">{t('nav.table')}</h3>
         </div>
-        <div className="flex flex-wrap items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={() => setShowAddModal(true)}
-            className="btn-primary inline-flex items-center gap-1.5 px-3.5 py-1.5 text-sm font-semibold shadow-sm"
+            className={`${TOOLBAR_ITEM} cursor-pointer bg-forest-500 text-white shadow-sm ring-forest-500 transition-colors hover:bg-forest-600`}
           >
             <Plus className="h-4 w-4" />
             {t('tables.addTable')}
@@ -1110,23 +1137,23 @@ export default function Table() {
           <button
             type="button"
             onClick={() => setShowMergeModal(true)}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-white px-3.5 py-1.5 text-sm font-semibold text-foreground shadow-sm hover:bg-slate-50 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+            className={`${TOOLBAR_ITEM} cursor-pointer bg-white text-foreground shadow-sm ring-slate-200 transition-colors hover:bg-slate-50 dark:bg-zinc-900 dark:ring-zinc-700 dark:hover:bg-zinc-800`}
           >
             <GitMerge className="h-4 w-4 text-amber-600 dark:text-amber-400" />
             {t('tables.mergeTables', { defaultValue: 'Merge Tables' })}
           </button>
-          <div className="badge-olive inline-flex items-center gap-2 self-start px-3 py-1.5 text-sm">
+          <div className={`${TOOLBAR_ITEM} cursor-default bg-slate-100 text-slate-700 ring-slate-200 dark:bg-zinc-800/80 dark:text-zinc-300 dark:ring-zinc-700`}>
             <LayoutGrid className="h-4 w-4" />
             {t('tables.activeBills', { count: activeCount })}
           </div>
           {paidCount > 0 && (
-            <div className="inline-flex items-center gap-1.5 rounded-full bg-teal-50 px-3 py-1.5 text-sm font-medium text-teal-800 ring-1 ring-teal-300 dark:bg-teal-950/40 dark:text-teal-200 dark:ring-teal-800/50">
-              <Sparkles className="h-4 w-4 text-teal-600 dark:text-teal-300" />
+            <div className={`${TOOLBAR_ITEM} cursor-default bg-sky-50 text-sky-800 ring-sky-300 dark:bg-sky-950/40 dark:text-sky-200 dark:ring-sky-800/50`}>
+              <Sparkles className="h-4 w-4 text-sky-600 dark:text-sky-300" />
               {t('tables.paidCount', { count: paidCount })}
             </div>
           )}
           {reservedCount > 0 && (
-            <div className="inline-flex items-center gap-2 rounded-full bg-violet-50 px-3 py-1.5 text-sm font-medium text-violet-800 ring-1 ring-violet-200 dark:bg-violet-950/40 dark:text-violet-200 dark:ring-violet-800/50">
+            <div className={`${TOOLBAR_ITEM} cursor-default bg-violet-50 text-violet-800 ring-violet-200 dark:bg-violet-950/40 dark:text-violet-200 dark:ring-violet-800/50`}>
               {t('tables.reservedNow', { count: reservedCount })}
             </div>
           )}
@@ -1154,6 +1181,7 @@ export default function Table() {
               onChangeTable={setTransferSource}
               onClearTable={setClearTarget}
               onOpenOrder={handleOpenOrder}
+              mergedNames={mergedNamesByHost[table.id]}
             />
           ))}
         </div>
@@ -1172,6 +1200,7 @@ export default function Table() {
               onChangeTable={setTransferSource}
               onClearTable={setClearTarget}
               onOpenOrder={handleOpenOrder}
+              mergedNames={mergedNamesByHost[table.id]}
             />
           ))}
         </div>
@@ -1213,7 +1242,7 @@ export default function Table() {
       <MergeTableModal
         isOpen={showMergeModal}
         onClose={() => setShowMergeModal(false)}
-        tables={tables}
+        tables={floorTables}
         onMerge={handleMergeTables}
       />
 

@@ -2,11 +2,11 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   CheckCircle2,
+  CreditCard,
   Minus,
   Plus,
   Receipt,
   Search,
-  Send,
   Trash2,
   UtensilsCrossed,
 } from 'lucide-react'
@@ -78,7 +78,7 @@ function statusSuffix(status, t) {
 
 export default function Order() {
   const { t, i18n } = useTranslation()
-  const { assignmentTargets, assignOrder, orderTargetId, clearOrderTarget } = usePOS()
+  const { assignmentTargets, assignOrder, orderTargetId, clearOrderTarget, openPaymentFor } = usePOS()
   const { backendReachable } = useConnection()
   const { pushBanner } = useNotifications()
   const [menuItems, setMenuItems] = useState([])
@@ -416,10 +416,8 @@ export default function Order() {
     }
 
     const target = assignmentTargets.find((entry) => String(entry.id) === selectedDestination)
-    const success = await assignOrder(
-      target?.isTakeOut ? 'takeout' : Number(selectedDestination),
-      cart,
-    )
+    const destinationId = target?.isTakeOut ? 'takeout' : Number(selectedDestination)
+    const success = await assignOrder(destinationId, cart)
 
     if (!success) {
       setSendPaused(true)
@@ -427,11 +425,10 @@ export default function Order() {
     }
 
     setSendPaused(false)
-    setSentConfirmation(target?.name ?? t('order.fallbackDestination'))
     setCart([])
     setSelectedDestination('')
     loadStockLevels()
-    setTimeout(() => setSentConfirmation(null), 2500)
+    openPaymentFor(destinationId)
   }
 
   const subtotal = cart.reduce((sum, item) => sum + Number(item.price) * item.quantity, 0)
@@ -772,15 +769,11 @@ export default function Order() {
                 disabled={cart.length === 0 || !selectedDestination || !backendReachable}
                 className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-[#10b981] py-3.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-600 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <Send className="h-4 w-4" />
+                <CreditCard className="h-4 w-4" />
                 {destinationLabel
-                  ? t('order.sendTo', { destination: destinationLabel })
-                  : t('order.confirmOrder')}
+                  ? t('order.payFor', { destination: destinationLabel })
+                  : t('order.payment')}
               </button>
-
-              <p className="mt-3 text-center text-xs text-slate-400 dark:text-zinc-500">
-                {t('order.paymentAfterService')}
-              </p>
             </div>
           )}
         </div>
