@@ -1,0 +1,24 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to DigitalOcean Droplet
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: 152.42.231.224
+          username: root
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            echo "🚀 Deploying updates to /var/www/mlu-cafe..."
+            cd /var/www/mlu-cafe
+            git pull origin main
+            npm run build
+            pm2 restart mlu-backend
+            echo "✅ Deployment completed successfully!"
