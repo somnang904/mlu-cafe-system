@@ -21,6 +21,16 @@ async function tableEngine(db, table) {
   return rows[0]?.ENGINE || null
 }
 
+// Imports into servers that default to MyISAM (e.g. WAMP's MariaDB) create tables
+// without an ENGINE clause as MyISAM, which has no row locks or foreign keys.
+async function ensureInnoDb(db, table) {
+  const engine = await tableEngine(db, table)
+  if (!engine || engine === 'InnoDB') return engine
+  await db.execute(`ALTER TABLE \`${table}\` ENGINE=InnoDB`)
+  console.log(`   Converted ${table} from ${engine} to InnoDB`)
+  return tableEngine(db, table)
+}
+
 async function ensureDirectLink(db, name) {
   const [stock] = await db.execute('SELECT id FROM inventory WHERE item_name = ?', [name])
   const [menu] = await db.execute('SELECT id FROM menu_items WHERE name = ?', [name])
@@ -100,7 +110,7 @@ async function ensureStockSchema(db) {
       const required = ['orders', 'order_items', 'inventory', 'menu_items', 'users']
       const engines = {}
       for (const table of required) {
-        engines[table] = await tableEngine(db, table)
+        engines[table] = await ensureInnoDb(db, table)
         if (engines[table] !== 'InnoDB') {
           throw new Error(`${table} is ${engines[table] || 'missing'}, not InnoDB. Stock locks need InnoDB.`)
         }
@@ -125,6 +135,7 @@ async function ensureStockSchema(db) {
           CONSTRAINT chk_stock_link_qty CHECK (quantity_per_unit > 0)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
       `)
+      await ensureInnoDb(db, 'menu_item_stock_links')
 
       await db.execute(`
         CREATE TABLE IF NOT EXISTS stock_movements (
@@ -171,5 +182,6 @@ async function ensureStockSchema(db) {
 module.exports = {
   BEER_NAMES,
   KULEN_NAME,
+  ensureInnoDb,
   ensureStockSchema,
 }
