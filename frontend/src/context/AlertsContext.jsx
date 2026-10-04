@@ -2,6 +2,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { apiFetch, getAuthToken } from '../services/apiClient'
 import { filterAlertsBySettings, countAlerts } from '../utils/alertSettings'
 import { useSettings } from './SettingsContext'
+import { useNotifications } from './NotificationContext'
+import { playAlertSound } from '../utils/soundAlert'
 
 const AlertsContext = createContext(null)
 /** Visible-tab poll — keep stock / expense / reservation notices fresh online. */
@@ -11,6 +13,7 @@ const HIDDEN_POLL_INTERVAL_MS = 60_000
 
 export function AlertsProvider({ children }) {
   const { lowStockAlertsEnabled, loginAlertsEnabled } = useSettings()
+  const { pushBanner } = useNotifications()
   const [alerts, setAlerts] = useState([])
   const [rawCounts, setRawCounts] = useState({
     total: 0,
@@ -22,6 +25,7 @@ export function AlertsProvider({ children }) {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState(null)
   const inFlightRef = useRef(false)
+  const knownAlertKeysRef = useRef(null)
 
   const fetchAlerts = useCallback(async ({ refresh = false } = {}) => {
     const token = getAuthToken()
@@ -51,10 +55,36 @@ export function AlertsProvider({ children }) {
         return null
       }
       const data = await response.json()
-      setAlerts(Array.isArray(data.alerts) ? data.alerts : [])
+      const incomingAlerts = Array.isArray(data.alerts) ? data.alerts : []
+      setAlerts(incomingAlerts)
       setRawCounts(data.counts || { total: 0, critical: 0, warning: 0, info: 0 })
       setGeneratedAt(data.generatedAt || null)
       setError(null)
+
+      // Alert detection: chime & banner for newly arrived alerts
+      const alertKey = (a) => `${a.id}:${a.severity || 'warning'}`
+      if (knownAlertKeysRef.current === null) {
+        // Initial fetch on app start: memorize existing alerts silently
+        knownAlertKeysRef.current = new Set(incomingAlerts.map(alertKey))
+      } else {
+        const prevKeys = knownAlertKeysRef.current
+        const newItems = incomingAlerts.filter((a) => !prevKeys.has(alertKey(a)))
+        if (newItems.length > 0) {
+          const hasCritical = newItems.some((a) => a.severity === 'critical')
+          playAlertSound(hasCritical ? 'critical' : 'warning')
+
+          newItems.slice(0, 2).forEach((alert) => {
+            pushBanner?.({
+              tone: alert.severity === 'critical' ? 'critical' : 'warning',
+              title: alert.title || 'ការជូនដំណឹង (Alert)',
+              message: alert.message || '',
+              durationMs: 7000,
+            })
+          })
+        }
+        knownAlertKeysRef.current = new Set(incomingAlerts.map(alertKey))
+      }
+
       return data
     } catch {
       setError('unavailable')
@@ -65,7 +95,7 @@ export function AlertsProvider({ children }) {
       inFlightRef.current = false
       setIsLoading(false)
     }
-  }, [])
+  }, [pushBanner])
 
   const markNotificationRead = useCallback(async (alert) => {
     const notificationId = alert?.notificationId
@@ -140,10 +170,16 @@ export function AlertsProvider({ children }) {
     [lowStockAlertsEnabled, loginAlertsEnabled],
   )
 
-  const visibleAlerts = useMemo(
-    () => filterAlertsBySettings(alerts, settingsSnapshot),
-    [alerts, settingsSnapshot],
-  )
+  const visibleAlerts = useMemo(() => {
+    const list = filterAlertsBySettings(alerts, settingsSnapshot)
+    return [...list].sort((a, b) => {
+      const timeA = new Date(a.timestamp || a.created_at || 0).getTime()
+      const timeB = new Date(b.timestamp || b.created_at || 0).getTime()
+      if (timeB !== timeA) return timeB - timeA
+      const rank = (s) => (s === 'critical' ? 0 : s === 'warning' ? 1 : 2)
+      return rank(a.severity) - rank(b.severity)
+    })
+  }, [alerts, settingsSnapshot])
 
   const counts = useMemo(() => countAlerts(visibleAlerts), [visibleAlerts])
 

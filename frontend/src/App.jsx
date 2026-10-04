@@ -153,11 +153,11 @@ function AppRoutes() {
 
   return (
     <POSProvider>
-      <AlertsProvider>
-        <NotificationProvider>
+      <NotificationProvider>
+        <AlertsProvider>
           <AuthenticatedApp />
-        </NotificationProvider>
-      </AlertsProvider>
+        </AlertsProvider>
+      </NotificationProvider>
     </POSProvider>
   )
 }

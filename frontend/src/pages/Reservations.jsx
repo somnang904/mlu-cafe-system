@@ -34,7 +34,9 @@ import { floorTables } from '../data/tables'
 import { formatLongDate, formatMonthYear, formatTime12Hour } from '../utils/dateTimeFormat'
 import { canIssueConfirmationLetter } from '../utils/reservationLetter'
 import { useAlerts } from '../context/AlertsContext'
+import { useNotifications } from '../context/NotificationContext'
 
+const SUMMARY_STATUSES = ['Pending', 'Confirmed', 'Paid', 'Seated']
 const WEEKDAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
 const DEFAULT_OPEN_DATE = nextOpenDate()
 const DEFAULT_SLOTS = getTimeSlotsForDate(DEFAULT_OPEN_DATE)
@@ -482,6 +484,7 @@ function ReservationActions({
 export default function Reservations() {
   const { t } = useTranslation()
   const { refresh: refreshAlerts } = useAlerts()
+  const { pushBanner } = useNotifications()
   const today = toLocalDateISO()
   const [monthDate, setMonthDate] = useState(() => parseISODate(today))
   const [selectedDate, setSelectedDate] = useState(today)
@@ -506,9 +509,10 @@ export default function Reservations() {
     [monthDate],
   )
 
-  const loadReservations = useCallback(async () => {
+  const loadReservations = useCallback(async (customRange) => {
+    const activeRange = customRange?.from && customRange?.to ? customRange : range
     try {
-      const response = await apiFetch(`/reservations?from=${range.from}&to=${range.to}`)
+      const response = await apiFetch(`/reservations?from=${activeRange.from}&to=${activeRange.to}`)
       const data = await response.json().catch(() => [])
       if (!response.ok) throw new Error(data.message || t('reservations.errors.load'))
       setReservations(Array.isArray(data) ? data : [])
@@ -519,7 +523,7 @@ export default function Reservations() {
     } finally {
       setIsLoading(false)
     }
-  }, [range.from, range.to, t])
+  }, [range, t])
 
   useEffect(() => {
     setIsLoading(true)
@@ -572,6 +576,15 @@ export default function Reservations() {
   }, [reservations, selectedDate, showMonth, statusFilter, search])
 
   const selectedDayCount = countsByDate[selectedDate] || 0
+
+  const activeRowsForSummary = useMemo(() => {
+    if (showMonth) return reservations
+    return reservations.filter((row) => row.reservation_date === selectedDate)
+  }, [reservations, showMonth, selectedDate])
+
+  const activeSummaryTotal = useMemo(() => {
+    return activeRowsForSummary.filter((row) => row.status !== 'Canceled').length
+  }, [activeRowsForSummary])
 
   const openCreate = () => {
     setEditing(null)
@@ -646,22 +659,46 @@ export default function Reservations() {
     }
     setSaving(true)
     setFormError('')
+    const isEdit = modalMode === 'edit'
     const payload = {
       ...form,
       table_id: Number.parseInt(form.table_id, 10),
       guest_count: Number.parseInt(form.guest_count, 10),
     }
     try {
-      const path = modalMode === 'edit' && editing ? `/reservations/${editing.id}` : '/reservations'
+      const path = isEdit && editing ? `/reservations/${editing.id}` : '/reservations'
       const response = await apiFetch(path, {
-        method: modalMode === 'edit' ? 'PUT' : 'POST',
+        method: isEdit ? 'PUT' : 'POST',
         body: JSON.stringify(payload),
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(data.message || t('reservations.errors.save'))
       setModalMode(null)
       setEditing(null)
-      await loadReservations()
+      setShowMonth(false)
+
+      const bookedDateStr = data?.reservation_date || payload.reservation_date
+      if (bookedDateStr) {
+        const [y, m] = bookedDateStr.split('-').map(Number)
+        if (y && m) {
+          const targetMonth = new Date(y, m - 1, 1)
+          const targetRange = monthRange(y, m - 1)
+          setMonthDate(targetMonth)
+          setSelectedDate(bookedDateStr)
+          await loadReservations(targetRange)
+        } else {
+          await loadReservations()
+        }
+      } else {
+        await loadReservations()
+      }
+
+      pushBanner?.({
+        title: isEdit ? t('reservations.bookingUpdated') : t('reservations.bookingCreated'),
+        message: `${payload.customer_name} — ${bookedDateStr} (${payload.time_slot})`,
+        tone: 'success',
+      })
+      refreshAlerts?.()
     } catch (err) {
       setFormError(err.message || t('reservations.errors.save'))
     } finally {
@@ -726,29 +763,42 @@ export default function Reservations() {
         />
 
         <div className="surface-card flex h-full min-w-0 flex-col p-5">
-          <div className="flex min-w-0 items-center gap-2">
-            <CalendarDays className="h-4 w-4 shrink-0 text-forest-600 dark:text-forest-400" />
-            <p className="min-w-0 break-words text-heading text-sm font-semibold">
-              {formatLongDate(parseISODate(selectedDate), t)}
-            </p>
+          <div className="flex min-w-0 items-center justify-between gap-2">
+            <div className="flex min-w-0 items-center gap-2">
+              <CalendarDays className="h-4 w-4 shrink-0 text-forest-600 dark:text-forest-400" />
+              <p className="min-w-0 break-words text-heading text-sm font-semibold">
+                {showMonth
+                  ? formatMonthYear(monthDate, t)
+                  : formatLongDate(parseISODate(selectedDate), t)}
+              </p>
+            </div>
+            {showMonth ? (
+              <span className="rounded-full bg-forest-50 px-2.5 py-0.5 text-xs font-semibold text-forest-700 dark:bg-forest-950/60 dark:text-forest-300">
+                {t('reservations.fullMonthView')}
+              </span>
+            ) : null}
           </div>
           <p className="text-muted mt-2 break-words text-sm">
-            {isMonday(selectedDate)
-              ? t('reservations.unavailableOnDate')
-              : selectedDayCount === 0
-                ? t('reservations.noneOnDate')
-                : t('reservations.bookingCount', { count: selectedDayCount })}
+            {showMonth ? (
+              activeSummaryTotal === 0
+                ? t('reservations.noneInMonth')
+                : t('reservations.bookingCount', { count: activeSummaryTotal })
+            ) : isMonday(selectedDate) ? (
+              t('reservations.unavailableOnDate')
+            ) : selectedDayCount === 0 ? (
+              t('reservations.noneOnDate')
+            ) : (
+              t('reservations.bookingCount', { count: selectedDayCount })
+            )}
           </p>
-          <div className="mt-auto grid w-full grid-cols-3 items-stretch gap-3 pt-4">
-            {BOOKING_STATUSES.map((status) => {
-              const count = reservations.filter(
-                (row) => row.reservation_date === selectedDate && row.status === status,
-              ).length
+          <div className="mt-auto grid w-full grid-cols-2 gap-2.5 pt-4 sm:grid-cols-4">
+            {SUMMARY_STATUSES.map((status) => {
+              const count = activeRowsForSummary.filter((row) => row.status === status).length
               const meta = RESERVATION_STATUS_META[status]
               return (
                 <div key={status} className="flex h-full min-w-0 flex-col rounded-2xl border border-border px-3 py-3">
                   <p className="text-muted break-words text-[11px] font-semibold uppercase leading-tight tracking-wide">
-                    {t(meta.labelKey)}
+                    {t(meta?.labelKey || status)}
                   </p>
                   <p className="mt-1 text-xl font-semibold tabular-nums">{count}</p>
                 </div>

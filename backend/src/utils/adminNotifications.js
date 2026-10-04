@@ -60,8 +60,8 @@ function toAlert(row) {
   const meta = parseMeta(row.meta)
   const type = String(row.type || '')
 
-  if (type === 'reservation_1d' || type === 'reservation_3d') {
-    // reservation_3d is legacy; new reminders are 1 day only.
+  if (type.startsWith('reservation_')) {
+    const isPending = type === 'reservation_pending'
     return {
       id: `reservation-${row.id}`,
       notificationId: row.id,

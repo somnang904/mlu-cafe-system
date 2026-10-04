@@ -37,6 +37,7 @@ import {
   translateDrinkNotes,
   translateMenuName,
 } from '../utils/menuNameTranslations'
+import { playAlertSound } from '../utils/soundAlert'
 
 const CATEGORY_FILTERS = [
   { id: 'All', labelKey: 'order.categories.all' },
@@ -207,6 +208,29 @@ export default function Order() {
     }
 
     setSentConfirmation(null)
+
+    const linkedStock = stockByMenu[menuItemId] || []
+    const outOfStock = linkedStock.find((st) => Number(st.stock) <= 0)
+    const lowStock = linkedStock.find((st) => Number(st.stock) > 0 && Number(st.stock) <= 3)
+
+    if (outOfStock) {
+      playAlertSound('critical')
+      pushBanner({
+        title: `${item.name} — ${t('order.outOfStock') || 'Out of stock'}`,
+        message: `${outOfStock.name} (0 in stock)`,
+        tone: 'error',
+        durationMs: 4000,
+      })
+    } else if (lowStock) {
+      playAlertSound('warning')
+      pushBanner({
+        title: `${item.name} — ${t('order.lowStock') || 'Low stock'}`,
+        message: `${lowStock.name} (${lowStock.stock} remaining)`,
+        tone: 'warning',
+        durationMs: 3500,
+      })
+    }
+
     setCart((prev) => {
       const existing = prev.find((cartItem) => lineIdentity(cartItem) === lineItem.id)
       if (existing) {

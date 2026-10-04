@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useState } from 'react'
-import { CheckCircle2, X } from 'lucide-react'
+import { AlertCircle, AlertTriangle, CheckCircle2, X } from 'lucide-react'
 
 const NotificationContext = createContext(null)
 
@@ -35,17 +35,28 @@ export function NotificationProvider({ children }) {
       {children}
       <div className="pointer-events-none fixed inset-x-0 top-4 z-[80] flex flex-col items-center gap-2 px-4 print:hidden">
         {banners.map((banner) => {
+          const isCriticalOrError = banner.tone === 'error' || banner.tone === 'critical'
           const toneClass =
-            banner.tone === 'error'
-              ? 'border-red-200 bg-red-50 text-red-900 dark:border-red-800/60 dark:bg-red-950/90 dark:text-red-100'
-              : 'border-emerald-200 bg-emerald-50 text-emerald-950 dark:border-emerald-800/60 dark:bg-emerald-950/90 dark:text-emerald-50'
+            isCriticalOrError
+              ? 'border-red-200 bg-red-50 text-red-950 dark:border-red-800/60 dark:bg-red-950/90 dark:text-red-100'
+              : banner.tone === 'warning'
+                ? 'border-amber-200 bg-amber-50 text-amber-950 dark:border-amber-800/60 dark:bg-amber-950/90 dark:text-amber-100'
+                : 'border-emerald-200 bg-emerald-50 text-emerald-950 dark:border-emerald-800/60 dark:bg-emerald-950/90 dark:text-emerald-50'
+
+          const IconComponent =
+            isCriticalOrError
+              ? AlertCircle
+              : banner.tone === 'warning'
+                ? AlertTriangle
+                : CheckCircle2
+
           return (
             <div
               key={banner.id}
               className={`pointer-events-auto flex w-full max-w-lg items-start gap-3 rounded-2xl border px-4 py-3 shadow-xl backdrop-blur ${toneClass}`}
               role="status"
             >
-              <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 opacity-80" />
+              <IconComponent className="mt-0.5 h-5 w-5 shrink-0 opacity-80" />
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-semibold">{banner.title}</p>
                 {banner.message ? (

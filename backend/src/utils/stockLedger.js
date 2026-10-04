@@ -61,7 +61,7 @@ async function applyStockChange(conn, { inventoryId, change, reason, orderId = n
   }
 
   const [rows] = await conn.execute(
-    `SELECT stock_quantity, low_threshold, critical_threshold
+    `SELECT stock_quantity, low_threshold, critical_threshold, item_name, unit_label
      FROM inventory WHERE id = ? FOR UPDATE`,
     [inventoryId],
   )
@@ -83,7 +83,15 @@ async function applyStockChange(conn, { inventoryId, change, reason, orderId = n
     [inventoryId, amount, next, reason, orderId, note, userId],
   )
 
-  return { inventoryId, quantity: next, change: amount, status }
+  return {
+    inventoryId,
+    quantity: next,
+    change: amount,
+    status,
+    itemName: rows[0].item_name,
+    unit: rows[0].unit_label || 'units',
+    isCritical: status === 'OUT_OF_STOCK' || (critical != null && next <= critical) || next <= 0,
+  }
 }
 
 async function loadDirectLinks(conn, menuIds) {
@@ -125,17 +133,21 @@ async function reconcileOrderStock(conn, orderId, lines, userId) {
   const taken = await loadNetTaken(conn, orderId)
   const deltas = planStockDeltas(lines, links, taken)
 
+  const lowStockWarnings = []
   for (const entry of deltas) {
-    await applyStockChange(conn, {
+    const result = await applyStockChange(conn, {
       inventoryId: entry.inventoryId,
       change: roundStock(-entry.delta),
       reason: entry.delta > 0 ? 'sale' : 'cancel',
       orderId,
       userId,
     })
+    if (result && (result.status === 'LOW_STOCK' || result.status === 'OUT_OF_STOCK' || result.isCritical)) {
+      lowStockWarnings.push(result)
+    }
   }
 
-  return deltas
+  return { deltas, lowStockWarnings }
 }
 
 async function addReceivedStock(conn, { inventoryId, quantity, userId }) {

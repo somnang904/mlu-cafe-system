@@ -9,7 +9,7 @@ import {
   ShieldAlert,
   Wallet,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 const SEVERITY_STYLES = {
@@ -267,7 +267,16 @@ export default function AlertCenter({
   maxItems,
 }) {
   const { t } = useTranslation()
-  const visibleAlerts = maxItems ? alerts.slice(0, maxItems) : alerts
+  const sortedAlerts = useMemo(() => {
+    return [...(alerts || [])].sort((a, b) => {
+      const timeA = new Date(a.timestamp || a.created_at || 0).getTime()
+      const timeB = new Date(b.timestamp || b.created_at || 0).getTime()
+      if (timeB !== timeA) return timeB - timeA
+      const rank = (s) => (s === 'critical' ? 0 : s === 'warning' ? 1 : 2)
+      return rank(a.severity) - rank(b.severity)
+    })
+  }, [alerts])
+  const visibleAlerts = maxItems ? sortedAlerts.slice(0, maxItems) : sortedAlerts
   const total = counts?.total ?? alerts.length
   const isWidget = variant === 'widget'
 

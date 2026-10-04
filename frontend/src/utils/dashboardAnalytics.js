@@ -90,17 +90,31 @@ export function buildPopularPicks(orders, limit = 6) {
       const name = String(line?.name || '').trim()
       if (!name) continue
       const quantity = Number.parseFloat(line.qty)
-      counts.set(name, (counts.get(name) || 0) + (Number.isFinite(quantity) ? quantity : 0))
+      const current = counts.get(name) || {
+        sold: 0,
+        menuItemId: line.menu_item_id || line.menuItemId || null,
+        imageUrl: line.image_url || line.imageUrl || '',
+      }
+      current.sold += Number.isFinite(quantity) ? quantity : 0
+      if (!current.menuItemId && (line.menu_item_id || line.menuItemId)) {
+        current.menuItemId = line.menu_item_id || line.menuItemId
+      }
+      if (!current.imageUrl && (line.image_url || line.imageUrl)) {
+        current.imageUrl = line.image_url || line.imageUrl
+      }
+      counts.set(name, current)
     }
   }
 
   return [...counts.entries()]
-    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .sort((left, right) => right[1].sold - left[1].sold || left[0].localeCompare(right[0]))
     .slice(0, limit)
-    .map(([name, sold], index) => ({
+    .map(([name, data], index) => ({
       rank: index + 1,
       name,
-      sold: Math.round(sold),
+      sold: Math.round(data.sold),
+      menuItemId: data.menuItemId,
+      imageUrl: data.imageUrl,
     }))
 }
 

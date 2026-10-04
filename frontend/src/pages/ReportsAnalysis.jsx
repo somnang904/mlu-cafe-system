@@ -320,23 +320,10 @@ export default function ReportsAnalysis() {
     loadExpenses()
   }, [selectedMonth, loadSalesHistory, loadExpenses])
 
-  // Initial load + Realtime live sync polling & cross-tab events
+  // Load once, then update only when an order is paid (this tab or another tab)
   useEffect(() => {
     refreshReportData()
 
-    // Realtime polling every 4 seconds
-    const interval = setInterval(refreshReportData, 4000)
-
-    // Window focus & tab visibility handlers
-    const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        refreshReportData()
-      }
-    }
-    window.addEventListener('focus', refreshReportData)
-    document.addEventListener('visibilitychange', onVisibilityChange)
-
-    // Cross-tab BroadcastChannel sync
     let channel
     try {
       channel = new BroadcastChannel('mlu-pos-sync')
@@ -345,13 +332,9 @@ export default function ReportsAnalysis() {
       }
     } catch (_) {}
 
-    // In-tab custom event
     window.addEventListener('mlu-order-completed', refreshReportData)
 
     return () => {
-      clearInterval(interval)
-      window.removeEventListener('focus', refreshReportData)
-      document.removeEventListener('visibilitychange', onVisibilityChange)
       window.removeEventListener('mlu-order-completed', refreshReportData)
       if (channel) channel.close()
     }

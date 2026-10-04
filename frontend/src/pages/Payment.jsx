@@ -7,6 +7,7 @@ import { useNotifications } from '../context/NotificationContext'
 import { PAYMENT_QUEUE_STATUS } from '../data/tables'
 import { calculateTotals } from '../utils/posHelpers'
 import { translateDrinkNotes, translateMenuName, translateMenuSummary } from '../utils/menuNameTranslations'
+import { playAlertSound } from '../utils/soundAlert'
 import PaymentModule from '../components/pos/PaymentModule'
 import ReceiptModal from '../components/pos/ReceiptModal'
 
@@ -261,6 +262,22 @@ export default function Payment() {
         tone: 'success',
       })
       loadSalesHistory?.()
+
+      if (transaction.lowStockItems && transaction.lowStockItems.length > 0) {
+        const hasCritical = transaction.lowStockItems.some((it) => it.isCritical)
+        playAlertSound(hasCritical ? 'critical' : 'warning')
+        const itemsList = transaction.lowStockItems
+          .map((it) => `${it.itemName} (${it.quantity} ${it.unit})`)
+          .join(', ')
+        pushBanner({
+          title: hasCritical
+            ? (t('payment.criticalStockAlertTitle') || 'Critical Stock Alert')
+            : (t('payment.lowStockAlertTitle') || 'Low Stock Alert'),
+          message: `${t('payment.lowStockAlertDesc') || 'Item running low'}: ${itemsList}`,
+          tone: hasCritical ? 'error' : 'warning',
+          durationMs: 8000,
+        })
+      }
     }
   }
 

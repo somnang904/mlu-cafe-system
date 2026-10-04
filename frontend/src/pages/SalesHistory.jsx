@@ -73,17 +73,6 @@ export default function SalesHistory() {
 
     loadMonthHistory()
 
-    // Realtime polling every 4 seconds
-    const interval = setInterval(loadMonthHistory, 4000)
-
-    const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        loadMonthHistory()
-      }
-    }
-    window.addEventListener('focus', loadMonthHistory)
-    document.addEventListener('visibilitychange', onVisibilityChange)
-
     let channel
     try {
       channel = new BroadcastChannel('mlu-pos-sync')
@@ -95,9 +84,6 @@ export default function SalesHistory() {
     window.addEventListener('mlu-order-completed', loadMonthHistory)
 
     return () => {
-      clearInterval(interval)
-      window.removeEventListener('focus', loadMonthHistory)
-      document.removeEventListener('visibilitychange', onVisibilityChange)
       window.removeEventListener('mlu-order-completed', loadMonthHistory)
       if (channel) channel.close()
     }

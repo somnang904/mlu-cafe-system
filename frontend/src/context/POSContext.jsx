@@ -341,19 +341,6 @@ export function POSProvider({ children }) {
     refreshActiveOrders()
     loadSalesHistory()
 
-    const interval = setInterval(() => {
-      refreshActiveOrders()
-    }, 4000)
-
-    const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        refreshActiveOrders()
-        loadSalesHistory()
-      }
-    }
-    window.addEventListener('focus', onVisibilityChange)
-    document.addEventListener('visibilitychange', onVisibilityChange)
-
     let channel
     try {
       channel = new BroadcastChannel('mlu-pos-sync')
@@ -364,9 +351,6 @@ export function POSProvider({ children }) {
     } catch (_) {}
 
     return () => {
-      clearInterval(interval)
-      window.removeEventListener('focus', onVisibilityChange)
-      document.removeEventListener('visibilitychange', onVisibilityChange)
       if (channel) channel.close()
     }
   }, [refreshActiveOrders, loadSalesHistory])
@@ -556,6 +540,7 @@ export function POSProvider({ children }) {
         source: bill.name,
         summary: bill.orderSummary,
         items: bill.items.map((item) => ({ ...item })),
+        lowStockItems: Array.isArray(data.low_stock_items) ? data.low_stock_items : [],
       }
 
       setSalesHistory((prev) => [transaction, ...prev])

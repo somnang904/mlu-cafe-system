@@ -208,12 +208,25 @@ export default function Dashboard({ onNavigate }) {
     const menuByName = new Map(
       menuItems.map((item) => [String(item.name || '').trim().toLowerCase(), item]),
     )
+    const menuById = new Map(
+      menuItems.map((item) => [Number(item.id), item]),
+    )
     return picks.map((pick) => {
-      const menuItem = menuByName.get(pick.name.toLowerCase())
+      // 1. By menu_item_id if available
+      let menuItem = pick.menuItemId ? menuById.get(Number(pick.menuItemId)) : null
+      // 2. Direct exact name match (e.g. "Fresh Mango")
+      if (!menuItem) {
+        menuItem = menuByName.get(pick.name.toLowerCase())
+      }
+      // 3. Clean base name (strip "(Hot)", "(Iced · Sugar: 100%)", etc.)
+      if (!menuItem) {
+        const cleanName = pick.name.replace(/\s*\([^)]*\)\s*$/, '').trim().toLowerCase()
+        menuItem = menuByName.get(cleanName)
+      }
       return {
         ...pick,
-        imageUrl: menuItem?.image_url || '',
-        menuItemId: menuItem?.id ?? null,
+        imageUrl: pick.imageUrl || menuItem?.image_url || '',
+        menuItemId: menuItem?.id ?? pick.menuItemId ?? null,
       }
     })
   }, [orders, menuItems])

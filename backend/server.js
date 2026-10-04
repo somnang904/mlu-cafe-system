@@ -114,7 +114,7 @@ const {
     TIME_SLOTS,
     ALL_STATUSES,
 } = require('./src/utils/reservations');
-const { processReservationReminders, startReservationReminderJob } = require('./src/utils/reservationReminders');
+const { processReservationReminders, startReservationReminderJob, notifyReservationCreated } = require('./src/utils/reservationReminders');
 const { sendReservationConfirmationLetter } = require('./src/utils/reservationLetter');
 const { getLiveConditions } = require('./src/utils/liveConditions');
 const { createUserSession } = require('./src/utils/userSessions');
@@ -1090,7 +1090,7 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
                 0,
             );
             const finalTotal = Math.round(computed * 100) / 100;
-            await reconcileOrderStock(conn, orderId, lines, req.user?.id ?? null);
+            const stockOutcome = await reconcileOrderStock(conn, orderId, lines, req.user?.id ?? null);
 
             const invoiceId = await allocateNextInvoiceId(conn);
 
@@ -1128,7 +1128,13 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
                 }
             }
 
-            return { orderId, finalTotal, invoiceId, tableStatus: clear_table === false ? 'Paid' : 'Empty' };
+            return {
+                orderId,
+                finalTotal,
+                invoiceId,
+                tableStatus: clear_table === false ? 'Paid' : 'Empty',
+                lowStockItems: stockOutcome?.lowStockWarnings || [],
+            };
         });
 
         await auditFromRequest(db, req, {
@@ -1141,6 +1147,7 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
         res.status(200).json({
             message: 'Transaction completed and locked successfully.',
             invoice_id: outcome.invoiceId,
+            low_stock_items: outcome.lowStockItems || [],
         });
     } catch (error) {
         if (error.status === 400 || error.status === 404) {
@@ -1305,7 +1312,9 @@ app.get('/api/orders/history', requireSalesHistoryAccess, async (req, res) => {
             `
             SELECT
                 oi.order_id,
+                oi.menu_item_id,
                 COALESCE(m.name, oi.item_name, 'Custom item') AS name,
+                m.image_url,
                 oi.notes,
                 oi.quantity AS qty,
                 oi.price AS unitPrice,
@@ -1320,6 +1329,8 @@ app.get('/api/orders/history', requireSalesHistoryAccess, async (req, res) => {
         const itemsByOrder = itemRows.reduce((acc, row) => {
             if (!acc[row.order_id]) acc[row.order_id] = [];
             acc[row.order_id].push({
+                menu_item_id: row.menu_item_id,
+                image_url: row.image_url,
                 name: formatOrderLineName(row.name, row.notes),
                 notes: row.notes || '',
                 qty: row.qty,
@@ -1384,7 +1395,13 @@ app.get('/api/alerts', async (req, res) => {
             ? await listNewSecurityAlertFeed(db)
             : [];
         const stockAlerts = canSeeStock ? (payload.alerts || []) : [];
-        const alerts = [...securityAlerts, ...storedAlerts, ...stockAlerts];
+        const alerts = [...securityAlerts, ...storedAlerts, ...stockAlerts].sort((a, b) => {
+            const timeA = new Date(a.timestamp || a.created_at || 0).getTime();
+            const timeB = new Date(b.timestamp || b.created_at || 0).getTime();
+            if (timeB !== timeA) return timeB - timeA;
+            const rank = (s) => (s === 'critical' ? 0 : s === 'warning' ? 1 : 2);
+            return rank(a.severity) - rank(b.severity);
+        });
         const counts = summarizeAlertCounts(alerts);
         res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
         return res.status(200).json({ ...payload, alerts, counts });
@@ -2335,6 +2352,7 @@ app.get('/api/reservations/:id', requireReservationsAccess, async (req, res) => 
 app.post('/api/reservations', requireReservationsAccess, async (req, res) => {
     try {
         const reservation = await createReservation(db, req.body, req.user)
+        notifyReservationCreated(db, reservation).catch(() => null)
         res.status(201).json(reservation)
     } catch (error) {
         return sendReservationFailure(res, error, 'POST /api/reservations');
@@ -2344,6 +2362,9 @@ app.post('/api/reservations', requireReservationsAccess, async (req, res) => {
 app.put('/api/reservations/:id', requireReservationsAccess, async (req, res) => {
     try {
         const reservation = await updateReservation(db, req.params.id, req.body)
+        if (req.body?.status === 'Pending') {
+            notifyReservationCreated(db, reservation).catch(() => null)
+        }
         res.status(200).json(reservation)
     } catch (error) {
         return sendReservationFailure(res, error, 'PUT /api/reservations/:id');
