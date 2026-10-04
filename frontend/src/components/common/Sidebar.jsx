@@ -6,6 +6,7 @@ import { useAuth } from '../../context/AuthContext'
 
 import { STORE } from '../../config/store'
 import BrandLogo from './BrandLogo'
+import ConfirmDeleteModal from '../ui/ConfirmDeleteModal'
 
 import {
 
@@ -271,6 +272,8 @@ export default function Sidebar({ activePage, onNavigate, mobileOpen = false, on
 
   const [othersExpanded, setOthersExpanded] = useState(false)
 
+  const [confirmSignOut, setConfirmSignOut] = useState(false)
+
   const visibleNav = useMemo(
     () =>
       sidebarNavigation.flatMap((item) => {
@@ -332,6 +335,8 @@ export default function Sidebar({ activePage, onNavigate, mobileOpen = false, on
 
 
   return (
+
+    <>
 
     <aside
 
@@ -427,13 +432,7 @@ export default function Sidebar({ activePage, onNavigate, mobileOpen = false, on
 
           type="button"
 
-          onClick={() => {
-
-            onMobileClose?.()
-
-            logout()
-
-          }}
+          onClick={() => setConfirmSignOut(true)}
 
           className="interactive-nav flex min-h-9 w-full cursor-pointer select-none items-center justify-center gap-0 rounded-xl px-2 py-1.5 text-sm font-semibold text-rose-600 transition hover:bg-rose-50 lg:justify-start lg:gap-3 lg:px-3 dark:text-rose-400 dark:hover:bg-rose-950/30"
 
@@ -448,6 +447,22 @@ export default function Sidebar({ activePage, onNavigate, mobileOpen = false, on
       </div>
 
     </aside>
+
+    {/* Rendered outside <aside>: its transform/backdrop-blur would trap a fixed overlay inside the sidebar. */}
+    <ConfirmDeleteModal
+      isOpen={confirmSignOut}
+      title={t('nav.signOutConfirmTitle')}
+      message={t('nav.signOutConfirmMessage')}
+      confirmLabel={t('nav.signOut')}
+      onCancel={() => setConfirmSignOut(false)}
+      onConfirm={() => {
+        setConfirmSignOut(false)
+        onMobileClose?.()
+        logout()
+      }}
+    />
+
+    </>
 
   )
 
