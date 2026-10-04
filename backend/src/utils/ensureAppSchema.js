@@ -11,6 +11,7 @@ const { ensureAdminNotificationsSchema } = require('./adminNotifications')
 const { ensureReservationsSchema } = require('./reservations')
 const { ensureAppSettingsSchema } = require('./appSettings')
 const { ensureLoginSecuritySchema } = require('./loginSecurity')
+const { ensureShiftsSchema } = require('./shifts')
 
 async function ensureApplicationSchema(db) {
   await ensureInventorySchema(db)
@@ -26,6 +27,7 @@ async function ensureApplicationSchema(db) {
   await ensureAppSettingsSchema(db)
   await ensureLoginSecuritySchema(db)
   await ensureSessionSecuritySchema(db)
+  await ensureShiftsSchema(db)
   return restoredSaleDates
 }
 

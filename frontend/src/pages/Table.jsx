@@ -5,6 +5,7 @@ import {
   BaggageClaim,
   Check,
   Crown,
+  GitMerge,
   LayoutGrid,
   Phone,
   Plus,
@@ -24,6 +25,7 @@ import { calculateTotals } from '../utils/posHelpers'
 import { translateMenuSummary } from '../utils/menuNameTranslations'
 import { apiFetch, getAuthToken } from '../services/apiClient'
 import { useModalKeyboard } from '../hooks/useModalKeyboard'
+import MergeTableModal from '../components/pos/MergeTableModal'
 
 function getFloorStatus(bill, reservation) {
   if (bill?.status === 'paid') return 'paid'
@@ -904,6 +906,7 @@ export default function Table() {
     addTable,
     transferTable,
     clearTable,
+    mergeTables,
     refreshFloorTables,
   } = usePOS()
   const { refresh: refreshAlerts } = useAlerts()
@@ -913,6 +916,7 @@ export default function Table() {
   const [previewError, setPreviewError] = useState('')
 
   const [showAddModal, setShowAddModal] = useState(false)
+  const [showMergeModal, setShowMergeModal] = useState(false)
   const [transferSource, setTransferSource] = useState(null)
   const [clearTarget, setClearTarget] = useState(null)
   const [toastMessage, setToastMessage] = useState('')
@@ -1074,6 +1078,13 @@ export default function Table() {
     }
   }
 
+  const handleMergeTables = async (fromId, toId) => {
+    await mergeTables(fromId, toId)
+    showToast(t('tables.mergedSuccess', { defaultValue: 'Tables merged successfully' }))
+    await refreshFloorTables?.()
+    await loadFloorReservations()
+  }
+
   return (
     <div className="space-y-6">
       {toastMessage && (
@@ -1095,6 +1106,14 @@ export default function Table() {
           >
             <Plus className="h-4 w-4" />
             {t('tables.addTable')}
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowMergeModal(true)}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-white px-3.5 py-1.5 text-sm font-semibold text-foreground shadow-sm hover:bg-slate-50 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+          >
+            <GitMerge className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+            {t('tables.mergeTables', { defaultValue: 'Merge Tables' })}
           </button>
           <div className="badge-olive inline-flex items-center gap-2 self-start px-3 py-1.5 text-sm">
             <LayoutGrid className="h-4 w-4" />
@@ -1189,6 +1208,13 @@ export default function Table() {
         onClose={() => setClearTarget(null)}
         bill={clearTarget}
         onClear={handleClearTable}
+      />
+
+      <MergeTableModal
+        isOpen={showMergeModal}
+        onClose={() => setShowMergeModal(false)}
+        tables={tables}
+        onMerge={handleMergeTables}
       />
 
       <ReservationPreview

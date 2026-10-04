@@ -127,7 +127,7 @@ export function filterOrdersByMonth(orders, monthKey) {
 export function filterCompletedOrders(orders) {
   return orders.filter((order) => {
     const status = String(order.status || '').trim().toLowerCase()
-    return status === 'completed' || status === 'paid'
+    return status === 'completed' || status === 'paid' || status === 'refunded'
   })
 }
 
@@ -150,6 +150,7 @@ export function buildDailySalesForMonth(orders, monthKey) {
   const bucketMap = Object.fromEntries(buckets.map((bucket) => [bucket.key, bucket]))
 
   for (const order of orders) {
+    if (String(order.status || '').toLowerCase() === 'refunded') continue
     const dateKey = normalizeOrderDate(order)
     if (!dateKey || !dateKey.startsWith(monthKey)) continue
     const bucket = bucketMap[dateKey]
@@ -171,7 +172,9 @@ export function buildMonthlyTotalsChart(orders, monthOptions) {
   return monthEntries
     .map((option) => {
       const monthKey = option.value
-      const monthOrders = filterOrdersByMonth(orders, monthKey)
+      const monthOrders = filterOrdersByMonth(orders, monthKey).filter(
+        (o) => String(o.status || '').toLowerCase() !== 'refunded',
+      )
       const revenue = monthOrders.reduce(
         (sum, order) => sum + Number.parseFloat(order.total || 0),
         0,
@@ -189,17 +192,21 @@ export function buildMonthlyTotalsChart(orders, monthOptions) {
 }
 
 export function summarizeSalesMetrics(orders) {
-  const grossRevenue = orders.reduce((sum, order) => sum + Number.parseFloat(order.total || 0), 0)
-  const cashTotal = orders
+  const validOrders = orders.filter((o) => String(o.status || '').toLowerCase() !== 'refunded')
+  const refundedOrders = orders.filter((o) => String(o.status || '').toLowerCase() === 'refunded')
+
+  const grossRevenue = validOrders.reduce((sum, order) => sum + Number.parseFloat(order.total || 0), 0)
+  const cashTotal = validOrders
     .filter((order) => order.payment === 'Cash')
     .reduce((sum, order) => sum + Number.parseFloat(order.total || 0), 0)
-  const bankScanTotal = orders
+  const bankScanTotal = validOrders
     .filter((order) => order.payment === 'Bank Scan')
     .reduce((sum, order) => sum + Number.parseFloat(order.total || 0), 0)
 
   return {
     grossRevenue: Math.round(grossRevenue * 100) / 100,
-    ordersFulfilled: orders.length,
+    ordersFulfilled: validOrders.length,
+    ordersRefunded: refundedOrders.length,
     cashTotal: Math.round(cashTotal * 100) / 100,
     bankScanTotal: Math.round(bankScanTotal * 100) / 100,
   }

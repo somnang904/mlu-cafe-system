@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { CheckCircle2, CreditCard, Minus, Receipt } from 'lucide-react'
+import { CheckCircle2, Clock, CreditCard, Minus, Receipt, Scissors } from 'lucide-react'
 import { usePOS } from '../context/POSContext'
 import { useConnection } from '../context/ConnectionContext'
 import { useNotifications } from '../context/NotificationContext'
@@ -10,6 +10,8 @@ import { translateDrinkNotes, translateMenuName, translateMenuSummary } from '..
 import { playAlertSound } from '../utils/soundAlert'
 import PaymentModule from '../components/pos/PaymentModule'
 import ReceiptModal from '../components/pos/ReceiptModal'
+import SplitBillModal from '../components/pos/SplitBillModal'
+import ShiftModal from '../components/pos/ShiftModal'
 
 function ActiveBillList({ bills, selectedId, onSelect }) {
   const { t, i18n } = useTranslation()
@@ -63,6 +65,7 @@ function BillManager({
   onDecrementItem,
   onUpdateItemPrice,
   onPaymentComplete,
+  onSplitBill,
   serverReachable,
 }) {
   const { t, i18n } = useTranslation()
@@ -93,14 +96,27 @@ function BillManager({
   return (
     <div className="flex h-full flex-col">
       <div className="border-b border-border px-6 py-5">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-2xl surface-emerald text-emerald-900 dark:text-emerald-300">
-            <Receipt className="h-5 w-5" />
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl surface-emerald text-emerald-900 dark:text-emerald-300">
+              <Receipt className="h-5 w-5" />
+            </div>
+            <div>
+              <h3 className="text-heading text-lg font-bold">{bill.name}</h3>
+              <p className="text-muted text-sm">{t('payment.itemizedCheckout')}</p>
+            </div>
           </div>
-          <div>
-            <h3 className="text-heading text-lg font-bold">{bill.name}</h3>
-            <p className="text-muted text-sm">{t('payment.itemizedCheckout')}</p>
-          </div>
+
+          {bill.items.length > 1 && (
+            <button
+              type="button"
+              onClick={onSplitBill}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-500/20 dark:text-emerald-300"
+            >
+              <Scissors className="h-3.5 w-3.5" />
+              {t('payment.splitBill', { defaultValue: 'Split Bill' })}
+            </button>
+          )}
         </div>
       </div>
 
@@ -187,6 +203,7 @@ function BillManager({
             ) : null}
             <PaymentModule
               disabled={bill.items.length === 0 || !serverReachable}
+              billTotal={total}
               onConfirm={(method, options) => onPaymentComplete(method, options)}
             />
           </div>
@@ -208,12 +225,15 @@ export default function Payment() {
     decrementBillItem,
     updateBillItemPrice,
     processPayment,
+    processSplitPayment,
     loadSalesHistory,
   } = usePOS()
 
   const activeBills = getActiveBills()
   const [selectedId, setSelectedId] = useState(null)
   const [completedReceipt, setCompletedReceipt] = useState(null)
+  const [showSplitModal, setShowSplitModal] = useState(false)
+  const [showShiftModal, setShowShiftModal] = useState(false)
 
   useEffect(() => {
     if (paymentTargetId != null) {
@@ -241,7 +261,7 @@ export default function Payment() {
     if (!selectedBill) return
     const sourceLabel = selectedBill.name || selectedBill.source || t('payment.orderSource')
     const clearImmediately = options.clearImmediately ?? true
-    const transaction = await processPayment(selectedBill.id, paymentMethod, clearImmediately)
+    const transaction = await processPayment(selectedBill.id, paymentMethod, clearImmediately, options)
     if (!transaction) {
       pushBanner({
         title: t('connection.serverDown'),
@@ -281,10 +301,47 @@ export default function Payment() {
     }
   }
 
+  const handlePaySplit = async (splitItems, paymentMethod, options = {}) => {
+    if (!selectedBill) return
+    try {
+      const transaction = await processSplitPayment(
+        selectedBill.id,
+        splitItems,
+        paymentMethod,
+        options.clearImmediately ?? false,
+        options,
+      )
+      if (transaction) {
+        setShowSplitModal(false)
+        setCompletedReceipt(transaction)
+        pushBanner({
+          title: t('payment.receivedTitle'),
+          message: t('payment.splitPaidSuccess', { defaultValue: 'Split payment completed successfully.' }),
+          tone: 'success',
+        })
+        loadSalesHistory?.()
+      }
+    } catch (err) {
+      pushBanner({
+        title: t('common.error', { defaultValue: 'Error' }),
+        message: err.message,
+        tone: 'error',
+      })
+    }
+  }
+
   return (
     <div className="space-y-6 page-enter">
-      <div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className="page-title">{t('nav.payment')}</h3>
+        <button
+          type="button"
+          onClick={() => setShowShiftModal(true)}
+          className="inline-flex items-center gap-2 rounded-2xl border border-border bg-white px-3.5 py-2 text-xs font-semibold text-foreground shadow-sm hover:bg-slate-50 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+        >
+          <Clock className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+          {t('shifts.manageShift', { defaultValue: 'Shift & Cash Drawer' })}
+        </button>
       </div>
 
       <div className="flex min-h-[calc(100vh-12rem)] flex-col gap-4 lg:flex-row">
@@ -313,6 +370,7 @@ export default function Payment() {
                 updateBillItemPrice(selectedBill.id, itemId, price)
               }
               onPaymentComplete={handlePaymentComplete}
+              onSplitBill={() => setShowSplitModal(true)}
               serverReachable={backendReachable}
             />
           ) : selectedBill ? (
@@ -352,6 +410,22 @@ export default function Payment() {
               console.error('Failed to refresh sales history:', err.message)
             })
           }}
+        />
+      )}
+
+      {showSplitModal && selectedBill && (
+        <SplitBillModal
+          isOpen={showSplitModal}
+          onClose={() => setShowSplitModal(false)}
+          bill={selectedBill}
+          onPaySplit={handlePaySplit}
+        />
+      )}
+
+      {showShiftModal && (
+        <ShiftModal
+          isOpen={showShiftModal}
+          onClose={() => setShowShiftModal(false)}
         />
       )}
     </div>

@@ -197,9 +197,40 @@ function ReceiptTemplate({ transaction, onQrSettled }) {
           <span className="tabular-nums">${transaction.subtotal.toFixed(2)}</span>
         </div>
         <div className="flex justify-between border-t border-emerald-100 pt-2 text-base font-bold text-stone-900">
-          <span>{t('payment.totalPaid')}</span>
+          <span>{t('payment.totalPaid')} (USD)</span>
           <span className="tabular-nums">${transaction.total.toFixed(2)}</span>
         </div>
+        <div className="flex justify-between text-sm font-semibold text-emerald-800">
+          <span>{t('payment.totalPaid')} (KHR)</span>
+          <span className="tabular-nums">{((Math.round(transaction.total * (transaction.exchange_rate || 4100) / 100) * 100)).toLocaleString()} ៛</span>
+        </div>
+        <div className="text-right text-[10px] text-stone-400">
+          1 USD = {(transaction.exchange_rate || 4100).toLocaleString()} KHR
+        </div>
+
+        {/* Cash Received & Change Breakdown if recorded */}
+        {(transaction.received_usd > 0 || transaction.received_khr > 0 || transaction.change_usd > 0 || transaction.change_khr > 0) && (
+          <div className="mt-2 space-y-1 border-t border-dashed border-stone-200 pt-2 text-xs text-stone-600">
+            {(transaction.received_usd > 0 || transaction.received_khr > 0) && (
+              <div className="flex justify-between">
+                <span>{t('payment.received', { defaultValue: 'Cash Received' })}</span>
+                <span className="tabular-nums font-medium">
+                  {transaction.received_usd > 0 ? `$${Number(transaction.received_usd).toFixed(2)} ` : ''}
+                  {transaction.received_khr > 0 ? `${Number(transaction.received_khr).toLocaleString()} ៛` : ''}
+                </span>
+              </div>
+            )}
+            {(transaction.change_usd > 0 || transaction.change_khr > 0) && (
+              <div className="flex justify-between text-emerald-800 font-semibold">
+                <span>{t('payment.changeDue', { defaultValue: 'Change' })}</span>
+                <span className="tabular-nums">
+                  {transaction.change_usd > 0 ? `$${Number(transaction.change_usd).toFixed(2)} ` : ''}
+                  {transaction.change_khr > 0 ? `(${Number(transaction.change_khr).toLocaleString()} ៛)` : ''}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="mt-4 rounded-lg border border-dashed border-emerald-400 bg-emerald-50 px-4 py-3 text-center">

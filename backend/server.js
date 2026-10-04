@@ -73,7 +73,14 @@ const {
     adjustStockToCount,
     withTransaction,
 } = require('./src/utils/stockLedger');
+const bcrypt = require('bcrypt');
 const { ensureOrdersSchema } = require('./src/utils/ordersSchema');
+const {
+    getCurrentShift,
+    startShift,
+    endShift,
+    listShiftHistory,
+} = require('./src/utils/shifts');
 const {
     ensureExpensesSchema,
     listExpenses,
@@ -1040,6 +1047,11 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
         payment_method,
         table_id,
         clear_table = true,
+        received_usd = null,
+        received_khr = null,
+        change_usd = null,
+        change_khr = null,
+        exchange_rate = null,
     } = req.body ?? {};
 
     if (!target_id) {
@@ -1094,10 +1106,17 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
 
             const invoiceId = await allocateNextInvoiceId(conn);
 
+            const recUsd = received_usd != null && Number.isFinite(Number(received_usd)) ? Number(received_usd) : null;
+            const recKhr = received_khr != null && Number.isFinite(Number(received_khr)) ? Number(received_khr) : null;
+            const chgUsd = change_usd != null && Number.isFinite(Number(change_usd)) ? Number(change_usd) : null;
+            const chgKhr = change_khr != null && Number.isFinite(Number(change_khr)) ? Number(change_khr) : null;
+            const exRate = exchange_rate != null && Number.isFinite(Number(exchange_rate)) ? Number(exchange_rate) : null;
+
             const [result] = await conn.execute(
                 `UPDATE orders
                  SET invoice_id = ?, payment_method = ?, payment_type = ?, subtotal = ?, tax = ?, total = ?,
-                     total_amount = ?, table_id = ?, status = 'Completed', updated_at = NOW()
+                     total_amount = ?, table_id = ?, received_usd = ?, received_khr = ?, change_usd = ?,
+                     change_khr = ?, exchange_rate = ?, status = 'Completed', updated_at = NOW()
                  WHERE id = ? AND ${sql}`,
                 [
                     invoiceId,
@@ -1108,6 +1127,11 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
                     finalTotal,
                     finalTotal,
                     resolvedTableId,
+                    recUsd,
+                    recKhr,
+                    chgUsd,
+                    chgKhr,
+                    exRate,
                     orderId,
                     ...params,
                 ],
@@ -1134,6 +1158,11 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
                 invoiceId,
                 tableStatus: clear_table === false ? 'Paid' : 'Empty',
                 lowStockItems: stockOutcome?.lowStockWarnings || [],
+                received_usd: recUsd,
+                received_khr: recKhr,
+                change_usd: chgUsd,
+                change_khr: chgKhr,
+                exchange_rate: exRate,
             };
         });
 
@@ -1148,6 +1177,11 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
             message: 'Transaction completed and locked successfully.',
             invoice_id: outcome.invoiceId,
             low_stock_items: outcome.lowStockItems || [],
+            received_usd: outcome.received_usd,
+            received_khr: outcome.received_khr,
+            change_usd: outcome.change_usd,
+            change_khr: outcome.change_khr,
+            exchange_rate: outcome.exchange_rate,
         });
     } catch (error) {
         if (error.status === 400 || error.status === 404) {
@@ -1158,6 +1192,292 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
             normalized_target: target.key,
         });
         res.status(500).json({ message: 'Error committing accounting metrics', errorId: logError(error, { route: `${req.method} ${req.originalUrl}` }) });
+    }
+});
+
+// 3b. SPLIT BILL CHECKOUT (Checkout selected items from an active table order)
+app.post('/api/orders/split-checkout', requirePermission('payment'), async (req, res) => {
+    if (rejectIfMaintenance(res)) return;
+    const {
+        target_id,
+        items, // array of { menu_item_id, notes, qty, unitPrice }
+        payment_method,
+        table_id,
+        clear_table = false,
+        received_usd = null,
+        received_khr = null,
+        change_usd = null,
+        change_khr = null,
+        exchange_rate = null,
+    } = req.body ?? {};
+
+    if (!target_id || !Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ message: 'Missing target_id or split items' });
+    }
+
+    const method = typeof payment_method === 'string' ? payment_method.trim() : '';
+    if (!method || !ALLOWED_PAYMENT_METHODS.has(method)) {
+        return res.status(400).json({ message: 'Invalid payment_method. Use Cash or Bank Scan.' });
+    }
+
+    let target;
+    try {
+        target = normalizeIncomingTarget(target_id);
+    } catch (validationError) {
+        return res.status(400).json({ message: validationError.message });
+    }
+
+    try {
+        const { sql, params } = pendingOrderWhereClause(target);
+        const outcome = await withTransaction(db, async (conn) => {
+            const originalOrderId = await findPendingOrderId(conn, target);
+            if (!originalOrderId) {
+                const err = new Error('No pending order found to split');
+                err.status = 404;
+                throw err;
+            }
+
+            const resolvedTableId =
+                target.sourceType === 'Take Out' ? null : await resolveTableForeignKey(conn, table_id ?? target.tableId);
+
+            // Compute split subtotal
+            const splitTotal = Math.round(
+                items.reduce((sum, item) => sum + (Number(item.qty || item.quantity || 1) * Number(item.unitPrice || item.price || 0)), 0) * 100
+            ) / 100;
+
+            const invoiceId = await allocateNextInvoiceId(conn);
+
+            const recUsd = received_usd != null && Number.isFinite(Number(received_usd)) ? Number(received_usd) : null;
+            const recKhr = received_khr != null && Number.isFinite(Number(received_khr)) ? Number(received_khr) : null;
+            const chgUsd = change_usd != null && Number.isFinite(Number(change_usd)) ? Number(change_usd) : null;
+            const chgKhr = change_khr != null && Number.isFinite(Number(change_khr)) ? Number(change_khr) : null;
+            const exRate = exchange_rate != null && Number.isFinite(Number(exchange_rate)) ? Number(exchange_rate) : null;
+
+            // 1. Create a new completed order for the split items
+            const [insertOrder] = await conn.execute(
+                `INSERT INTO orders
+                  (invoice_id, source_type, target_id, table_id, payment_method, payment_type, subtotal, tax,
+                   total, total_amount, received_usd, received_khr, change_usd, change_khr, exchange_rate, status, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, 'Completed', NOW())`,
+                [
+                    invoiceId,
+                    target.sourceType,
+                    target.tableId,
+                    resolvedTableId,
+                    method,
+                    method,
+                    splitTotal,
+                    splitTotal,
+                    splitTotal,
+                    recUsd,
+                    recKhr,
+                    chgUsd,
+                    chgKhr,
+                    exRate,
+                ],
+            );
+            const splitOrderId = insertOrder.insertId;
+
+            // 2. Insert order items for split order and deduct from original order
+            const stockLines = [];
+            for (const splitItem of items) {
+                const splitQty = Number(splitItem.qty || splitItem.quantity || 1);
+                const splitPrice = Number(splitItem.unitPrice || splitItem.price || 0);
+                const menuItemId = splitItem.menu_item_id ? Number(splitItem.menu_item_id) : null;
+                const notes = splitItem.notes ? String(splitItem.notes) : '';
+                const lineName = splitItem.name || 'Split Item';
+
+                await conn.execute(
+                    `INSERT INTO order_items (order_id, menu_item_id, item_name, quantity, price, subtotal, notes)
+                     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                    [splitOrderId, menuItemId, lineName, splitQty, splitPrice, splitQty * splitPrice, notes],
+                );
+
+                stockLines.push({
+                    menu_item_id: menuItemId,
+                    quantity: splitQty,
+                    price: splitPrice,
+                });
+
+                // Deduct from original order items
+                const [existingLines] = await conn.execute(
+                    `SELECT id, quantity FROM order_items
+                     WHERE order_id = ? AND (menu_item_id <=> ? OR item_name = ?) AND notes = ?
+                     ORDER BY id ASC`,
+                    [originalOrderId, menuItemId, lineName, notes],
+                );
+
+                let remainingToDeduct = splitQty;
+                for (const line of existingLines) {
+                    if (remainingToDeduct <= 0) break;
+                    if (line.quantity <= remainingToDeduct) {
+                        remainingToDeduct -= line.quantity;
+                        await conn.execute('DELETE FROM order_items WHERE id = ?', [line.id]);
+                    } else {
+                        await conn.execute(
+                            'UPDATE order_items SET quantity = quantity - ?, subtotal = (quantity - ?) * price WHERE id = ?',
+                            [remainingToDeduct, remainingToDeduct, line.id],
+                        );
+                        remainingToDeduct = 0;
+                    }
+                }
+            }
+
+            // Deduct stock for the split items
+            const stockOutcome = await reconcileOrderStock(conn, splitOrderId, stockLines, req.user?.id ?? null);
+
+            // 3. Check remaining items in original pending order
+            const [remainingLines] = await conn.execute(
+                'SELECT id, quantity, price FROM order_items WHERE order_id = ?',
+                [originalOrderId],
+            );
+
+            let tableStatus = 'Occupied';
+            if (remainingLines.length === 0) {
+                // All items on table paid
+                await conn.execute("UPDATE orders SET status = 'Completed', updated_at = NOW() WHERE id = ?", [originalOrderId]);
+                tableStatus = clear_table === false ? 'Paid' : 'Empty';
+                if (resolvedTableId) {
+                    await conn.execute('UPDATE tables SET status = ? WHERE id = ?', [tableStatus, resolvedTableId]);
+                }
+            } else {
+                // Table still has remaining items
+                const newPendingTotal = Math.round(
+                    remainingLines.reduce((sum, l) => sum + Number(l.quantity) * Number(l.price), 0) * 100
+                ) / 100;
+                await conn.execute(
+                    'UPDATE orders SET subtotal = ?, total = ?, total_amount = ?, updated_at = NOW() WHERE id = ?',
+                    [newPendingTotal, newPendingTotal, newPendingTotal, originalOrderId],
+                );
+            }
+
+            return {
+                splitOrderId,
+                invoiceId,
+                splitTotal,
+                remainingCount: remainingLines.length,
+                tableStatus,
+                lowStockItems: stockOutcome?.lowStockWarnings || [],
+            };
+        });
+
+        await auditFromRequest(db, req, {
+            action: 'split_payment_process',
+            module: 'Payment',
+            description: `Split payment received via ${method} for ${target.key === 'takeout' ? 'Take Out' : `Table ${target.key}`} / Invoice ${outcome.invoiceId} ($${outcome.splitTotal.toFixed(2)})`,
+        });
+
+        res.status(200).json({
+            message: 'Split payment completed successfully.',
+            invoice_id: outcome.invoiceId,
+            split_total: outcome.splitTotal,
+            remaining_count: outcome.remainingCount,
+            table_status: outcome.tableStatus,
+            low_stock_items: outcome.lowStockItems,
+        });
+    } catch (error) {
+        if (error.status === 400 || error.status === 404) {
+            return res.status(error.status).json({ message: error.message });
+        }
+        res.status(500).json({ message: 'Error processing split payment', errorId: logError(error, { route: `${req.method} ${req.originalUrl}` }) });
+    }
+});
+
+// 3c. VOID / REFUND COMPLETED ORDER WITH MANAGER APPROVAL & STOCK RESTORATION
+app.post('/api/orders/:id/refund', requirePermission('payment'), async (req, res) => {
+    if (rejectIfMaintenance(res)) return;
+    const orderId = Number.parseInt(req.params.id, 10);
+    if (!Number.isInteger(orderId) || orderId <= 0) {
+        return res.status(400).json({ message: 'Invalid order ID' });
+    }
+
+    const { reason, manager_username, manager_password } = req.body ?? {};
+    const trimmedReason = String(reason || '').trim();
+    if (!trimmedReason) {
+        return res.status(400).json({ message: 'A reason for refunding / voiding the order is required.' });
+    }
+
+    try {
+        let authorizedManagerId = req.user?.id;
+
+        // If current user is not Admin, verify manager credentials
+        if (!isAdminRole(req.user?.role)) {
+            if (!manager_username || !manager_password) {
+                return res.status(403).json({
+                    message: 'Manager authorization (Admin username & password) required to void or refund orders.',
+                });
+            }
+
+            const [adminUsers] = await db.execute(
+                'SELECT id, username, password, role, is_active FROM users WHERE username = ? LIMIT 1',
+                [String(manager_username).trim()],
+            );
+
+            if (!adminUsers.length || !isAdminRole(adminUsers[0].role) || !adminUsers[0].is_active) {
+                return res.status(403).json({ message: 'Invalid manager credentials or insufficient permissions.' });
+            }
+
+            const passwordValid = await bcrypt.compare(String(manager_password), String(adminUsers[0].password || ''));
+            if (!passwordValid) {
+                return res.status(403).json({ message: 'Invalid manager password.' });
+            }
+
+            authorizedManagerId = adminUsers[0].id;
+        }
+
+        const outcome = await withTransaction(db, async (conn) => {
+            const [orderRows] = await conn.execute(
+                'SELECT id, invoice_id, total, status FROM orders WHERE id = ? FOR UPDATE',
+                [orderId],
+            );
+            if (!orderRows.length) {
+                const err = new Error('Order not found');
+                err.status = 404;
+                throw err;
+            }
+
+            const order = orderRows[0];
+            if (String(order.status).toLowerCase() === 'refunded') {
+                const err = new Error('Order has already been refunded');
+                err.status = 400;
+                throw err;
+            }
+
+            // Restore all deducted stock for this order
+            await reconcileOrderStock(conn, orderId, [], authorizedManagerId);
+
+            // Update status to Refunded
+            await conn.execute(
+                `UPDATE orders
+                 SET status = 'Refunded',
+                     void_reason = ?,
+                     voided_by = ?,
+                     voided_at = NOW(),
+                     updated_at = NOW()
+                 WHERE id = ?`,
+                [trimmedReason, authorizedManagerId, orderId],
+            );
+
+            return order;
+        });
+
+        await auditFromRequest(db, req, {
+            action: 'order_refund',
+            module: 'Payment',
+            description: `Refunded / voided order #${orderId} (${outcome.invoice_id || 'no invoice'}) total $${Number(outcome.total).toFixed(2)}. Reason: ${trimmedReason}`,
+        });
+
+        res.status(200).json({
+            message: 'Order refunded successfully and stock has been restored.',
+            order_id: orderId,
+            invoice_id: outcome.invoice_id,
+            status: 'Refunded',
+        });
+    } catch (error) {
+        if (error.status === 400 || error.status === 403 || error.status === 404) {
+            return res.status(error.status).json({ message: error.message });
+        }
+        res.status(500).json({ message: 'Failed to refund order', errorId: logError(error, { route: `${req.method} ${req.originalUrl}` }) });
     }
 });
 
@@ -1292,11 +1612,18 @@ app.get('/api/orders/history', requireSalesHistoryAccess, async (req, res) => {
                 tax,
                 total,
                 status,
+                received_usd,
+                received_khr,
+                change_usd,
+                change_khr,
+                exchange_rate,
+                void_reason,
+                DATE_FORMAT(voided_at, '%Y-%m-%d %h:%i %p') AS voided_at,
                 DATE_FORMAT(updated_at, '%Y-%m-%d') AS date,
                 DATE_FORMAT(updated_at, '%h:%i %p') AS time,
                 DATE_FORMAT(updated_at, '%Y-%m') AS month_key
             FROM orders 
-            WHERE UPPER(status) IN ('COMPLETED', 'PAID')
+            WHERE UPPER(status) IN ('COMPLETED', 'PAID', 'REFUNDED')
               ${dateFilterSql}
             ORDER BY updated_at DESC
         `;
@@ -1347,6 +1674,13 @@ app.get('/api/orders/history', requireSalesHistoryAccess, async (req, res) => {
                 ...row,
                 target_id: targetKey,
                 payment_method: row.payment_method || row.payment_type || 'Cash',
+                received_usd: row.received_usd != null ? parseFloat(row.received_usd) : null,
+                received_khr: row.received_khr != null ? parseFloat(row.received_khr) : null,
+                change_usd: row.change_usd != null ? parseFloat(row.change_usd) : null,
+                change_khr: row.change_khr != null ? parseFloat(row.change_khr) : null,
+                exchange_rate: row.exchange_rate != null ? parseFloat(row.exchange_rate) : null,
+                void_reason: row.void_reason || null,
+                voided_at: row.voided_at || null,
                 summary: items.length
                     ? items.map((item) => `${item.qty}× ${item.name}`).join(', ')
                     : 'Items logged',
@@ -1938,6 +2272,83 @@ app.get('/api/dashboard/live', requireDashboardAccess, async (req, res) => {
     }
 });
 
+// ==========================================
+// 🕒 CASH DRAWER & SHIFT MANAGEMENT (Z-REPORT)
+// ==========================================
+app.get('/api/shifts/current', requirePosFloorAccess, async (req, res) => {
+    try {
+        const shift = await getCurrentShift(db, req.user?.id);
+        res.status(200).json({ shift });
+    } catch (error) {
+        console.error('❌ CURRENT SHIFT FETCH ERROR:', error.message);
+        res.status(500).json({ message: 'Failed to load current shift' });
+    }
+});
+
+app.post('/api/shifts/start', requirePermission('payment'), async (req, res) => {
+    try {
+        const { opening_float_usd, opening_float_khr } = req.body ?? {};
+        const shift = await startShift(db, {
+            userId: req.user?.id || 1,
+            cashierName: req.user?.name || req.user?.username || 'Cashier',
+            openingFloatUsd: opening_float_usd,
+            openingFloatKhr: opening_float_khr,
+        });
+
+        await auditFromRequest(db, req, {
+            action: 'shift_start',
+            module: 'Payment',
+            description: `Started shift #${shift.id} with float $${Number(shift.opening_float_usd).toFixed(2)} / ${Number(shift.opening_float_khr).toLocaleString()} ៛`,
+        });
+
+        res.status(201).json({ message: 'Shift started successfully', shift });
+    } catch (error) {
+        if (error.status === 400) {
+            return res.status(400).json({ message: error.message });
+        }
+        res.status(500).json({ message: 'Failed to start shift', errorId: logError(error, { route: 'POST /api/shifts/start' }) });
+    }
+});
+
+app.post('/api/shifts/end', requirePermission('payment'), async (req, res) => {
+    try {
+        const { shift_id, closing_cash_usd, closing_cash_khr, notes } = req.body ?? {};
+        if (!shift_id) {
+            return res.status(400).json({ message: 'Missing shift_id' });
+        }
+
+        const shift = await endShift(db, {
+            shiftId: shift_id,
+            closingCashUsd: closing_cash_usd,
+            closingCashKhr: closing_cash_khr,
+            notes,
+        });
+
+        await auditFromRequest(db, req, {
+            action: 'shift_end',
+            module: 'Payment',
+            description: `Closed shift #${shift.id} (Z-Report): Counted $${Number(shift.closing_cash_usd).toFixed(2)} (Diff: $${Number(shift.difference_usd).toFixed(2)})`,
+        });
+
+        res.status(200).json({ message: 'Shift closed successfully (Z-Report generated)', shift });
+    } catch (error) {
+        if (error.status === 400 || error.status === 404) {
+            return res.status(error.status).json({ message: error.message });
+        }
+        res.status(500).json({ message: 'Failed to close shift', errorId: logError(error, { route: 'POST /api/shifts/end' }) });
+    }
+});
+
+app.get('/api/shifts/history', requirePosFloorAccess, async (req, res) => {
+    try {
+        const shifts = await listShiftHistory(db, req.query.limit);
+        res.status(200).json({ shifts });
+    } catch (error) {
+        console.error('❌ SHIFTS HISTORY FETCH ERROR:', error.message);
+        res.status(500).json({ message: 'Failed to load shift history' });
+    }
+});
+
 app.post('/api/expenses', requireExpenseWriteAccess, async (req, res) => {
     try {
         const expense = await createExpense(db, req.body ?? {}, req.user);
@@ -2164,6 +2575,113 @@ app.post('/api/tables/transfer', requirePosFloorAccess, async (req, res) => {
         }
         console.error('❌ TRANSFER TABLE ERROR:', error.message);
         res.status(500).json({ message: 'Failed to transfer table', errorId: logError(error, { route: 'POST /api/tables/transfer' }) });
+    }
+});
+
+app.post('/api/tables/merge', requirePosFloorAccess, async (req, res) => {
+    const fromId = Number.parseInt(req.body?.from_table_id, 10);
+    const toId = Number.parseInt(req.body?.to_table_id, 10);
+
+    if (!Number.isInteger(fromId) || fromId <= 0 || !Number.isInteger(toId) || toId <= 0) {
+        return res.status(400).json({ message: 'Valid source and destination table IDs are required' });
+    }
+    if (fromId === toId) {
+        return res.status(400).json({ message: 'Source and destination tables must be different' });
+    }
+
+    try {
+        await withTransaction(db, async (conn) => {
+            const [tables] = await conn.execute(
+                'SELECT id, table_name, status FROM tables WHERE id IN (?, ?)',
+                [fromId, toId],
+            );
+            const sourceTable = tables.find((t) => t.id === fromId);
+            const destTable = tables.find((t) => t.id === toId);
+
+            if (!sourceTable) {
+                const err = new Error('Source table does not exist');
+                err.status = 404;
+                throw err;
+            }
+            if (!destTable) {
+                const err = new Error('Destination table does not exist');
+                err.status = 404;
+                throw err;
+            }
+
+            const [sourceOrders] = await conn.execute(
+                `SELECT id FROM orders
+                 WHERE (target_id = ? OR table_id = ?) AND source_type = 'Table' AND status = 'Pending'
+                 LIMIT 1`,
+                [fromId, fromId],
+            );
+            if (!sourceOrders.length) {
+                const err = new Error(`Source table ${sourceTable.table_name} has no active order to merge`);
+                err.status = 400;
+                throw err;
+            }
+            const sourceOrderId = sourceOrders[0].id;
+
+            const [destOrders] = await conn.execute(
+                `SELECT id FROM orders
+                 WHERE (target_id = ? OR table_id = ?) AND source_type = 'Table' AND status = 'Pending'
+                 LIMIT 1`,
+                [toId, toId],
+            );
+
+            if (destOrders.length > 0) {
+                const destOrderId = destOrders[0].id;
+                await conn.execute(
+                    'UPDATE order_items SET order_id = ? WHERE order_id = ?',
+                    [destOrderId, sourceOrderId],
+                );
+                await conn.execute(
+                    "UPDATE orders SET status = 'Canceled', updated_at = NOW() WHERE id = ?",
+                    [sourceOrderId],
+                );
+                const [itemSumRows] = await conn.execute(
+                    'SELECT COALESCE(SUM(quantity * price), 0) AS total FROM order_items WHERE order_id = ?',
+                    [destOrderId],
+                );
+                const newTotal = Math.round(Number(itemSumRows[0]?.total || 0) * 100) / 100;
+                await conn.execute(
+                    'UPDATE orders SET subtotal = ?, total = ?, total_amount = ?, updated_at = NOW() WHERE id = ?',
+                    [newTotal, newTotal, newTotal, destOrderId],
+                );
+            } else {
+                await conn.execute(
+                    'UPDATE orders SET target_id = ?, table_id = ?, updated_at = NOW() WHERE id = ?',
+                    [toId, toId, sourceOrderId],
+                );
+            }
+
+            await conn.execute(
+                `UPDATE reservations
+                 SET table_id = ?
+                 WHERE table_id = ? AND reservation_date = CURDATE() AND status = 'Seated'`,
+                [toId, fromId],
+            );
+
+            await conn.execute('UPDATE tables SET status = "Empty" WHERE id = ?', [fromId]);
+            await conn.execute('UPDATE tables SET status = "Occupied" WHERE id = ?', [toId]);
+        });
+
+        await auditFromRequest(db, req, {
+            action: 'merge_table',
+            module: 'Tables',
+            description: `Merged table #${fromId} into table #${toId}`,
+        });
+
+        res.status(200).json({
+            message: 'Tables merged successfully',
+            from_table_id: fromId,
+            to_table_id: toId,
+        });
+    } catch (error) {
+        if (error.status === 400 || error.status === 404) {
+            return res.status(error.status).json({ message: error.message });
+        }
+        res.status(500).json({ message: 'Failed to merge tables', errorId: logError(error, { route: 'POST /api/tables/merge' }) });
     }
 });
 

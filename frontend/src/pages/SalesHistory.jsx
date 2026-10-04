@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Printer, Search } from 'lucide-react'
+import { Printer, RotateCcw, Search } from 'lucide-react'
 import ReceiptModal from '../components/pos/ReceiptModal'
+import VoidOrderModal from '../components/pos/VoidOrderModal'
 import { SalesFilterBar } from '../components/ui/SalesFilterBar'
 import { usePOS } from '../context/POSContext'
 import { fetchReceiptTransaction } from '../utils/receiptHelpers'
@@ -34,12 +35,13 @@ function statusLabel(status, t) {
 
 export default function SalesHistory() {
   const { t } = useTranslation()
-  const { salesHistory, loadSalesHistory } = usePOS()
+  const { salesHistory, loadSalesHistory, refundOrder } = usePOS()
   const [search, setSearch] = useState('')
   const [selectedMonth, setSelectedMonth] = useState(() => getCurrentMonthKey())
   const [receiptTransaction, setReceiptTransaction] = useState(null)
   const [printingOrderId, setPrintingOrderId] = useState(null)
   const [receiptError, setReceiptError] = useState('')
+  const [voidTargetOrder, setVoidTargetOrder] = useState(null)
 
   const completedHistory = useMemo(
     () => filterCompletedOrders(salesHistory || []),
@@ -121,6 +123,15 @@ export default function SalesHistory() {
       setReceiptError(t('sales.receiptLoadFailed'))
     } finally {
       setPrintingOrderId(null)
+    }
+  }
+
+  const handleConfirmVoid = async (orderId, reason, managerCredentials) => {
+    await refundOrder(orderId, reason, managerCredentials)
+    if (selectedMonth === 'all') {
+      await loadSalesHistory({ days: DEFAULT_HISTORY_DAYS })
+    } else {
+      await loadSalesHistory({ month: selectedMonth })
     }
   }
 
@@ -220,20 +231,40 @@ export default function SalesHistory() {
                       <p className="font-semibold tabular-nums text-heading">${(order.total || 0).toFixed(2)}</p>
                     </div>
                     <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                      <StatusBadge className={sStyle}>
-                        {statusLabel(order.status, t)}
-                      </StatusBadge>
-                      <button
-                        type="button"
-                        onClick={() => handlePrintReceipt(order)}
-                        disabled={isPrinting}
-                        className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-border/50 bg-card/50 px-2.5 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-background disabled:cursor-not-allowed disabled:opacity-60 dark:bg-card/30"
-                      >
-                        <Printer className="h-3.5 w-3.5 shrink-0" />
-                        {isPrinting
-                          ? t('common.loading', { defaultValue: 'Loading...' })
-                          : t('sales.printReceipt', { defaultValue: 'Print Receipt' })}
-                      </button>
+                      <div>
+                        <StatusBadge className={sStyle}>
+                          {statusLabel(order.status, t)}
+                        </StatusBadge>
+                        {order.status?.toLowerCase() === 'refunded' && order.void_reason && (
+                          <p className="mt-1 text-xs text-red-600 dark:text-red-400 italic">
+                            {order.void_reason}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        {order.status?.toLowerCase() !== 'refunded' && (
+                          <button
+                            type="button"
+                            onClick={() => setVoidTargetOrder(order)}
+                            className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-red-500/30 bg-red-500/10 px-2.5 py-1.5 text-xs font-semibold text-red-700 transition-colors hover:bg-red-500/20 dark:text-red-300"
+                            title={t('sales.voidOrderTooltip', { defaultValue: 'Void / Refund Order' })}
+                          >
+                            <RotateCcw className="h-3.5 w-3.5 shrink-0" />
+                            {t('sales.refund', { defaultValue: 'Refund' })}
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handlePrintReceipt(order)}
+                          disabled={isPrinting}
+                          className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-border/50 bg-card/50 px-2.5 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-background disabled:cursor-not-allowed disabled:opacity-60 dark:bg-card/30"
+                        >
+                          <Printer className="h-3.5 w-3.5 shrink-0" />
+                          {isPrinting
+                            ? t('common.loading', { defaultValue: 'Loading...' })
+                            : t('sales.printReceipt', { defaultValue: 'Print Receipt' })}
+                        </button>
+                      </div>
                     </div>
                   </article>
                 )
@@ -243,13 +274,13 @@ export default function SalesHistory() {
           <div className="hidden min-w-0 lg:block">
             <table className="w-full table-fixed text-left text-sm">
               <colgroup>
-                <col className="w-[13%]" />
+                <col className="w-[12%]" />
                 <col />
                 <col className="w-[12%]" />
-                <col className="w-[17%]" />
+                <col className="w-[15%]" />
                 <col className="w-[11%]" />
                 <col className="w-[13%]" />
-                <col className="w-[22%]" />
+                <col className="w-[25%]" />
               </colgroup>
               <thead>
                 <tr className="table-head">
@@ -300,19 +331,37 @@ export default function SalesHistory() {
                           <StatusBadge className={sStyle}>
                             {statusLabel(order.status, t)}
                           </StatusBadge>
+                          {order.status?.toLowerCase() === 'refunded' && order.void_reason && (
+                            <span className="block mt-0.5 truncate text-[11px] text-red-600 dark:text-red-400 italic max-w-[140px]" title={order.void_reason}>
+                              {order.void_reason}
+                            </span>
+                          )}
                         </td>
                         <td className="px-2 py-3 text-right">
-                          <button
-                            type="button"
-                            onClick={() => handlePrintReceipt(order)}
-                            disabled={isPrinting}
-                            className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-border/50 bg-card/50 px-2.5 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-background disabled:cursor-not-allowed disabled:opacity-60 dark:bg-card/30"
-                          >
-                            <Printer className="h-3.5 w-3.5 shrink-0" />
-                            {isPrinting
-                              ? t('common.loading', { defaultValue: 'Loading...' })
-                              : t('sales.printReceipt', { defaultValue: 'Print Receipt' })}
-                          </button>
+                          <div className="flex items-center justify-end gap-1.5">
+                            {order.status?.toLowerCase() !== 'refunded' && (
+                              <button
+                                type="button"
+                                onClick={() => setVoidTargetOrder(order)}
+                                className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-red-500/30 bg-red-500/10 px-2.5 py-1.5 text-xs font-semibold text-red-700 transition-colors hover:bg-red-500/20 dark:text-red-300"
+                                title={t('sales.voidOrderTooltip', { defaultValue: 'Void / Refund Order' })}
+                              >
+                                <RotateCcw className="h-3.5 w-3.5 shrink-0" />
+                                {t('sales.refund', { defaultValue: 'Refund' })}
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => handlePrintReceipt(order)}
+                              disabled={isPrinting}
+                              className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-border/50 bg-card/50 px-2.5 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-background disabled:cursor-not-allowed disabled:opacity-60 dark:bg-card/30"
+                            >
+                              <Printer className="h-3.5 w-3.5 shrink-0" />
+                              {isPrinting
+                                ? t('common.loading', { defaultValue: 'Loading...' })
+                                : t('sales.printReceipt', { defaultValue: 'Print Receipt' })}
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     )
@@ -329,6 +378,15 @@ export default function SalesHistory() {
           transaction={receiptTransaction}
           variant="receipt"
           onClose={() => setReceiptTransaction(null)}
+        />
+      )}
+
+      {voidTargetOrder && (
+        <VoidOrderModal
+          isOpen={Boolean(voidTargetOrder)}
+          onClose={() => setVoidTargetOrder(null)}
+          order={voidTargetOrder}
+          onConfirmVoid={handleConfirmVoid}
         />
       )}
     </div>
