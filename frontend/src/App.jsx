@@ -111,7 +111,11 @@ function AuthenticatedApp() {
       case 'sales_history':
         return <SalesHistory />
       case 'inventory':
-        return <InventoryStock />
+        return <InventoryStock view="items" onNavigate={handleNavigate} />
+      case 'inventory_stocktake':
+        return <InventoryStock view="stocktake" onNavigate={handleNavigate} />
+      case 'inventory_expenses':
+        return <InventoryStock view="expenses" onNavigate={handleNavigate} />
       case 'reports_analysis':
         return <ReportsAnalysis />
       case 'users':

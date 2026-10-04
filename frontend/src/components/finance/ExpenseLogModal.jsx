@@ -1,26 +1,44 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { CalendarDays, Loader2 } from 'lucide-react'
 import Modal from '../common/Modal'
+import { useNotifications } from '../../context/NotificationContext'
 import { apiFetch } from '../../services/apiClient'
 import { formatOrderDate } from '../../utils/dateTimeFormat'
+import { EXPENSE_CATEGORIES, expenseCategoryLabel } from '../../utils/expenseCategories'
+import { CategoryMoreMenu } from '../inventory/CategoryChips'
 
-const EXPENSE_CATEGORIES = ['Inventory Restock', 'Payroll', 'Others']
+const QUICK_AMOUNTS = [5, 10, 20, 50]
 
-const CATEGORY_I18N_KEYS = {
-  'Inventory Restock': 'expenses.categories.inventoryRestock',
-  Payroll: 'expenses.categories.staffPayroll',
-  'Staff / Payroll': 'expenses.categories.staffPayroll',
-  Others: 'expenses.categories.other',
-  Other: 'expenses.categories.other',
-}
+// Up to this many categories show inline; beyond it, the first few stay and the rest go in "More".
+const MAX_INLINE_CATEGORIES = 7
+const INLINE_WHEN_OVERFLOWING = 5
 
-function categoryLabel(t, category) {
-  const key = CATEGORY_I18N_KEYS[category]
-  return key ? t(key) : category
-}
+const SELECTED_CHIP = 'bg-forest-500/15 font-semibold text-forest-800 ring-1 ring-forest-500/50 dark:bg-forest-500/20 dark:text-forest-200'
 
 function todayIso() {
   return formatOrderDate(new Date())
+}
+
+function parseIsoDate(iso) {
+  const [year, month, day] = iso.split('-').map(Number)
+  return new Date(year, month - 1, day)
+}
+
+function shiftIsoDate(iso, days) {
+  const date = parseIsoDate(iso)
+  date.setDate(date.getDate() + days)
+  return formatOrderDate(date)
+}
+
+function formatChipDate(iso, locale) {
+  const date = parseIsoDate(iso)
+  const sameYear = date.getFullYear() === new Date().getFullYear()
+  return new Intl.DateTimeFormat(locale, {
+    day: 'numeric',
+    month: 'short',
+    ...(sameYear ? {} : { year: 'numeric' }),
+  }).format(date)
 }
 
 /**
@@ -32,9 +50,12 @@ export default function ExpenseLogModal({
   onSaved,
   defaultCategory = 'Inventory Restock',
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [amountError, setAmountError] = useState('')
+  const { pushBanner } = useNotifications()
+  const amountRef = useRef(null)
   const [form, setForm] = useState({
     category: defaultCategory,
     description: '',
@@ -42,8 +63,43 @@ export default function ExpenseLogModal({
     expense_date: todayIso(),
   })
 
+  const dateRef = useRef(null)
+  const [showDateField, setShowDateField] = useState(false)
+  const today = todayIso()
+  const yesterday = shiftIsoDate(today, -1)
+  const pickedOtherDate = form.expense_date !== today && form.expense_date !== yesterday
+
+  const openDatePicker = () => {
+    const input = dateRef.current
+    if (!input) return
+    try {
+      input.showPicker()
+    } catch {
+      // Older browsers: reveal the native field instead.
+      setShowDateField(true)
+      requestAnimationFrame(() => dateRef.current?.focus())
+    }
+  }
+
+  const overflowing = EXPENSE_CATEGORIES.length > MAX_INLINE_CATEGORIES
+  const inlineCategories = overflowing ? EXPENSE_CATEGORIES.slice(0, INLINE_WHEN_OVERFLOWING) : EXPENSE_CATEGORIES
+  const overflowCategories = overflowing ? EXPENSE_CATEGORIES.slice(INLINE_WHEN_OVERFLOWING) : []
+
+  // Runs after Modal's own mount effect, which focuses the panel.
+  useEffect(() => {
+    amountRef.current?.focus()
+  }, [])
+
   const handleSubmit = async (event) => {
     event.preventDefault()
+    // Enter can fire submit again while a save is still in flight.
+    if (saving) return
+    // min="0" lets 0 through the browser check; a zero expense is still meaningless.
+    if (!(Number(form.amount) > 0)) {
+      setAmountError(t('expenses.errors.amount'))
+      amountRef.current?.focus()
+      return
+    }
     setSaving(true)
     setError('')
     try {
@@ -60,6 +116,7 @@ export default function ExpenseLogModal({
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.message || t('expenses.errors.save'))
       onSaved?.(data)
+      pushBanner({ title: t('expenses.saved'), tone: 'success', durationMs: 3000 })
       onClose?.()
     } catch (err) {
       setError(err.message || t('expenses.errors.save'))
@@ -73,90 +130,174 @@ export default function ExpenseLogModal({
       titleId="expense-log-title"
       closeLabel={t('a11y.close')}
       onClose={onClose}
+      dismissible={!saving}
       maxWidth="max-w-md"
       header={(
         <div>
           <h3 id="expense-log-title" className="text-heading text-lg font-semibold">
             {t('expenses.logExpense')}
           </h3>
-          <p className="text-muted mt-1 text-sm">{t('inventory.expenseHint')}</p>
+          <p className="text-muted mt-0.5 truncate text-sm">{t('inventory.expenseHint')}</p>
         </div>
       )}
       footer={(
         <>
-          <button type="button" onClick={onClose} className="btn-secondary flex-1 text-sm">
+          <button type="button" onClick={onClose} disabled={saving} className="btn-secondary flex-1 text-sm">
             {t('common.cancel')}
           </button>
+          {/* Linked via form=, so Enter in any field submits the form. */}
           <button
             type="submit"
             form="expense-log-form"
             disabled={saving}
-            className="btn-primary flex-1 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+            aria-busy={saving}
+            className="btn-primary flex-[1.5] text-[15px] font-semibold disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {saving ? t('common.saving') : t('expenses.save')}
+            {saving ? (
+              <span className="inline-flex items-center justify-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                {t('common.saving')}
+              </span>
+            ) : t('expenses.save')}
           </button>
         </>
       )}
     >
-      <form id="expense-log-form" onSubmit={handleSubmit} className="space-y-4">
+      <form id="expense-log-form" noValidate onSubmit={handleSubmit} className="space-y-4">
         {error ? (
           <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800/50 dark:bg-red-950/40 dark:text-red-300">
             {error}
           </div>
         ) : null}
 
-        <div>
-          <label htmlFor="expense-category" className="mb-1.5 block text-sm font-medium text-stone-700 dark:text-zinc-300">
-            {t('common.category')}
+        <div className="rounded-2xl bg-slate-100/80 px-4 pb-4 pt-3 text-center dark:bg-zinc-800/60">
+          <label htmlFor="expense-amount" className="block text-xs font-medium text-slate-500 dark:text-zinc-400">
+            {t('common.amount')}
           </label>
-          <select
-            id="expense-category"
-            value={form.category}
-            onChange={(e) => setForm({ ...form, category: e.target.value })}
-            className="input-field"
-          >
-            {EXPENSE_CATEGORIES.map((category) => (
-              <option key={category} value={category}>
-                {categoryLabel(t, category)}
-              </option>
+          <div className="mt-1 flex items-center justify-center gap-1">
+            <span aria-hidden="true" className="text-[34px] font-medium leading-none text-slate-400 dark:text-zinc-500">$</span>
+            <input
+              ref={amountRef}
+              id="expense-amount"
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="0.01"
+              value={form.amount}
+              onChange={(e) => {
+                setForm({ ...form, amount: e.target.value })
+                setAmountError('')
+              }}
+              aria-invalid={amountError ? true : undefined}
+              aria-describedby={amountError ? 'expense-amount-error' : undefined}
+              onWheel={(e) => e.currentTarget.blur()}
+              className="w-40 border-0 bg-transparent p-0 text-center text-[34px] font-medium leading-tight tabular-nums text-slate-900 outline-none placeholder:text-slate-300 focus:ring-0 dark:text-zinc-100 dark:placeholder:text-zinc-600 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+              placeholder="0.00"
+            />
+          </div>
+          {amountError ? (
+            <p id="expense-amount-error" role="alert" className="mt-1 text-sm font-medium text-red-600 dark:text-red-400">
+              {amountError}
+            </p>
+          ) : null}
+          <div className="mt-3 flex flex-wrap justify-center gap-2">
+            {QUICK_AMOUNTS.map((amount) => (
+              <button
+                key={amount}
+                type="button"
+                onClick={() => {
+                  setForm((current) => ({ ...current, amount: String(amount) }))
+                  setAmountError('')
+                  amountRef.current?.focus()
+                }}
+                aria-pressed={Number(form.amount) === amount}
+                className={`tab-pill min-h-8 px-3 py-1 text-xs ${Number(form.amount) === amount ? 'tab-pill-active' : 'tab-pill-inactive'}`}
+              >
+                ${amount}
+              </button>
             ))}
-          </select>
+          </div>
         </div>
 
         <div>
-          <label htmlFor="expense-amount" className="mb-1.5 block text-sm font-medium text-stone-700 dark:text-zinc-300">
-            {t('expenses.amountLabel')}
-          </label>
-          <input
-            id="expense-amount"
-            type="number"
-            required
-            min="0.01"
-            step="0.01"
-            value={form.amount}
-            onChange={(e) => setForm({ ...form, amount: e.target.value })}
-            className="input-field"
-            placeholder="30.00"
-          />
+          <p id="expense-category-label" className="mb-1.5 block text-sm font-medium text-stone-700 dark:text-zinc-300">
+            {t('common.category')}
+          </p>
+          <div role="group" aria-labelledby="expense-category-label" className="flex flex-wrap gap-2">
+            {inlineCategories.map((category) => (
+              <button
+                key={category}
+                type="button"
+                onClick={() => setForm((current) => ({ ...current, category }))}
+                aria-pressed={form.category === category}
+                className={`tab-pill min-h-9 px-3.5 py-1.5 ${form.category === category ? SELECTED_CHIP : 'tab-pill-inactive'}`}
+              >
+                {expenseCategoryLabel(category, t)}
+              </button>
+            ))}
+            {overflowCategories.length > 0 ? (
+              <CategoryMoreMenu
+                categories={overflowCategories}
+                activeFilter={form.category}
+                onSelect={(category) => setForm((current) => ({ ...current, category }))}
+                getLabel={expenseCategoryLabel}
+                activeClassName={SELECTED_CHIP}
+              />
+            ) : null}
+          </div>
         </div>
 
         <div>
-          <label htmlFor="expense-date" className="mb-1.5 block text-sm font-medium text-stone-700 dark:text-zinc-300">
+          <p id="expense-date-label" className="mb-1.5 block text-sm font-medium text-stone-700 dark:text-zinc-300">
             {t('reservations.date')}
-          </label>
-          <input
-            id="expense-date"
-            type="date"
-            required
-            value={form.expense_date}
-            onChange={(e) => setForm({ ...form, expense_date: e.target.value })}
-            className="input-field"
-          />
+          </p>
+          <div role="group" aria-labelledby="expense-date-label" className="flex flex-wrap items-center gap-2">
+            {[
+              { key: 'today', label: t('expenses.dateToday'), value: today },
+              { key: 'yesterday', label: t('expenses.dateYesterday'), value: yesterday },
+            ].map((option) => (
+              <button
+                key={option.key}
+                type="button"
+                onClick={() => setForm((current) => ({ ...current, expense_date: option.value }))}
+                aria-pressed={form.expense_date === option.value}
+                className={`tab-pill min-h-9 px-3.5 py-1.5 ${form.expense_date === option.value ? SELECTED_CHIP : 'tab-pill-inactive'}`}
+              >
+                {option.label}
+              </button>
+            ))}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={openDatePicker}
+                aria-pressed={pickedOtherDate}
+                className={`tab-pill inline-flex min-h-9 items-center gap-1.5 px-3.5 py-1.5 ${pickedOtherDate ? SELECTED_CHIP : 'tab-pill-inactive'}`}
+              >
+                <CalendarDays className="h-4 w-4" />
+                {pickedOtherDate ? formatChipDate(form.expense_date, i18n.language) : t('expenses.pickDate')}
+              </button>
+              {/* Opened through showPicker(); shown as a plain field only where that isn't supported. */}
+              <input
+                ref={dateRef}
+                id="expense-date"
+                type="date"
+                required
+                max={today}
+                value={form.expense_date}
+                onChange={(e) => {
+                  if (e.target.value) setForm((current) => ({ ...current, expense_date: e.target.value }))
+                }}
+                tabIndex={showDateField ? 0 : -1}
+                aria-label={t('expenses.pickDate')}
+                className={showDateField ? 'input-field mt-2' : 'pointer-events-none absolute bottom-0 left-0 h-0 w-0 opacity-0'}
+              />
+            </div>
+          </div>
         </div>
 
         <div>
           <label htmlFor="expense-description" className="mb-1.5 block text-sm font-medium text-stone-700 dark:text-zinc-300">
-            {t('common.description')}
+            {t('expenses.noteOptional')}
           </label>
           <input
             id="expense-description"

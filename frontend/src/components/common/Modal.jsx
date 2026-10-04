@@ -13,6 +13,7 @@ export default function Modal({
   footer,
   maxWidth = 'max-w-lg',
   stacked = false,
+  headerAlign = 'start',
 }) {
   const panelRef = useRef(null)
   const onCloseRef = useRef(onClose)
@@ -90,7 +91,7 @@ export default function Modal({
         aria-labelledby={titleId}
         className={`relative z-10 flex min-h-0 max-h-[90vh] w-full ${maxWidth} flex-col overflow-hidden rounded-2xl border border-border bg-white dark:bg-[#151915] shadow-2xl outline-none`}
       >
-        <div className={`flex shrink-0 justify-between gap-3 px-6 pt-6 ${header ? 'items-start' : 'items-center'}`}>
+        <div className={`flex shrink-0 justify-between gap-3 px-6 pt-6 ${header && headerAlign === 'start' ? 'items-start' : 'items-center'}`}>
           {header ? (
             <div className="min-w-0 flex-1">{header}</div>
           ) : (

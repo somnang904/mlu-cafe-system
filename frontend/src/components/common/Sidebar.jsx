@@ -44,6 +44,12 @@ import {
 
   X,
 
+  Package,
+
+  ClipboardList,
+
+  Wallet,
+
 } from 'lucide-react'
 
 import { canSeeNavItem } from '../../utils/permissions'
@@ -57,7 +63,16 @@ const sidebarNavigation = [
   { id: 'payment', labelKey: 'nav.payment', icon: CreditCard, roles: WORK_ROLES },
   { id: 'reservations', labelKey: 'nav.reservations', icon: CalendarClock, roles: WORK_ROLES },
   { id: 'sales_history', labelKey: 'nav.salesHistory', icon: History, roles: WORK_ROLES },
-  { id: 'inventory', labelKey: 'nav.inventoryStock', icon: Layers, roles: WORK_ROLES },
+  {
+    id: 'stock',
+    labelKey: 'nav.inventoryStock',
+    icon: Layers,
+    children: [
+      { id: 'inventory', labelKey: 'nav.stockItems', icon: Package, roles: WORK_ROLES },
+      { id: 'inventory_stocktake', labelKey: 'nav.stocktake', icon: ClipboardList, roles: WORK_ROLES },
+      { id: 'inventory_expenses', labelKey: 'nav.expenses', icon: Wallet, roles: WORK_ROLES },
+    ],
+  },
   { id: 'menu', labelKey: 'nav.menuManagement', icon: UtensilsCrossed, roles: WORK_ROLES },
   { id: 'reports_analysis', labelKey: 'nav.reports', icon: FileBarChart, roles: WORK_ROLES },
   { id: 'users', labelKey: 'nav.users', icon: Users, roles: ['admin'], adminOnly: true },
@@ -270,7 +285,7 @@ export default function Sidebar({ activePage, onNavigate, mobileOpen = false, on
 
   const { user, logout } = useAuth()
 
-  const [othersExpanded, setOthersExpanded] = useState(false)
+  const [expandedGroups, setExpandedGroups] = useState({})
 
   const [confirmSignOut, setConfirmSignOut] = useState(false)
 
@@ -289,8 +304,7 @@ export default function Sidebar({ activePage, onNavigate, mobileOpen = false, on
     [user],
   )
 
-  const othersChildren = visibleNav.find((item) => item.children)?.children ?? []
-  const isOthersChildActive = othersChildren.some((item) => item.id === activePage)
+  const activeGroupId = visibleNav.find((item) => item.children?.some((child) => child.id === activePage))?.id
   const navRef = useRef(null)
   const [showNavFade, setShowNavFade] = useState(false)
 
@@ -312,14 +326,16 @@ export default function Sidebar({ activePage, onNavigate, mobileOpen = false, on
       observer.disconnect()
       nav.removeEventListener('scroll', updateFade)
     }
-  }, [visibleNav, othersExpanded])
+  }, [visibleNav, expandedGroups])
 
   // Reveal the group that owns the current page whenever navigation changes.
   const [syncedPage, setSyncedPage] = useState(null)
 
   if (syncedPage !== activePage) {
     setSyncedPage(activePage)
-    if (isOthersChildActive) setOthersExpanded(true)
+    if (activeGroupId && !expandedGroups[activeGroupId]) {
+      setExpandedGroups((prev) => ({ ...prev, [activeGroupId]: true }))
+    }
   }
 
 
@@ -402,8 +418,8 @@ export default function Sidebar({ activePage, onNavigate, mobileOpen = false, on
               activePage={activePage}
               onNavigate={handleNavigate}
               items={item.children}
-              expanded={othersExpanded}
-              onToggleExpanded={() => setOthersExpanded((prev) => !prev)}
+              expanded={Boolean(expandedGroups[item.id])}
+              onToggleExpanded={() => setExpandedGroups((prev) => ({ ...prev, [item.id]: !prev[item.id] }))}
             />
           ) : (
             <SidebarNavButton

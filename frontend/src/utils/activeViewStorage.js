@@ -12,6 +12,8 @@ export const VALID_VIEWS = new Set([
   'menu',
   'sales_history',
   'inventory',
+  'inventory_stocktake',
+  'inventory_expenses',
   'reports_analysis',
   'settings',
   'backup_recovery',

@@ -3,20 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Plus, Trash2, Wallet } from 'lucide-react'
 import { apiFetch } from '../../services/apiClient'
 import { useModalKeyboard } from '../../hooks/useModalKeyboard'
-
-const EXPENSE_CATEGORIES = [
-  'Payroll',
-  'Inventory Restock',
-  'Others',
-]
-
-const CATEGORY_I18N_KEYS = {
-  Payroll: 'expenses.categories.staffPayroll',
-  'Staff / Payroll': 'expenses.categories.staffPayroll',
-  'Inventory Restock': 'expenses.categories.inventoryRestock',
-  Others: 'expenses.categories.other',
-  Other: 'expenses.categories.other',
-}
+import { EXPENSE_CATEGORIES, expenseCategoryLabel } from '../../utils/expenseCategories'
 
 const PAGE_SIZE = 25
 
@@ -28,11 +15,6 @@ function todayIso() {
   return `${year}-${month}-${day}`
 }
 
-function categoryLabel(t, category) {
-  const key = CATEGORY_I18N_KEYS[category]
-  return key ? t(key) : category
-}
-
 export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChanged }) {
   const { t } = useTranslation()
   const [expenses, setExpenses] = useState([])
@@ -42,7 +24,7 @@ export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChan
   const [saving, setSaving] = useState(false)
   const [page, setPage] = useState(1)
   const [form, setForm] = useState({
-    category: EXPENSE_CATEGORIES[0],
+    category: 'Payroll',
     description: '',
     amount: '',
     expense_date: todayIso(),
@@ -112,7 +94,7 @@ export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChan
       if (!res.ok) throw new Error(data.message || t('expenses.errors.save'))
       setShowForm(false)
       setForm({
-        category: EXPENSE_CATEGORIES[0],
+        category: 'Payroll',
         description: '',
         amount: '',
         expense_date: todayIso(),
@@ -192,7 +174,7 @@ export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChan
               pagedExpenses.map((row) => (
                 <tr key={row.id} className="table-row">
                   <td className="px-4 py-3 tabular-nums text-muted">{row.expense_date}</td>
-                  <td className="px-4 py-3 font-medium text-heading">{categoryLabel(t, row.category)}</td>
+                  <td className="px-4 py-3 font-medium text-heading">{expenseCategoryLabel(row.category, t)}</td>
                   <td className="px-4 py-3 text-muted">{row.description || '—'}</td>
                   <td className="px-4 py-3 font-semibold tabular-nums text-heading">
                     ${Number(row.amount).toFixed(2)}
@@ -273,7 +255,7 @@ export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChan
                 >
                   {EXPENSE_CATEGORIES.map((category) => (
                     <option key={category} value={category}>
-                      {categoryLabel(t, category)}
+                      {expenseCategoryLabel(category, t)}
                     </option>
                   ))}
                 </select>

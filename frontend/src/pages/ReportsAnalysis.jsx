@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { expenseCategoryLabel } from '../utils/expenseCategories'
 import {
   BarChart3,
   FileSpreadsheet,
@@ -258,19 +259,6 @@ function ReportExportCard({ selectedMonth, periodLabel }) {
       ) : null}
     </div>
   )
-}
-
-const EXPENSE_CATEGORY_KEYS = {
-  Payroll: 'staffPayroll',
-  'Staff / Payroll': 'staffPayroll',
-  'Inventory Restock': 'inventoryRestock',
-  Others: 'other',
-  Other: 'other',
-}
-
-function expenseCategoryLabel(category, t) {
-  const key = EXPENSE_CATEGORY_KEYS[category]
-  return key ? t(`expenses.categories.${key}`) : category
 }
 
 export default function ReportsAnalysis() {
