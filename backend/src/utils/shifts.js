@@ -1,3 +1,5 @@
+const { ensureInnoDb } = require('./stockSchema')
+
 let shiftsSchemaReady = null
 
 async function ensureShiftsSchema(db) {
@@ -27,8 +29,9 @@ async function ensureShiftsSchema(db) {
           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           INDEX idx_shifts_status (status),
           INDEX idx_shifts_user (user_id)
-        ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+        ) ENGINE=InnoDB CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
       `)
+      await ensureInnoDb(db, 'shifts')
     })().catch((err) => {
       shiftsSchemaReady = null
       throw err

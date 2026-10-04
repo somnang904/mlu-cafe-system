@@ -12,3 +12,6 @@ frontend/node_modules/
 menu-photos/*
 !menu-photos/README.txt
 backend/uploads/
+
+# Database dumps contain customer data and password hashes; never commit them.
+/*.sql
