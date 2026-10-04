@@ -24,6 +24,8 @@ const {
 } = require('./src/utils/orderTargets');
 const { normalizeAllowedRole, passwordPolicyError, assignableRoleError } = require('./src/utils/accountPolicy');
 const { generateTemporaryPassword, hashPassword } = require('./src/utils/userAccounts');
+const { saveMenuImage } = require('./src/utils/menuImage');
+const { downloadRemoteImage } = require('./src/utils/remoteImage');
 const {
     ensureSessionSecuritySchema,
     invalidateUserTokens,
@@ -682,45 +684,68 @@ app.delete('/api/users/:id', requireAdmin, async (req, res) => {
 // ☕ MENU MANAGEMENT API ROUTES
 // ==========================================
 
+// Held in memory only long enough to be downscaled and written as WebP by saveMenuImage.
+// The browser compresses before upload, so this cap only matters for direct API calls.
 const menuImageUpload = multer({
-    storage: multer.diskStorage({
-        destination: (_req, _file, cb) => cb(null, menuUploadsDir),
-        filename: (_req, file, cb) => {
-            const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
-            const cleanName = path.basename(file.originalname, ext).replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 30) || 'photo';
-            const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-            cb(null, `${cleanName}-${unique}${ext}`);
-        },
-    }),
-    limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB limit
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 30 * 1024 * 1024 }, // 30 MB limit
+    // Loose pre-check only: saveMenuImage decodes the bytes, which is the real validation.
+    // Windows often sends HEIC/TIFF as application/octet-stream, hence the extension test.
     fileFilter: (_req, file, cb) => {
-        const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-        if (!allowedTypes.includes(file.mimetype.toLowerCase())) {
-            cb(new Error('Only JPEG, PNG, WebP, and GIF image files are allowed'));
+        const mime = String(file.mimetype || '').toLowerCase();
+        const looksLikeImage = mime.startsWith('image/')
+            || /\.(heic|heif|avif|webp|jpe?g|jfif|png|gif|bmp|tiff?|svg|ico)$/i.test(file.originalname || '');
+        if (!looksLikeImage) {
+            cb(new Error('Please choose an image file'));
             return;
         }
         cb(null, true);
     },
 });
 
+function sendMenuImageError(res, error) {
+    if (error.status === 400) {
+        return res.status(400).json({ message: error.message });
+    }
+    console.error('Menu image save failed:', error);
+    return res.status(500).json({ message: 'Failed to save image' });
+}
+
+// IMPORT MENU ITEM IMAGE FROM A LINK
+// The server downloads and compresses the picture so the menu never depends on another
+// site keeping it online, and formats browsers cannot show (TIFF...) still work.
+app.post('/api/menu/import-image-url', requirePermission('menu'), async (req, res) => {
+    try {
+        const { buffer, fileName } = await downloadRemoteImage(req.body?.url);
+        const filename = await saveMenuImage(buffer, fileName, menuUploadsDir);
+        return res.status(200).json({ ok: true, imageUrl: `/api/uploads/menu/${filename}`, filename });
+    } catch (error) {
+        return sendMenuImageError(res, error);
+    }
+});
+
 // UPLOAD MENU ITEM IMAGE FILE
 app.post('/api/menu/upload-image', requirePermission('menu'), (req, res) => {
-    menuImageUpload.single('image')(req, res, (err) => {
+    menuImageUpload.single('image')(req, res, async (err) => {
         if (err) {
             if (err.code === 'LIMIT_FILE_SIZE') {
-                return res.status(400).json({ message: 'Image file must be under 10 MB' });
+                return res.status(400).json({ message: 'Image file must be under 30 MB' });
             }
             return res.status(400).json({ message: err.message || 'Failed to upload image' });
         }
         if (!req.file) {
             return res.status(400).json({ message: 'Please select an image file to upload' });
         }
-        const fileUrl = `/api/uploads/menu/${req.file.filename}`;
-        return res.status(200).json({
-            ok: true,
-            imageUrl: fileUrl,
-            filename: req.file.filename,
-        });
+        try {
+            const filename = await saveMenuImage(req.file.buffer, req.file.originalname, menuUploadsDir);
+            return res.status(200).json({
+                ok: true,
+                imageUrl: `/api/uploads/menu/${filename}`,
+                filename,
+            });
+        } catch (saveError) {
+            return sendMenuImageError(res, saveError);
+        }
     });
 });
 

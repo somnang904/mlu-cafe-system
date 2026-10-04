@@ -680,10 +680,61 @@
     animation: fade-in-up 0.18s cubic-bezier(0.22, 1, 0.36, 1) both;
   }
 
+  /* A light that runs around an element's edge. A large rotating conic gradient is
+     clipped by overflow; an inner face (inheriting the element's own background, so
+     hover colours still apply) covers all but a 2px rim. Works on any shape. */
+  .beam-border {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+  }
+
+  .beam-border::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    z-index: -2;
+    width: 300%;
+    aspect-ratio: 1;
+    translate: -50% -50%;
+    background: conic-gradient(from 0deg, transparent 0 62%, rgba(209, 250, 229, 0.7) 80%, #fff 88%, transparent 96%);
+    animation: beam-border-spin 2.8s linear infinite;
+  }
+
+  .beam-border::after {
+    content: '';
+    position: absolute;
+    inset: 2px;
+    z-index: -1;
+    border-radius: inherit;
+    background: inherit;
+  }
+
+  /* Same entrance as the Tooltip: fade in while rising a few pixels. */
+  .icon-select-list {
+    animation: icon-select-in 0.14s ease-out both;
+  }
+
+  @keyframes icon-select-in {
+    from {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+  }
+
+  @keyframes beam-border-spin {
+    to {
+      rotate: 1turn;
+    }
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .page-enter,
     .animate-fade-in-up,
-    .animate-fadeIn {
+    .animate-fadeIn,
+    .beam-border::before,
+    .icon-select-list {
       animation: none;
     }
   }
