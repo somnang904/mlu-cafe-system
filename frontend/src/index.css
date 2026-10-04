@@ -215,10 +215,9 @@
 
   /* Tables: translucent fill only — no stacked blur (perf). */
   .table-shell {
-    @apply overflow-hidden rounded-2xl border text-slate-900
-           dark:text-zinc-100;
+    @apply overflow-hidden rounded-2xl border border-slate-300/90 text-slate-900 shadow-sm
+           dark:border-zinc-700/80 dark:text-zinc-100;
     background: var(--glass-surface);
-    border-color: var(--glass-border-outer);
     box-shadow: var(--glass-shadow);
   }
 
@@ -557,18 +556,34 @@
   }
 
   .table-head {
-    @apply border-b border-stone-200/90 bg-stone-100/90 text-xs font-bold uppercase tracking-wider text-stone-700
-           dark:border-zinc-800 dark:bg-zinc-800/80 dark:text-zinc-300;
+    @apply border-b-2 border-slate-300 bg-slate-100 text-xs font-bold uppercase tracking-wider text-slate-700
+           dark:border-zinc-700 dark:bg-zinc-800/90 dark:text-zinc-200;
+  }
+
+  .table-head > th {
+    border-bottom: 2px solid rgba(203, 213, 225, 0.95);
+  }
+
+  .dark .table-head > th {
+    border-bottom: 2px solid rgba(63, 63, 70, 0.9);
   }
 
   .table-row {
-    @apply border-b border-slate-200/80 text-slate-900 transition-colors
-           hover:bg-slate-50/80
-           dark:border-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-800/50;
+    @apply text-slate-900 transition-colors
+           hover:bg-slate-100/60
+           dark:text-zinc-100 dark:hover:bg-zinc-800/60;
   }
 
-  .table-divider {
-    @apply divide-y divide-slate-200/80 dark:divide-zinc-800;
+  .table-divider > tr > td {
+    border-bottom: 1px solid rgba(203, 213, 225, 0.85);
+  }
+
+  .dark .table-divider > tr > td {
+    border-bottom: 1px solid rgba(63, 63, 70, 0.7);
+  }
+
+  .table-divider > tr:last-child > td {
+    border-bottom: none;
   }
 
   .table-cell-muted {

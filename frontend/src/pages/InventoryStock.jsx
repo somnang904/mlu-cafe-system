@@ -97,7 +97,7 @@ function StockGauge({ item }) {
   return (
     <div className="min-w-0">
       <p className="whitespace-nowrap text-heading text-sm font-semibold tabular-nums">{formatStockDisplay(item)}</p>
-      <div className="mt-2 h-2 w-full max-w-[9rem] overflow-hidden rounded-full bg-slate-200 dark:bg-zinc-700">
+      <div className="mt-2 h-2.5 w-full max-w-[9rem] overflow-hidden rounded-full bg-slate-200 ring-1 ring-slate-300/80 dark:bg-zinc-700 dark:ring-zinc-600">
         <div
           className={`h-full rounded-full bg-gradient-to-r transition-all duration-500 ${barColors[status]}`}
           style={{ width: `${fill}%` }}
@@ -1143,7 +1143,7 @@ export default function InventoryStock() {
         <>
           {(activeCategory === 'All' || countableItems.length > 0) && (
             <section className="table-shell !overflow-visible">
-              <div className="flex items-start gap-3 border-b px-6 py-4">
+              <div className="flex items-start gap-3 border-b border-slate-300/80 bg-slate-50/50 px-6 py-4 dark:border-zinc-700/80 dark:bg-zinc-800/40">
                 <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-olive-100 dark:bg-olive-900/40">
                   <Package className="h-5 w-5 text-forest-600 dark:text-forest-400" />
                 </div>
@@ -1168,7 +1168,7 @@ export default function InventoryStock() {
 
           {(activeCategory === 'All' || uncountableItems.length > 0) && (
             <section className="table-shell !overflow-visible">
-              <div className="flex items-start gap-3 border-b px-6 py-4">
+              <div className="flex items-start gap-3 border-b border-slate-300/80 bg-slate-50/50 px-6 py-4 dark:border-zinc-700/80 dark:bg-zinc-800/40">
                 <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-olive-100 dark:bg-olive-900/40">
                   <Scale className="h-5 w-5 text-forest-600 dark:text-forest-400" />
                 </div>
