@@ -7,6 +7,7 @@ import {
   formatNow,
   mergeCartIntoItems,
   normalizeBillItem,
+  parseMenuItemId,
 } from '../utils/posHelpers'
 import { buildSalesHistoryQuery } from '../utils/salesHistoryAnalytics'
 import { formatOrderDate, formatTime12Hour } from '../utils/dateTimeFormat'
@@ -55,9 +56,8 @@ function buildOrderTargetPayload(destinationId) {
 
 function mapBillItemsForApi(items) {
   return items.map((item) => {
-    const parsedId = Number.parseInt(item.menu_item_id ?? item.id, 10)
     return {
-      menu_item_id: Number.isFinite(parsedId) && parsedId > 0 ? parsedId : null,
+      menu_item_id: parseMenuItemId(item.menu_item_id ?? item.id),
       name: item.name,
       notes: item.notes || '',
       serving: item.serving || null,

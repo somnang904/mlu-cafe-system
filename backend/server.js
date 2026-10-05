@@ -1538,28 +1538,35 @@ app.post('/api/orders/bill-requested', requirePosFloorAccess, async (req, res) =
         return res.status(400).json({ message: validationError.message });
     }
 
+    const { sql, params } = pendingOrderWhereClause(target);
+    const markBillRequested = async () => {
+        const [result] = await db.execute(`UPDATE orders SET bill_requested = 1 WHERE ${sql}`, params);
+        return Number(result?.affectedRows) || 0;
+    };
+
+    let updated;
     try {
-        const { sql, params } = pendingOrderWhereClause(target);
-        await db.execute(`UPDATE orders SET bill_requested = 1 WHERE ${sql}`, params);
-        res.status(200).json({ message: "Bill requested flag set." });
+        updated = await markBillRequested();
     } catch (error) {
-        if (error.message && error.message.includes('bill_requested')) {
-            try {
-                await db.execute(
-                    'ALTER TABLE orders ADD COLUMN bill_requested TINYINT(1) NOT NULL DEFAULT 0'
-                );
-                const { sql, params } = pendingOrderWhereClause(target);
-                await db.execute(`UPDATE orders SET bill_requested = 1 WHERE ${sql}`, params);
-                res.status(200).json({ message: "Bill requested flag set." });
-                return;
-            } catch (alterError) {
-                logOrderError('Error setting bill_requested (alter)', alterError, { target_id });
-            }
-        } else {
+        if (!(error.message && error.message.includes('bill_requested'))) {
             logOrderError('Error setting bill_requested', error, { target_id });
+            return res.status(500).json({ message: 'Failed to request the bill', errorId: logError(error, { route: `${req.method} ${req.originalUrl}` }) });
         }
-        res.status(200).json({ message: "Bill request noted (local state only)." });
+        try {
+            await db.execute(
+                'ALTER TABLE orders ADD COLUMN bill_requested TINYINT(1) NOT NULL DEFAULT 0'
+            );
+            updated = await markBillRequested();
+        } catch (alterError) {
+            logOrderError('Error setting bill_requested (alter)', alterError, { target_id });
+            return res.status(500).json({ message: 'Failed to request the bill', errorId: logError(alterError, { route: `${req.method} ${req.originalUrl}` }) });
+        }
     }
+
+    if (updated === 0) {
+        return res.status(404).json({ message: 'No pending order found to request the bill for' });
+    }
+    res.status(200).json({ message: "Bill requested flag set." });
 });
 
 // 5. SYNC UPDATED BILL LINE ITEMS BEFORE CHECKOUT

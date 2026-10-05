@@ -225,9 +225,15 @@ async function ensureOrderItemsSchema(db) {
   return orderItemsSchemaReadyPromise
 }
 
+function parseMenuItemId(value) {
+  if (typeof value === 'number') return Number.isSafeInteger(value) && value > 0 ? value : null
+  if (typeof value !== 'string' || !/^\d+$/.test(value)) return null
+  const parsed = Number(value)
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null
+}
+
 function parseMenuItemIdFromItem(item) {
-  const parsed = Number.parseInt(item?.menu_item_id ?? item?.id, 10)
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+  return parseMenuItemId(item?.menu_item_id ?? item?.id)
 }
 
 function parseOptionalMoney(value) {
@@ -493,8 +499,8 @@ async function readOrderLines(db, orderId, targetKey = null) {
 
 function billLineKey(line) {
   const notes = String(line?.notes ?? '').trim()
-  const menuId = Number.parseInt(line?.menu_item_id, 10)
-  if (Number.isFinite(menuId) && menuId > 0) return `m:${menuId}|${notes}`
+  const menuId = parseMenuItemId(line?.menu_item_id)
+  if (menuId) return `m:${menuId}|${notes}`
   const name = formatOrderLineName(line?.name ?? line?.item_name, notes).toLowerCase()
   return `c:${name}|${notes}`
 }
@@ -536,6 +542,7 @@ module.exports = {
   createPendingOrder,
   insertOrderItem,
   validateOrderLine,
+  parseMenuItemId,
   parseMenuItemIdFromItem,
   ensureOrderItemsSchema,
   formatOrderLineName,
