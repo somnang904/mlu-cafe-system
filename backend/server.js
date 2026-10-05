@@ -1309,11 +1309,19 @@ app.post('/api/orders/split-checkout', requirePermission('payment'), async (req,
 
             const invoiceId = await allocateNextInvoiceId(conn);
 
-            const recUsd = received_usd != null && Number.isFinite(Number(received_usd)) ? Number(received_usd) : null;
-            const recKhr = received_khr != null && Number.isFinite(Number(received_khr)) ? Number(received_khr) : null;
-            const chgUsd = change_usd != null && Number.isFinite(Number(change_usd)) ? Number(change_usd) : null;
-            const chgKhr = change_khr != null && Number.isFinite(Number(change_khr)) ? Number(change_khr) : null;
-            const exRate = exchange_rate != null && Number.isFinite(Number(exchange_rate)) ? Number(exchange_rate) : null;
+            const payment = normalizeCheckoutPayment({
+                method,
+                totalUsd: splitTotal,
+                receivedUsd: received_usd,
+                receivedKhr: received_khr,
+                changeUsd: change_usd,
+                exchangeRate: exchange_rate,
+            });
+            const recUsd = payment.received_usd;
+            const recKhr = payment.received_khr;
+            const chgUsd = payment.change_usd;
+            const chgKhr = payment.change_khr;
+            const exRate = payment.exchange_rate;
 
             // 1. Create a new completed order for the split items
             const [insertOrder] = await conn.execute(
@@ -1394,7 +1402,7 @@ app.post('/api/orders/split-checkout', requirePermission('payment'), async (req,
                 tableStatus,
                 lowStockItems: stockOutcome?.lowStockWarnings || [],
             };
-        });
+        }, { locks: [pendingOrderLockName(target)] });
 
         await auditFromRequest(db, req, {
             action: 'split_payment_process',
@@ -1411,7 +1419,7 @@ app.post('/api/orders/split-checkout', requirePermission('payment'), async (req,
             low_stock_items: outcome.lowStockItems,
         });
     } catch (error) {
-        if (error.status === 400 || error.status === 404) {
+        if ([400, 404, 409].includes(error.status)) {
             return res.status(error.status).json({ message: error.message });
         }
         res.status(500).json({ message: 'Error processing split payment', errorId: logError(error, { route: `${req.method} ${req.originalUrl}` }) });
