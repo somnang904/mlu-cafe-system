@@ -14,10 +14,14 @@ import App from './App.jsx'
 import { STORE } from './config/store.js'
 import { ThemeProvider } from './context/ThemeContext.jsx'
 import { SettingsProvider } from './context/SettingsContext.jsx'
+import { initPwa } from './utils/pwaInstall.js'
 
 if (typeof document !== 'undefined') {
   document.title = STORE.documentTitle
 }
+
+// Before render: the install prompt event fires once, early in page load.
+initPwa()
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
