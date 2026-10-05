@@ -22,6 +22,9 @@ const {
     ensureOrderItemsSchema,
     formatOrderLineName,
     pickLinePrices,
+    billMatchesBase,
+    pendingOrderLockName,
+    tableLockName,
 } = require('./src/utils/orderTargets');
 const { normalizeAllowedRole, passwordPolicyError, assignableRoleError } = require('./src/utils/accountPolicy');
 const { generateTemporaryPassword, hashPassword } = require('./src/utils/userAccounts');
@@ -983,6 +986,21 @@ app.get('/api/orders/stock-levels', requireOrderWriteAccess, async (_req, res) =
     }
 });
 
+async function assertTableNotMerged(conn, target) {
+    if (target.sourceType !== 'Table') return;
+    let rows;
+    try {
+        [rows] = await conn.execute('SELECT table_name, merged_into FROM tables WHERE id = ? LIMIT 1', [target.tableId]);
+    } catch {
+        return;
+    }
+    if (rows[0]?.merged_into != null) {
+        const error = new Error(`${rows[0].table_name} is merged into table #${rows[0].merged_into}. Add the order there.`);
+        error.status = 409;
+        throw error;
+    }
+}
+
 // 2. DISPATCH/MERGE ORDER ITEMS INTO TARGET TICKETS
 app.post('/api/orders', requireOrderWriteAccess, async (req, res) => {
     if (rejectIfMaintenance(res)) return;
@@ -1010,6 +1028,7 @@ app.post('/api/orders', requireOrderWriteAccess, async (req, res) => {
         const orderId = await withTransaction(db, async (conn) => {
             let id = await findPendingOrderId(conn, target);
             if (!id) {
+                await assertTableNotMerged(conn, target);
                 id = await createPendingOrder(conn, target, table_id);
             }
             for (const item of items) {
@@ -1021,7 +1040,7 @@ app.post('/api/orders', requireOrderWriteAccess, async (req, res) => {
             );
             await reconcileOrderStock(conn, id, lines, req.user?.id ?? null);
             return id;
-        });
+        }, { locks: [pendingOrderLockName(target)] });
 
         res.status(201).json({
             message: "Order stored securely in database!",
@@ -1036,7 +1055,7 @@ app.post('/api/orders', requireOrderWriteAccess, async (req, res) => {
             description: `Placed/merged ${items.length} item(s) for ${target.key === 'takeout' ? 'Take Out' : `Table ${target.key}`}`,
         });
     } catch (error) {
-        if (error.status === 400 || error.status === 403 || error.status === 404) {
+        if ([400, 403, 404, 409].includes(error.status)) {
             return res.status(error.status).json({ message: error.message });
         }
         logOrderError('DATABASE ERROR IN POST /api/orders', error, {
@@ -1191,7 +1210,7 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
                 change_khr: chgKhr,
                 exchange_rate: exRate,
             };
-        });
+        }, { locks: [pendingOrderLockName(target)] });
 
         await auditFromRequest(db, req, {
             action: 'payment_process',
@@ -1211,7 +1230,7 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
             exchange_rate: outcome.exchange_rate,
         });
     } catch (error) {
-        if (error.status === 400 || error.status === 404) {
+        if ([400, 404, 409].includes(error.status)) {
             return res.status(error.status).json({ message: error.message });
         }
         logOrderError('DATABASE ERROR IN POST /api/orders/checkout', error, {
@@ -1573,11 +1592,32 @@ app.put('/api/orders/items', requireOrderWriteAccess, async (req, res) => {
         return res.status(400).json({ message: validationError.message });
     }
 
+    const baseItems = Array.isArray(req.body?.base_items) ? req.body.base_items : null;
+
     try {
         const orderId = await withTransaction(db, async (conn) => {
             let id = await findPendingOrderId(conn, target);
+
+            if (baseItems) {
+                const [savedLines] = id
+                    ? await conn.execute(
+                        'SELECT menu_item_id, item_name, notes, quantity FROM order_items WHERE order_id = ?',
+                        [id],
+                    )
+                    : [[]];
+                if (!billMatchesBase(savedLines, baseItems)) {
+                    const error = new Error(id
+                        ? 'This bill was changed on another device. Review the updated bill and try again.'
+                        : 'This bill was already paid or cleared on another device.');
+                    error.status = 409;
+                    error.code = 'BILL_CHANGED';
+                    throw error;
+                }
+            }
+
             if (!id) {
                 if (items.length === 0) return null;
+                await assertTableNotMerged(conn, target);
                 id = await createPendingOrder(conn, target, table_id);
             }
             const prices = await pickLinePrices(conn, id, items, { isAdmin: isAdminRole(req.user?.role) });
@@ -1586,13 +1626,25 @@ app.put('/api/orders/items', requireOrderWriteAccess, async (req, res) => {
             for (const [index, item] of items.entries()) {
                 await insertOrderItem(conn, id, item, { price: prices[index] });
             }
+
+            if (items.length === 0) {
+                await conn.execute(
+                    "UPDATE orders SET status = 'Canceled', updated_at = NOW() WHERE id = ?",
+                    [id],
+                );
+                if (target.sourceType === 'Table') {
+                    await conn.execute('UPDATE tables SET status = "Empty" WHERE id = ?', [target.tableId]);
+                    await releaseMergedTables(conn, target.tableId);
+                }
+                return null;
+            }
             return id;
-        });
+        }, { locks: [pendingOrderLockName(target)] });
 
         res.status(200).json({ message: "Bill items updated.", orderId });
     } catch (error) {
-        if (error.status === 400 || error.status === 403 || error.status === 404) {
-            return res.status(error.status).json({ message: error.message });
+        if ([400, 403, 404, 409].includes(error.status)) {
+            return res.status(error.status).json({ message: error.message, code: error.code });
         }
         logOrderError('DATABASE ERROR IN PUT /api/orders/items', error, {
             target_id,
@@ -2530,9 +2582,10 @@ app.post('/api/tables/transfer', requirePosFloorAccess, async (req, res) => {
     }
 
     try {
+        await ensureReservationsSchema(db);
         await withTransaction(db, async (conn) => {
             const [tables] = await conn.execute(
-                'SELECT id, table_name, status FROM tables WHERE id IN (?, ?)',
+                'SELECT id, table_name, status, merged_into FROM tables WHERE id IN (?, ?)',
                 [fromId, toId],
             );
             const sourceTable = tables.find((t) => t.id === fromId);
@@ -2546,6 +2599,11 @@ app.post('/api/tables/transfer', requirePosFloorAccess, async (req, res) => {
             if (!destTable) {
                 const err = new Error('Destination table does not exist');
                 err.status = 404;
+                throw err;
+            }
+            if (destTable.merged_into != null) {
+                const err = new Error(`${destTable.table_name} is merged into another table`);
+                err.status = 400;
                 throw err;
             }
 
@@ -2588,7 +2646,7 @@ app.post('/api/tables/transfer', requirePosFloorAccess, async (req, res) => {
             // Tables merged onto the moved table follow it to the new one.
             await conn.execute('UPDATE tables SET merged_into = ? WHERE merged_into = ?', [toId, fromId])
                 .catch((err) => console.warn('⚠️ Could not move merged tables:', err.message));
-        });
+        }, { locks: [tableLockName(fromId), tableLockName(toId)] });
 
         await auditFromRequest(db, req, {
             action: 'transfer_table',
@@ -2602,7 +2660,7 @@ app.post('/api/tables/transfer', requirePosFloorAccess, async (req, res) => {
             to_table_id: toId,
         });
     } catch (error) {
-        if (error.status === 400 || error.status === 404) {
+        if ([400, 404, 409].includes(error.status)) {
             return res.status(error.status).json({ message: error.message });
         }
         console.error('❌ TRANSFER TABLE ERROR:', error.message);
@@ -2679,10 +2737,16 @@ app.post('/api/tables/merge', requirePosFloorAccess, async (req, res) => {
 
             if (destOrders.length > 0) {
                 const destOrderId = destOrders[0].id;
+                await reconcileOrderStock(conn, sourceOrderId, [], req.user?.id ?? null);
                 await conn.execute(
                     'UPDATE order_items SET order_id = ? WHERE order_id = ?',
                     [destOrderId, sourceOrderId],
                 );
+                const [mergedLines] = await conn.execute(
+                    'SELECT menu_item_id, quantity FROM order_items WHERE order_id = ?',
+                    [destOrderId],
+                );
+                await reconcileOrderStock(conn, destOrderId, mergedLines, req.user?.id ?? null);
                 await conn.execute(
                     "UPDATE orders SET status = 'Canceled', updated_at = NOW() WHERE id = ?",
                     [sourceOrderId],
@@ -2714,7 +2778,7 @@ app.post('/api/tables/merge', requirePosFloorAccess, async (req, res) => {
             await conn.execute('UPDATE tables SET status = "Empty", merged_into = ? WHERE id = ?', [toId, fromId]);
             await conn.execute('UPDATE tables SET merged_into = ? WHERE merged_into = ?', [toId, fromId]);
             await conn.execute('UPDATE tables SET status = "Occupied" WHERE id = ?', [toId]);
-        });
+        }, { locks: [tableLockName(fromId), tableLockName(toId)] });
 
         await auditFromRequest(db, req, {
             action: 'merge_table',
@@ -2728,7 +2792,7 @@ app.post('/api/tables/merge', requirePosFloorAccess, async (req, res) => {
             to_table_id: toId,
         });
     } catch (error) {
-        if (error.status === 400 || error.status === 404) {
+        if ([400, 404, 409].includes(error.status)) {
             return res.status(error.status).json({ message: error.message });
         }
         res.status(500).json({ message: 'Failed to merge tables', errorId: logError(error, { route: 'POST /api/tables/merge' }) });
@@ -2747,24 +2811,23 @@ app.post('/api/tables/:id/clear', requirePosFloorAccess, async (req, res) => {
     try {
         const { sql, params } = pendingOrderWhereClause(target);
 
-        // Clearing an unpaid ticket cancels it, so only an admin may do that.
-        if (!isAdminRole(req.user?.role)) {
-            const [pending] = await db.execute(`SELECT id FROM orders WHERE ${sql} LIMIT 1`, params);
-            const [unpaidItems] = pending.length
-                ? await db.execute('SELECT id FROM order_items WHERE order_id = ? LIMIT 1', [pending[0].id])
-                : [[]];
-            if (unpaidItems.length > 0) {
-                return res.status(403).json({
-                    message: 'This table has not been paid yet. Only an administrator can cancel an unpaid order.',
-                });
-            }
-        }
-
         await withTransaction(db, async (conn) => {
             const [pendingOrders] = await conn.execute(
                 `SELECT id FROM orders WHERE ${sql} LIMIT 1`,
                 params,
             );
+
+            if (!isAdminRole(req.user?.role) && pendingOrders.length > 0) {
+                const [unpaidItems] = await conn.execute(
+                    'SELECT id FROM order_items WHERE order_id = ? LIMIT 1',
+                    [pendingOrders[0].id],
+                );
+                if (unpaidItems.length > 0) {
+                    const error = new Error('This table has not been paid yet. Only an administrator can cancel an unpaid order.');
+                    error.status = 403;
+                    throw error;
+                }
+            }
 
             if (pendingOrders.length > 0) {
                 const orderId = pendingOrders[0].id;
@@ -2779,7 +2842,7 @@ app.post('/api/tables/:id/clear', requirePosFloorAccess, async (req, res) => {
                 await conn.execute('UPDATE tables SET status = "Empty" WHERE id = ?', [target.tableId]);
                 await releaseMergedTables(conn, target.tableId);
             }
-        });
+        }, { locks: [pendingOrderLockName(target)] });
 
         await auditFromRequest(db, req, {
             action: 'clear_table',
@@ -2789,6 +2852,9 @@ app.post('/api/tables/:id/clear', requirePosFloorAccess, async (req, res) => {
 
         res.status(200).json({ message: 'Table cleared successfully', target_id: target.key });
     } catch (error) {
+        if (error.status === 403 || error.status === 409) {
+            return res.status(error.status).json({ message: error.message });
+        }
         console.error('❌ CLEAR TABLE ERROR:', error.message);
         res.status(500).json({ message: 'Failed to clear table', errorId: logError(error, { route: `POST /api/tables/${rawId}/clear` }) });
     }

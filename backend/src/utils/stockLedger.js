@@ -189,9 +189,23 @@ async function adjustStockToCount(conn, { inventoryId, quantity, reason, note, u
   })
 }
 
-async function withTransaction(pool, work) {
+const LOCK_WAIT_SECONDS = 10
+
+async function withTransaction(pool, work, { locks = [] } = {}) {
   const conn = await pool.getConnection()
+  const held = []
   try {
+    for (const name of [...new Set(locks)].sort()) {
+      const [rows] = await conn.query(
+        "SELECT GET_LOCK(CONCAT(DATABASE(), ':', ?), ?) AS ok",
+        [name, LOCK_WAIT_SECONDS],
+      )
+      if (Number(rows[0]?.ok) !== 1) {
+        throw httpError(409, 'Another device is updating this table. Please try again.')
+      }
+      held.push(name)
+    }
+
     await conn.beginTransaction()
     const result = await work(conn)
     await conn.commit()
@@ -205,7 +219,16 @@ async function withTransaction(pool, work) {
     }
     throw error
   } finally {
-    conn.release()
+    let lockStuck = false
+    for (const name of held.reverse()) {
+      try {
+        await conn.query("SELECT RELEASE_LOCK(CONCAT(DATABASE(), ':', ?))", [name])
+      } catch {
+        lockStuck = true
+      }
+    }
+    if (lockStuck && typeof conn.destroy === 'function') conn.destroy()
+    else conn.release()
   }
 }
 
