@@ -49,8 +49,16 @@ function pendingOrderWhereClause(target) {
 
 async function findPendingOrderId(db, target) {
   const { sql, params } = pendingOrderWhereClause(target)
-  const [rows] = await db.execute(`SELECT id FROM orders WHERE ${sql} LIMIT 1`, params)
+  const [rows] = await db.execute(`SELECT id FROM orders WHERE ${sql} ORDER BY id ASC LIMIT 1`, params)
   return rows.length > 0 ? rows[0].id : null
+}
+
+function pendingOrderLockName(target) {
+  return `pending-order:${target.key}`
+}
+
+function tableLockName(tableId) {
+  return pendingOrderLockName({ key: String(tableId) })
 }
 
 async function resolveTableForeignKey(db, tableRef) {
@@ -414,8 +422,40 @@ async function pickLinePrices(db, orderId, items, { isAdmin }) {
   })
 }
 
+function billLineKey(line) {
+  const notes = String(line?.notes ?? '').trim()
+  const menuId = Number.parseInt(line?.menu_item_id, 10)
+  if (Number.isFinite(menuId) && menuId > 0) return `m:${menuId}|${notes}`
+  const name = formatOrderLineName(line?.name ?? line?.item_name, notes).toLowerCase()
+  return `c:${name}|${notes}`
+}
+
+function billQuantities(lines) {
+  const totals = new Map()
+  for (const line of lines || []) {
+    const qty = Number(line?.quantity ?? line?.qty)
+    if (!Number.isFinite(qty) || qty <= 0) continue
+    const key = billLineKey(line)
+    totals.set(key, (totals.get(key) || 0) + qty)
+  }
+  return totals
+}
+
+function billMatchesBase(savedLines, baseItems) {
+  const saved = billQuantities(savedLines)
+  const base = billQuantities(baseItems)
+  if (saved.size !== base.size) return false
+  for (const [key, qty] of saved) {
+    if (base.get(key) !== qty) return false
+  }
+  return true
+}
+
 module.exports = {
   TAKEOUT_KEY,
+  billMatchesBase,
+  pendingOrderLockName,
+  tableLockName,
   pickLinePrices,
   normalizeIncomingTarget,
   targetIdSelectSql,
