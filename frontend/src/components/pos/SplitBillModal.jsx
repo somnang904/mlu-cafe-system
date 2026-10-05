@@ -202,7 +202,7 @@ export default function SplitBillModal({ isOpen, onClose, bill, onPaySplit }) {
               {/* Summary Cards */}
               <div className="grid grid-cols-2 gap-3 pt-2">
                 <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-3.5">
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-800 dark:text-emerald-300">
+                  <span className="text-2xs font-semibold uppercase tracking-wider text-emerald-800 dark:text-emerald-300">
                     {t('payment.splitToPay', { defaultValue: 'Split to Pay' })}
                   </span>
                   <p className="mt-1 text-lg font-bold tabular-nums text-emerald-950 dark:text-emerald-200">
@@ -214,7 +214,7 @@ export default function SplitBillModal({ isOpen, onClose, bill, onPaySplit }) {
                 </div>
 
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3.5 dark:border-zinc-800 dark:bg-zinc-900">
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-zinc-400">
+                  <span className="text-2xs font-semibold uppercase tracking-wider text-slate-500 dark:text-zinc-400">
                     {t('payment.remainingOnTable', { defaultValue: 'Remains on Table' })}
                   </span>
                   <p className="mt-1 text-lg font-bold tabular-nums text-slate-900 dark:text-zinc-100">

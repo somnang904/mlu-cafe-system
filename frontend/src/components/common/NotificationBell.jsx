@@ -99,7 +99,7 @@ export default function NotificationBell({ onNavigate }) {
       >
         <Bell className="h-5 w-5 text-foreground/90" />
         {showBadge && (
-          <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold text-white shadow-lg shadow-red-900/40 ring-2 ring-background">
+          <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-2xs font-bold text-white shadow-lg shadow-red-900/40 ring-2 ring-background">
             {badgeCount > 99 ? '99+' : badgeCount}
           </span>
         )}

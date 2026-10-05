@@ -46,7 +46,7 @@ function ActiveBillList({ bills, selectedId, onSelect }) {
                 )}
               </div>
               <span
-                className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ${PAYMENT_QUEUE_STATUS.badge}`}
+                className={`shrink-0 rounded-full px-2 py-0.5 text-2xs font-semibold ring-1 ${PAYMENT_QUEUE_STATUS.badge}`}
               >
                 {t(PAYMENT_QUEUE_STATUS.labelKey)}
               </span>

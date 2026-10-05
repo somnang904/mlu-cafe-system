@@ -3,6 +3,67 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/*
+ * Type scale. Tailwind's defaults (12 / 14px) read too small on a POS screen, so
+ * xs and sm are one step up. text-2xs (12px) is the floor for badges and meta text;
+ * use it instead of arbitrary 10-11px sizes.
+ */
+@theme {
+  --text-2xs: 0.75rem;
+  --text-2xs--line-height: calc(1.125 / 0.75);
+  --text-xs: 0.8125rem;
+  --text-xs--line-height: calc(1.25 / 0.8125);
+  --text-sm: 0.9375rem;
+  --text-sm--line-height: calc(1.375 / 0.9375);
+}
+
+/*
+ * Khmer glyphs sit small inside their em box (room is reserved for stacked vowels and
+ * subscripts), so at the same font-size Khmer reads ~10% smaller than Latin. This
+ * alias of the bundled Noto Sans Khmer files is scaled up and limited to the Khmer
+ * block, so mixed text ("តម្លៃ $2.50") keeps Latin in Noto Sans and both scripts
+ * look the same size in either language.
+ */
+@font-face {
+  font-family: 'Noto Sans Khmer UI';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  size-adjust: 110%;
+  unicode-range: U+1780-17FF, U+19E0-19FF, U+200B-200D, U+25CC;
+  src: url('../node_modules/@fontsource/noto-sans-khmer/files/noto-sans-khmer-khmer-400-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Noto Sans Khmer UI';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  size-adjust: 110%;
+  unicode-range: U+1780-17FF, U+19E0-19FF, U+200B-200D, U+25CC;
+  src: url('../node_modules/@fontsource/noto-sans-khmer/files/noto-sans-khmer-khmer-500-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Noto Sans Khmer UI';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  size-adjust: 110%;
+  unicode-range: U+1780-17FF, U+19E0-19FF, U+200B-200D, U+25CC;
+  src: url('../node_modules/@fontsource/noto-sans-khmer/files/noto-sans-khmer-khmer-600-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Noto Sans Khmer UI';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  size-adjust: 110%;
+  unicode-range: U+1780-17FF, U+19E0-19FF, U+200B-200D, U+25CC;
+  src: url('../node_modules/@fontsource/noto-sans-khmer/files/noto-sans-khmer-khmer-700-normal.woff2') format('woff2');
+}
+
 @layer base {
   :root {
     --background: #eef2ea;
@@ -58,14 +119,19 @@
   }
 
   /*
-   * Use same root font-size as English so Khmer text appears visually equal.
-   * Khmer glyphs are inherently taller than Latin, so we keep line-height slightly
-   * larger to prevent ascenders/descenders from clipping.
+   * Same root size and font stack as English (sizes must not jump when switching
+   * language). Khmer stacks vowels and subscripts above and below the base line, so
+   * it only gets roomier line-heights to keep lines from touching or clipping.
    */
   html[lang='km'] {
-    font-family: 'Noto Sans Khmer', 'Noto Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
-    font-size: 15px;
-    line-height: 1.55;
+    line-height: 1.6;
+    --text-2xs--line-height: 1.6;
+    --text-xs--line-height: 1.6;
+    --text-sm--line-height: 1.6;
+    --text-base--line-height: 1.65;
+    --text-lg--line-height: 1.6;
+    --text-xl--line-height: 1.55;
+    --text-2xl--line-height: 1.45;
   }
 
   html,

@@ -239,7 +239,7 @@ function UserFormModal({ mode, user, onClose, onSave }) {
                 </button>
               </div>
               {isEdit && (
-                <p className="mt-1 text-[11px] text-stone-400">{t('users.passwordResetHint')}</p>
+                <p className="mt-1 text-2xs text-stone-400">{t('users.passwordResetHint')}</p>
               )}
             </div>
             <div>
@@ -282,7 +282,7 @@ function UserFormModal({ mode, user, onClose, onSave }) {
                 <option value="Cashier">{t('users.roles.cashier')}</option>
               </select>
             )}
-            <p className="text-muted mt-1.5 text-[11px] leading-snug">
+            <p className="text-muted mt-1.5 text-2xs leading-snug">
               {editingExistingAdmin ? t('users.roleBlurbAdminFixed') : t(roleBlurbKey(role))}
             </p>
           </div>
@@ -512,12 +512,12 @@ export default function Users() {
                   <td className="px-6 py-4">
                     <div className="flex flex-wrap gap-1.5">
                       {isAdminRole(user.role) ? (
-                        <span className="rounded-lg bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400">
+                        <span className="rounded-lg bg-emerald-50 px-2 py-0.5 text-2xs font-medium text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400">
                           {t('users.fullSystemAccess')}
                         </span>
                       ) : user.permissions && user.permissions.length > 0 ? (
                         normalizePermissions(user.permissions).map((permission) => (
-                          <span key={permission} className="rounded-lg bg-olive-50 px-2 py-0.5 text-[11px] font-medium text-forest-700 dark:bg-olive-900/20 dark:text-forest-400">
+                          <span key={permission} className="rounded-lg bg-olive-50 px-2 py-0.5 text-2xs font-medium text-forest-700 dark:bg-olive-900/20 dark:text-forest-400">
                             {permissionLabel(t, permission)}
                           </span>
                         ))

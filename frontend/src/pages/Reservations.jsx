@@ -137,7 +137,7 @@ function ReservationCalendar({ monthDate, selectedDate, countsByDate, onSelectDa
         </div>
       </div>
 
-      <div className="grid min-w-0 grid-cols-7 gap-1 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+      <div className="grid min-w-0 grid-cols-7 gap-1 text-center text-2xs font-semibold uppercase tracking-wide text-muted-foreground">
         {WEEKDAY_KEYS.map((day) => (
           <div key={day} className="min-w-0 break-words py-1">
             {t(`dates.weekdays.${day}`)}
@@ -169,7 +169,7 @@ function ReservationCalendar({ monthDate, selectedDate, countsByDate, onSelectDa
             >
               <span className="block leading-none">{day}</span>
               {closed ? (
-                <span className={`mt-1 text-[9px] font-semibold uppercase tracking-wide ${isSelected ? 'text-white/80' : 'text-rose-600 dark:text-rose-400'}`}>
+                <span className={`mt-1 text-2xs font-semibold uppercase tracking-wide ${isSelected ? 'text-white/80' : 'text-rose-600 dark:text-rose-400'}`}>
                   {t('reservations.closed')}
                 </span>
               ) : count > 0 ? (
@@ -439,7 +439,7 @@ function ReservationActions({
           disabled={checkingInId === reservation.id}
           onClick={() => onCheckIn(reservation)}
           className={`inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-600 font-semibold text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60 ${
-            touch ? 'min-h-10 px-3 text-sm' : 'px-2.5 py-1 text-[11px]'
+            touch ? 'min-h-10 px-3 text-sm' : 'px-2.5 py-1 text-2xs'
           }`}
           aria-label={t('a11y.checkInGuest', { name: reservation.customer_name })}
         >
@@ -797,7 +797,7 @@ export default function Reservations() {
               const meta = RESERVATION_STATUS_META[status]
               return (
                 <div key={status} className="flex h-full min-w-0 flex-col rounded-2xl border border-border px-3 py-3">
-                  <p className="text-muted break-words text-[11px] font-semibold uppercase leading-tight tracking-wide">
+                  <p className="text-muted break-words text-2xs font-semibold uppercase leading-tight tracking-wide">
                     {t(meta?.labelKey || status)}
                   </p>
                   <p className="mt-1 text-xl font-semibold tabular-nums">{count}</p>
@@ -867,30 +867,30 @@ export default function Reservations() {
                     </div>
                     <dl className="mt-3 grid min-w-0 grid-cols-2 gap-x-3 gap-y-2 text-sm">
                       <div className="min-w-0">
-                        <dt className="text-muted text-[11px]">{t('reservations.date')}</dt>
+                        <dt className="text-muted text-2xs">{t('reservations.date')}</dt>
                         <dd className="break-words tabular-nums">{reservation.reservation_date}</dd>
                       </div>
                       <div className="min-w-0">
-                        <dt className="text-muted text-[11px]">{t('reservations.timeSlot')}</dt>
+                        <dt className="text-muted text-2xs">{t('reservations.timeSlot')}</dt>
                         <dd className="break-words">
                           {slotLabel(reservation.time_slot, reservation.time_slot_label, reservation.duration_minutes)}
                         </dd>
                       </div>
                       <div className="min-w-0">
-                        <dt className="text-muted text-[11px]">{t('reservations.phoneNumber')}</dt>
+                        <dt className="text-muted text-2xs">{t('reservations.phoneNumber')}</dt>
                         <dd className="break-words">{reservation.phone}</dd>
                       </div>
                       <div className="min-w-0">
-                        <dt className="text-muted text-[11px]">{t('reservations.guestCount')}</dt>
+                        <dt className="text-muted text-2xs">{t('reservations.guestCount')}</dt>
                         <dd className="tabular-nums">{reservation.guest_count}</dd>
                       </div>
                       <div className="min-w-0">
-                        <dt className="text-muted text-[11px]">{t('tables.table')}</dt>
+                        <dt className="text-muted text-2xs">{t('tables.table')}</dt>
                         <dd className="break-words">{reservationTableLabel(reservation, t)}</dd>
                       </div>
                     </dl>
                     {reservation.status === 'Seated' && reservation.checked_in_at ? (
-                      <p className="text-muted mt-2 text-[11px]">
+                      <p className="text-muted mt-2 text-2xs">
                         {t('reservations.checkedInAt', { time: formatTime12Hour(reservation.checked_in_at) })}
                       </p>
                     ) : null}
@@ -948,7 +948,7 @@ export default function Reservations() {
                             {t(meta.labelKey)}
                           </StatusBadge>
                           {reservation.status === 'Seated' && reservation.checked_in_at ? (
-                            <span className="text-muted mt-1 block text-[11px]">
+                            <span className="text-muted mt-1 block text-2xs">
                               {t('reservations.checkedInAt', { time: formatTime12Hour(reservation.checked_in_at) })}
                             </span>
                           ) : null}

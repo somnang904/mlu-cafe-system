@@ -135,7 +135,7 @@ function RecipeBadge({ links }) {
     <div className="group relative inline-block">
       <span
         tabIndex={0}
-        className="inline-flex cursor-default select-none items-center gap-1 rounded-md border border-emerald-500/25 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-800 transition-colors hover:bg-emerald-500/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500/40 dark:border-emerald-500/30 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-900/50"
+        className="inline-flex cursor-default select-none items-center gap-1 rounded-md border border-emerald-500/25 bg-emerald-500/10 px-2 py-0.5 text-2xs font-medium text-emerald-800 transition-colors hover:bg-emerald-500/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500/40 dark:border-emerald-500/30 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-900/50"
         title={links.map((link) => link.menu_name).join(', ')}
       >
         <Link2 className="h-3 w-3 shrink-0 text-emerald-600 dark:text-emerald-400" />
@@ -143,11 +143,11 @@ function RecipeBadge({ links }) {
       </span>
       <div className="pointer-events-none invisible absolute left-0 top-full z-40 mt-1.5 w-64 rounded-xl border border-stone-200/90 bg-white/95 p-3 opacity-0 shadow-xl ring-1 ring-black/5 backdrop-blur-md transition-all duration-150 ease-out group-focus-within:visible group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:visible group-hover:opacity-100 dark:border-zinc-700/80 dark:bg-zinc-900/95">
         <div className="mb-2 flex items-center justify-between border-b border-stone-200/60 pb-1.5 dark:border-zinc-800">
-          <span className="flex items-center gap-1.5 text-[11px] font-semibold text-stone-700 dark:text-zinc-200">
+          <span className="flex items-center gap-1.5 text-2xs font-semibold text-stone-700 dark:text-zinc-200">
             <Link2 className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
             {t('inventory.linkedRecipesTitle', { count: links.length })}
           </span>
-          <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300">
+          <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-2xs font-bold text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300">
             {links.length}
           </span>
         </div>
