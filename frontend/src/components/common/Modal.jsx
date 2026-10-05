@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 
@@ -18,8 +18,12 @@ export default function Modal({
   const panelRef = useRef(null)
   const onCloseRef = useRef(onClose)
   const dismissibleRef = useRef(dismissible)
-  onCloseRef.current = onClose
-  dismissibleRef.current = dismissible
+  // Synced after commit (not during render) so the keydown handler never sees
+  // props from a render React discarded.
+  useLayoutEffect(() => {
+    onCloseRef.current = onClose
+    dismissibleRef.current = dismissible
+  })
 
   useEffect(() => {
     const panel = panelRef.current

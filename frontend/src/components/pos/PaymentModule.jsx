@@ -1,4 +1,4 @@
-import { Banknote, ScanLine, Calculator, DollarSign, Coins, Check, ArrowRight } from 'lucide-react'
+import { Banknote, ScanLine, Calculator } from 'lucide-react'
 import { useState, useMemo, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
@@ -15,7 +15,7 @@ const PAYMENT_METHODS = [
 ]
 
 export default function PaymentModule({ disabled, billTotal = 0, onConfirm }) {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const [method, setMethod] = useState('Cash')
   const [exchangeRate] = useState(DEFAULT_EXCHANGE_RATE)
   const [receivedUsdInput, setReceivedUsdInput] = useState('')
@@ -34,7 +34,9 @@ export default function PaymentModule({ disabled, billTotal = 0, onConfirm }) {
     setClearImmediately(val)
     try {
       localStorage.setItem('mlu_pos_clear_immediately', String(val))
-    } catch {}
+    } catch {
+      // Storage can be blocked (private mode); the toggle still works for this session.
+    }
   }
 
   // Pre-fill exact cash or reset when billTotal changes

@@ -68,8 +68,8 @@ export default function SalesHistory() {
         } else {
           await loadSalesHistory({ month: selectedMonth })
         }
-      } catch (error) {
-        // silent retry
+      } catch {
+        // Silent: the next order event or month change reloads it.
       }
     }
 
@@ -81,7 +81,9 @@ export default function SalesHistory() {
       channel.onmessage = () => {
         loadMonthHistory()
       }
-    } catch (_) {}
+    } catch {
+      // BroadcastChannel is missing in some browsers; cross-tab sync is optional.
+    }
 
     window.addEventListener('mlu-order-completed', loadMonthHistory)
 

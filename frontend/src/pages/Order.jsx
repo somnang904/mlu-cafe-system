@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   CheckCircle2,
@@ -341,7 +341,10 @@ export default function Order() {
   }
 
   const applyMenuItemRef = useRef(handleMenuItemClick)
-  applyMenuItemRef.current = handleMenuItemClick
+  // Synced after commit so the deep-link timer below calls the latest handler.
+  useLayoutEffect(() => {
+    applyMenuItemRef.current = handleMenuItemClick
+  })
 
   useEffect(() => {
     if (!menuReady) return undefined

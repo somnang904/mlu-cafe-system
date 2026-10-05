@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { RotateCcw, X, AlertTriangle, ShieldCheck, Lock } from 'lucide-react'
+import { RotateCcw, X, AlertTriangle, Lock } from 'lucide-react'
 import { useModalKeyboard } from '../../hooks/useModalKeyboard'
 import { useAuth } from '../../context/AuthContext'
 import { isAdminRole } from '../../utils/permissions'

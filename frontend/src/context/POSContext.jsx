@@ -349,8 +349,8 @@ export function POSProvider({ children }) {
       )
       setTables(reconciled.tables)
       setTakeOut(reconciled.takeOut)
-    } catch (_) {
-      // Background retry
+    } catch {
+      // Background poll: the next refresh retries, so a failed fetch is not surfaced.
     }
   }, [])
 
@@ -365,7 +365,9 @@ export function POSProvider({ children }) {
         refreshActiveOrders()
         loadSalesHistory()
       }
-    } catch (_) {}
+    } catch {
+      // BroadcastChannel is missing in some browsers; cross-tab sync is optional.
+    }
 
     return () => {
       if (channel) channel.close()
@@ -586,7 +588,9 @@ export function POSProvider({ children }) {
         const channel = new BroadcastChannel('mlu-pos-sync')
         channel.postMessage({ type: 'order-checkout', id: invoiceId })
         channel.close()
-      } catch (_) {}
+      } catch {
+        // BroadcastChannel is missing in some browsers; cross-tab sync is optional.
+      }
       window.dispatchEvent(new CustomEvent('mlu-order-completed', { detail: transaction }))
 
       if (clearImmediately) {
@@ -740,7 +744,9 @@ export function POSProvider({ children }) {
         const channel = new BroadcastChannel('mlu-pos-sync')
         channel.postMessage({ type: 'order-checkout', id: invoiceId })
         channel.close()
-      } catch (_) {}
+      } catch {
+        // BroadcastChannel is missing in some browsers; cross-tab sync is optional.
+      }
       window.dispatchEvent(new CustomEvent('mlu-order-completed', { detail: transaction }))
 
       return transaction

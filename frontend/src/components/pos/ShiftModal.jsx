@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Clock, DollarSign, X, AlertCircle, Printer, CheckCircle2, ArrowRight } from 'lucide-react'
+import { Clock, X, AlertCircle, Printer } from 'lucide-react'
 import { useModalKeyboard } from '../../hooks/useModalKeyboard'
 import { apiFetch } from '../../services/apiClient'
 import { formatUsd, formatKhr } from '../../utils/currency'
@@ -95,7 +95,8 @@ export default function ShiftModal({ isOpen, onClose }) {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.message || 'Failed to close shift')
-      setClosingShiftResult(data.shift)
+      // Stamp the end time once here; computing it during render made it tick on every re-render.
+      setClosingShiftResult({ ...data.shift, end_time: data.shift?.end_time ?? new Date().toISOString() })
       setStep('z_report')
       setShift(null)
     } catch (err) {
@@ -434,7 +435,7 @@ export default function ShiftModal({ isOpen, onClose }) {
                   <div className="flex justify-between">
                     <span className="text-stone-500">End Time:</span>
                     <span className="tabular-nums font-medium">
-                      {new Date(closingShiftResult?.end_time || Date.now()).toLocaleString()}
+                      {new Date(closingShiftResult?.end_time).toLocaleString()}
                     </span>
                   </div>
                   <div className="flex justify-between">
