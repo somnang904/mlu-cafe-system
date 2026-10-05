@@ -5,6 +5,7 @@ import ThemeToggle from '../components/ui/ThemeToggle'
 import LanguageToggle from '../components/ui/LanguageToggle'
 import { consumeConnectionLost } from '../services/sessionStorage'
 import BrandLogo from '../components/common/BrandLogo'
+import { STORE } from '../config/store'
 
 export default function Login({ onLogin }) {
   const { t } = useTranslation()
@@ -76,13 +77,13 @@ export default function Login({ onLogin }) {
 
       <div className="login-page relative z-10 mx-auto flex min-h-screen w-full max-w-6xl items-center justify-center gap-x-10 px-4 py-10 sm:px-8 lg:gap-x-16 lg:px-12">
         <div className="hidden lg:flex lg:w-[42%] lg:items-center lg:justify-center">
-          <BrandLogo glow className="h-auto w-full max-h-[380px] max-w-[320px] object-contain" />
+          <BrandLogo glow darkSrc={STORE.logoDarkUrl} className="h-auto w-full max-h-[380px] max-w-[320px] object-contain" />
         </div>
 
         <div className="flex w-full items-center justify-center lg:w-[58%]">
           <div className="w-full max-w-[420px]">
             <div className="mb-8 flex justify-center lg:hidden">
-              <BrandLogo glow className="h-auto w-full max-h-[180px] max-w-[180px] object-contain sm:max-h-[220px] sm:max-w-[220px]" />
+              <BrandLogo glow darkSrc={STORE.logoDarkUrl} className="h-auto w-full max-h-[180px] max-w-[180px] object-contain sm:max-h-[220px] sm:max-w-[220px]" />
             </div>
 
             <div className="flex w-full flex-col gap-5 rounded-3xl border border-cocoa-100/80 bg-white/70 p-6 shadow-xl shadow-cocoa-900/10 ring-1 ring-white/40 backdrop-blur-xl sm:p-8 dark:border-white/10 dark:bg-zinc-900/55 dark:shadow-black/30 dark:ring-white/10">
@@ -130,9 +131,11 @@ export default function Login({ onLogin }) {
                     />
                     <button
                       type="button"
+                      // Keep focus (and the caret) in the password field; the toggle is mouse-only (tabIndex -1).
+                      onMouseDown={(event) => event.preventDefault()}
                       onClick={() => setShowPassword((prev) => !prev)}
                       disabled={isLoading || lockSeconds > 0}
-                      className="absolute right-3 flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 disabled:pointer-events-none lg:right-3.5 lg:h-9 lg:w-9 dark:text-zinc-400 dark:hover:text-zinc-200"
+                      className="absolute right-3 flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 outline-none transition-colors hover:text-slate-700 disabled:pointer-events-none lg:right-3.5 lg:h-9 lg:w-9 dark:text-zinc-400 dark:hover:text-zinc-200"
                       aria-label={showPassword ? 'Hide password' : 'Show password'}
                       tabIndex={-1}
                     >
@@ -160,7 +163,7 @@ export default function Login({ onLogin }) {
                 <button
                   type="submit"
                   disabled={isLoading || lockSeconds > 0}
-                  className="relative w-full overflow-hidden rounded-full bg-forest-500 py-4 text-base font-semibold text-white shadow-sm transition-colors hover:bg-forest-600 disabled:cursor-not-allowed disabled:opacity-50 lg:min-h-[52px] lg:text-lg"
+                  className="beam-border relative w-full overflow-hidden rounded-full bg-forest-500 py-4 text-base font-semibold text-white shadow-[0_4px_14px_rgba(16,185,129,0.35)] transition-colors hover:bg-forest-600 disabled:cursor-not-allowed disabled:opacity-50 lg:min-h-[52px] lg:text-lg"
                 >
                   <span className={isLoading ? 'opacity-0' : 'opacity-100'}>
                     {lockSeconds > 0

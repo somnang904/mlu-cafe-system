@@ -6,6 +6,8 @@ export const STORE = {
   officialName: 'Mlu Kitchen & Cafe Siem Reap',
   shortName: 'Mlu',
   logoUrl: '/logo/logo.png',
+  // logo.png recoloured for dark backgrounds (light lettering, brighter greens).
+  logoDarkUrl: '/logo/logo-dark.webp',
   sidebarLogoUrl: '/logo/sidebar-logo.png',
   // logo.png with its transparent side margins trimmed, sized for the sidebar;
   // the dark copy has light lettering and brighter greens for the dark theme.
