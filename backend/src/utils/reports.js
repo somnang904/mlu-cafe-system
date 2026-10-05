@@ -1,5 +1,14 @@
+const {
+  refundDateSql,
+  refundedStatusSql,
+  saleStatusSql,
+  salesAndRefunds,
+} = require('./salesTotals')
+
 const ALLOWED_DAY_RANGES = [30, 60, 90, 120, 180, 365, 730]
-const COMPLETED_STATUSES = `UPPER(o.status) IN ('COMPLETED', 'PAID')`
+const COMPLETED_STATUSES = saleStatusSql('o')
+const REFUNDED_STATUS = refundedStatusSql('o')
+const REFUND_DATE = refundDateSql('o')
 
 function resolveDayRange(rawDays) {
   const parsed = Number.parseInt(rawDays, 10)
@@ -33,6 +42,18 @@ async function buildSalesReport(db, { days } = {}) {
     [rangeDays],
   )
 
+  const [[refundTotals]] = await db.execute(
+    `
+    SELECT
+      COUNT(*) AS order_count,
+      COALESCE(SUM(COALESCE(o.total, o.total_amount)), 0) AS amount
+    FROM orders o
+    WHERE ${REFUNDED_STATUS}
+      AND ${REFUND_DATE} >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+    `,
+    [rangeDays],
+  )
+
   const [[today]] = await db.execute(
     `
     SELECT
@@ -43,6 +64,30 @@ async function buildSalesReport(db, { days } = {}) {
       AND DATE(o.updated_at) = CURDATE()
     `,
   )
+
+  const [[todayRefunds]] = await db.execute(
+    `
+    SELECT
+      COUNT(*) AS order_count,
+      COALESCE(SUM(COALESCE(o.total, o.total_amount)), 0) AS amount
+    FROM orders o
+    WHERE ${REFUNDED_STATUS}
+      AND DATE(${REFUND_DATE}) = CURDATE()
+    `,
+  )
+
+  const period = salesAndRefunds({
+    orders: totals?.order_count,
+    sales: totals?.revenue,
+    refundOrders: refundTotals?.order_count,
+    refunds: refundTotals?.amount,
+  })
+  const day = salesAndRefunds({
+    orders: today?.order_count,
+    sales: today?.revenue,
+    refundOrders: todayRefunds?.order_count,
+    refunds: todayRefunds?.amount,
+  })
 
   const [byPaymentMethod] = await db.execute(
     `
@@ -120,14 +165,22 @@ async function buildSalesReport(db, { days } = {}) {
       allowed: ALLOWED_DAY_RANGES,
     },
     totals: {
-      orders: count(totals?.order_count),
+      orders: period.orders,
       subtotal: money(totals?.subtotal),
       tax: 0,
-      revenue: money(totals?.revenue),
+      revenue: period.sales,
+      sales: period.sales,
+      refundOrders: period.refundOrders,
+      refunds: period.refunds,
+      net: period.net,
     },
     today: {
-      orders: count(today?.order_count),
-      revenue: money(today?.revenue),
+      orders: day.orders,
+      revenue: day.sales,
+      sales: day.sales,
+      refundOrders: day.refundOrders,
+      refunds: day.refunds,
+      net: day.net,
     },
     byPaymentMethod: byPaymentMethod.map((row) => ({
       method: row.method || 'Cash',

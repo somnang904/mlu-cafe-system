@@ -97,10 +97,12 @@ function roundMoney(value) {
 }
 
 function formatMoney(value) {
-  return `$${roundMoney(value).toLocaleString('en-US', {
+  const amount = roundMoney(value)
+  const text = `$${Math.abs(amount).toLocaleString('en-US', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`
+  return amount < 0 ? `-${text}` : text
 }
 
 function formatGeneratedAt(date = new Date()) {

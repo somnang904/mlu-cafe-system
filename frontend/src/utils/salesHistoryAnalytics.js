@@ -71,9 +71,11 @@ export function buildDynamicMonthFilterOptions(
   // Collect distinct months from actual completed orders
   if (Array.isArray(orders)) {
     for (const order of orders) {
-      const monthKey = getOrderMonthKey(order)
-      if (monthKey && /^\d{4}-\d{2}$/.test(monthKey)) {
-        monthSet.add(monthKey)
+      const refundMonthKey = getRefundDateKey(order)?.slice(0, 7)
+      for (const monthKey of [getOrderMonthKey(order), refundMonthKey]) {
+        if (monthKey && /^\d{4}-\d{2}$/.test(monthKey)) {
+          monthSet.add(monthKey)
+        }
       }
     }
   }
@@ -124,11 +126,74 @@ export function filterOrdersByMonth(orders, monthKey) {
   return orders.filter((order) => getOrderMonthKey(order) === monthKey)
 }
 
+function orderStatus(order) {
+  return String(order?.status || '').trim().toLowerCase()
+}
+
+export function isRefundedOrder(order) {
+  return orderStatus(order) === 'refunded'
+}
+
+export function isSoldOrder(order) {
+  const status = orderStatus(order)
+  return status === 'completed' || status === 'paid' || status === 'refunded'
+}
+
+export function getRefundDateKey(order) {
+  if (!isRefundedOrder(order)) return null
+  const raw = String(order.refundDate || order.refund_date || '').slice(0, 10)
+  return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : normalizeOrderDate(order)
+}
+
+function inPeriod(dateKey, periodKey) {
+  if (!dateKey) return false
+  if (!periodKey || periodKey === 'all') return true
+  return dateKey.startsWith(periodKey)
+}
+
+function roundMoney(value) {
+  return Math.round((Number(value) || 0) * 100) / 100
+}
+
+export function summarizeSalesAndRefunds(orders, periodKey = 'all') {
+  let sales = 0
+  let salesOrders = 0
+  let refunds = 0
+  let refundOrders = 0
+
+  for (const order of orders || []) {
+    if (!isSoldOrder(order)) continue
+    const amount = Number.parseFloat(order.total || 0) || 0
+    if (inPeriod(normalizeOrderDate(order), periodKey)) {
+      sales += amount
+      salesOrders += 1
+    }
+    if (inPeriod(getRefundDateKey(order), periodKey)) {
+      refunds += amount
+      refundOrders += 1
+    }
+  }
+
+  return {
+    sales: roundMoney(sales),
+    salesOrders,
+    refunds: roundMoney(refunds),
+    refundOrders,
+    net: roundMoney(sales - refunds),
+  }
+}
+
+export function filterOrdersForPeriod(orders, periodKey) {
+  if (!periodKey || periodKey === 'all') return orders
+  return orders.filter(
+    (order) =>
+      inPeriod(normalizeOrderDate(order), periodKey) ||
+      inPeriod(getRefundDateKey(order), periodKey),
+  )
+}
+
 export function filterCompletedOrders(orders) {
-  return orders.filter((order) => {
-    const status = String(order.status || '').trim().toLowerCase()
-    return status === 'completed' || status === 'paid' || status === 'refunded'
-  })
+  return orders.filter(isSoldOrder)
 }
 
 export function buildDailySalesForMonth(orders, monthKey) {
@@ -147,22 +212,16 @@ export function buildDailySalesForMonth(orders, monthKey) {
     }
   })
 
-  const bucketMap = Object.fromEntries(buckets.map((bucket) => [bucket.key, bucket]))
-
-  for (const order of orders) {
-    if (String(order.status || '').toLowerCase() === 'refunded') continue
-    const dateKey = normalizeOrderDate(order)
-    if (!dateKey || !dateKey.startsWith(monthKey)) continue
-    const bucket = bucketMap[dateKey]
-    if (!bucket) continue
-    bucket.revenue += Number.parseFloat(order.total || 0)
-    bucket.orders += 1
-  }
-
-  return buckets.map((bucket) => ({
-    ...bucket,
-    revenue: Math.round(bucket.revenue * 100) / 100,
-  }))
+  return buckets.map((bucket) => {
+    const totals = summarizeSalesAndRefunds(orders, bucket.key)
+    return {
+      ...bucket,
+      revenue: totals.net,
+      sales: totals.sales,
+      refunds: totals.refunds,
+      orders: totals.salesOrders,
+    }
+  })
 }
 
 export function buildMonthlyTotalsChart(orders, monthOptions) {
@@ -172,42 +231,28 @@ export function buildMonthlyTotalsChart(orders, monthOptions) {
   return monthEntries
     .map((option) => {
       const monthKey = option.value
-      const monthOrders = filterOrdersByMonth(orders, monthKey).filter(
-        (o) => String(o.status || '').toLowerCase() !== 'refunded',
-      )
-      const revenue = monthOrders.reduce(
-        (sum, order) => sum + Number.parseFloat(order.total || 0),
-        0,
-      )
+      const totals = summarizeSalesAndRefunds(orders, monthKey)
       const fullLabel = labelByKey[monthKey] || formatMonthLabel(monthKey)
       return {
         monthKey,
         label: fullLabel.split(' ')[0],
         fullLabel,
-        revenue: Math.round(revenue * 100) / 100,
-        orders: monthOrders.length,
+        revenue: totals.net,
+        sales: totals.sales,
+        refunds: totals.refunds,
+        orders: totals.salesOrders,
       }
     })
     .reverse()
 }
 
-export function summarizeSalesMetrics(orders) {
-  const validOrders = orders.filter((o) => String(o.status || '').toLowerCase() !== 'refunded')
-  const refundedOrders = orders.filter((o) => String(o.status || '').toLowerCase() === 'refunded')
-
-  const grossRevenue = validOrders.reduce((sum, order) => sum + Number.parseFloat(order.total || 0), 0)
-  const cashTotal = validOrders
-    .filter((order) => order.payment === 'Cash')
-    .reduce((sum, order) => sum + Number.parseFloat(order.total || 0), 0)
-  const bankScanTotal = validOrders
-    .filter((order) => order.payment === 'Bank Scan')
-    .reduce((sum, order) => sum + Number.parseFloat(order.total || 0), 0)
-
+export function summarizeSalesMetrics(orders, periodKey = 'all') {
+  const totals = summarizeSalesAndRefunds(orders, periodKey)
   return {
-    grossRevenue: Math.round(grossRevenue * 100) / 100,
-    ordersFulfilled: validOrders.length,
-    ordersRefunded: refundedOrders.length,
-    cashTotal: Math.round(cashTotal * 100) / 100,
-    bankScanTotal: Math.round(bankScanTotal * 100) / 100,
+    grossRevenue: totals.sales,
+    refunds: totals.refunds,
+    netRevenue: totals.net,
+    ordersFulfilled: totals.salesOrders,
+    ordersRefunded: totals.refundOrders,
   }
 }
