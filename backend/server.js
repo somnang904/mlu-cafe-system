@@ -23,6 +23,8 @@ const {
     formatOrderLineName,
     pickLinePrices,
     billMatchesBase,
+    combineDuplicateLines,
+    readOrderLines,
     pendingOrderLockName,
     tableLockName,
 } = require('./src/utils/orderTargets');
@@ -942,6 +944,7 @@ app.get('/api/orders/active', requirePosFloorAccess, async (req, res) => {
             JOIN order_items oi ON o.id = oi.order_id
             LEFT JOIN menu_items m ON oi.menu_item_id = m.id
             WHERE o.status = 'Pending'
+            ORDER BY oi.id ASC
         `;
         const [results] = await db.execute(query);
         res.status(200).json(results.map((row) => ({
@@ -961,6 +964,7 @@ app.get('/api/orders/active', requirePosFloorAccess, async (req, res) => {
                     JOIN order_items oi ON o.id = oi.order_id
                     LEFT JOIN menu_items m ON oi.menu_item_id = m.id
                     WHERE o.status = 'Pending'
+                    ORDER BY oi.id ASC
                 `;
                 const [results] = await db.execute(fallbackQuery);
                 res.status(200).json(results.map((row) => ({
@@ -1038,7 +1042,7 @@ app.post('/api/orders', requireOrderWriteAccess, async (req, res) => {
     }
 
     try {
-        const orderId = await withTransaction(db, async (conn) => {
+        const { orderId, savedLines } = await withTransaction(db, async (conn) => {
             let id = await findPendingOrderId(conn, target);
             if (!id) {
                 await assertTableNotMerged(conn, target);
@@ -1047,12 +1051,13 @@ app.post('/api/orders', requireOrderWriteAccess, async (req, res) => {
             for (const item of items) {
                 await insertOrderItem(conn, id, item);
             }
+            await combineDuplicateLines(conn, id);
             const [lines] = await conn.execute(
                 'SELECT menu_item_id, quantity FROM order_items WHERE order_id = ?',
                 [id],
             );
             await reconcileOrderStock(conn, id, lines, req.user?.id ?? null);
-            return id;
+            return { orderId: id, savedLines: await readOrderLines(conn, id, target.key) };
         }, { locks: [pendingOrderLockName(target)] });
 
         res.status(201).json({
@@ -1060,6 +1065,7 @@ app.post('/api/orders', requireOrderWriteAccess, async (req, res) => {
             orderId,
             target_key: target.key,
             source_type: target.sourceType,
+            lines: savedLines,
         });
 
         await auditFromRequest(db, req, {
@@ -1159,6 +1165,7 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
                 0,
             );
             const finalTotal = Math.round(computed * 100) / 100;
+            const savedLines = await readOrderLines(conn, orderId, target.key);
             const stockOutcome = await reconcileOrderStock(conn, orderId, lines, req.user?.id ?? null);
 
             const invoiceId = await allocateNextInvoiceId(conn);
@@ -1221,6 +1228,7 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
             return {
                 orderId,
                 finalTotal,
+                savedLines,
                 invoiceId,
                 tableStatus: clear_table === false ? 'Paid' : 'Empty',
                 lowStockItems: stockOutcome?.lowStockWarnings || [],
@@ -1242,6 +1250,10 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
         res.status(200).json({
             message: 'Transaction completed and locked successfully.',
             invoice_id: outcome.invoiceId,
+            subtotal: outcome.finalTotal,
+            tax: 0,
+            total: outcome.finalTotal,
+            lines: outcome.savedLines,
             low_stock_items: outcome.lowStockItems || [],
             received_usd: outcome.received_usd,
             received_khr: outcome.received_khr,
@@ -1405,6 +1417,7 @@ app.post('/api/orders/split-checkout', requirePermission('payment'), async (req,
                 splitOrderId,
                 invoiceId,
                 splitTotal,
+                splitLines: await readOrderLines(conn, splitOrderId, target.key),
                 remainingCount: remainingLines.length,
                 tableStatus,
                 lowStockItems: stockOutcome?.lowStockWarnings || [],
@@ -1421,6 +1434,7 @@ app.post('/api/orders/split-checkout', requirePermission('payment'), async (req,
             message: 'Split payment completed successfully.',
             invoice_id: outcome.invoiceId,
             split_total: outcome.splitTotal,
+            lines: outcome.splitLines,
             remaining_count: outcome.remainingCount,
             table_status: outcome.tableStatus,
             low_stock_items: outcome.lowStockItems,
@@ -1577,7 +1591,7 @@ app.put('/api/orders/items', requireOrderWriteAccess, async (req, res) => {
     const baseItems = Array.isArray(req.body?.base_items) ? req.body.base_items : null;
 
     try {
-        const orderId = await withTransaction(db, async (conn) => {
+        const { orderId, savedLines } = await withTransaction(db, async (conn) => {
             let id = await findPendingOrderId(conn, target);
 
             if (baseItems) {
@@ -1598,7 +1612,7 @@ app.put('/api/orders/items', requireOrderWriteAccess, async (req, res) => {
             }
 
             if (!id) {
-                if (items.length === 0) return null;
+                if (items.length === 0) return { orderId: null, savedLines: [] };
                 await assertTableNotMerged(conn, target);
                 id = await createPendingOrder(conn, target, table_id);
             }
@@ -1608,6 +1622,7 @@ app.put('/api/orders/items', requireOrderWriteAccess, async (req, res) => {
             for (const [index, item] of items.entries()) {
                 await insertOrderItem(conn, id, item, { price: prices[index] });
             }
+            await combineDuplicateLines(conn, id);
 
             if (items.length === 0) {
                 await conn.execute(
@@ -1618,12 +1633,12 @@ app.put('/api/orders/items', requireOrderWriteAccess, async (req, res) => {
                     await conn.execute('UPDATE tables SET status = "Empty" WHERE id = ?', [target.tableId]);
                     await releaseMergedTables(conn, target.tableId);
                 }
-                return null;
+                return { orderId: null, savedLines: [] };
             }
-            return id;
+            return { orderId: id, savedLines: await readOrderLines(conn, id, target.key) };
         }, { locks: [pendingOrderLockName(target)] });
 
-        res.status(200).json({ message: "Bill items updated.", orderId });
+        res.status(200).json({ message: "Bill items updated.", orderId, lines: savedLines });
     } catch (error) {
         if ([400, 403, 404, 409].includes(error.status)) {
             return res.status(error.status).json({ message: error.message, code: error.code });
@@ -2732,6 +2747,7 @@ app.post('/api/tables/merge', requirePosFloorAccess, async (req, res) => {
                     'UPDATE order_items SET order_id = ? WHERE order_id = ?',
                     [destOrderId, sourceOrderId],
                 );
+                await combineDuplicateLines(conn, destOrderId);
                 const [mergedLines] = await conn.execute(
                     'SELECT menu_item_id, quantity FROM order_items WHERE order_id = ?',
                     [destOrderId],

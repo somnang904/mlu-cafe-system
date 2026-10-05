@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react'
 import {
   applyItemsToBill,
+  buildOrderSummary,
   calculateTotals,
   formatInvoiceId,
   formatNow,
@@ -64,6 +65,11 @@ function mapBillItemsForApi(items) {
       price: item.unitPrice,
     }
   })
+}
+
+function serverBillItems(targetId, lines) {
+  if (!Array.isArray(lines)) return null
+  return groupActiveRows(lines)[String(targetId)] || []
 }
 
 async function postOrderToServer(destinationId, safeCartItems) {
@@ -490,15 +496,24 @@ export function POSProvider({ children }) {
             base_items: mapBillItemsForApi(baseItems),
           }),
         })
+        const data = await response.json().catch(() => ({}))
         if (!response.ok) {
-          const data = await response.json().catch(() => ({}))
           throw new Error(data.detail || data.message || `Server status returned ${response.status}`)
         }
+        return data
       })
-    const tracked = save.finally(() => {
-      if (saveQueueRef.current.get(key) === tracked) saveQueueRef.current.delete(key)
-      endSync()
-    })
+    const tracked = save
+      .then((data) => {
+        const savedItems = serverBillItems(targetId, data?.lines)
+        if (savedItems?.length && saveQueueRef.current.get(key) === tracked) {
+          updateBillState(targetId, savedItems, statusForTarget(savedItems))
+        }
+        return data
+      })
+      .finally(() => {
+        if (saveQueueRef.current.get(key) === tracked) saveQueueRef.current.delete(key)
+        endSync()
+      })
     saveQueueRef.current.set(key, tracked)
     return tracked.catch((err) => {
       refreshActiveOrders()
@@ -542,15 +557,19 @@ export function POSProvider({ children }) {
     }
 
     const endSync = beginSync()
+    let savedItems
     try {
-      await postOrderToServer(destinationId, safeCartItems)
+      const data = await postOrderToServer(destinationId, safeCartItems)
+      savedItems = serverBillItems(destinationId, data?.lines)
     } catch (err) {
       endSync()
       console.error('Failed to log order to MySQL:', err.message)
       return false
     }
 
-    if (destinationId === 'takeout') {
+    if (savedItems?.length) {
+      updateBillState(destinationId, savedItems, statusForTarget(savedItems))
+    } else if (destinationId === 'takeout') {
       setTakeOut((prev) => updateBill(prev))
     } else {
       setTables((prev) =>
@@ -646,6 +665,9 @@ export function POSProvider({ children }) {
       }
 
       const invoiceId = data.invoice_id || formatInvoiceId(invoiceCounter)
+      const recordedTotal = Number.isFinite(Number(data.total)) ? Number(data.total) : total
+      const recordedItems = serverBillItems(destinationId, data.lines)
+      const paidItems = recordedItems?.length ? recordedItems : bill.items
 
       const transaction = {
         id: invoiceId,
@@ -653,13 +675,13 @@ export function POSProvider({ children }) {
         time,
         monthKey: date.slice(0, 7),
         payment: paymentMethod,
-        subtotal,
-        tax,
-        total,
+        subtotal: Number.isFinite(Number(data.subtotal)) ? Number(data.subtotal) : subtotal,
+        tax: Number.isFinite(Number(data.tax)) ? Number(data.tax) : tax,
+        total: recordedTotal,
         status: 'Completed',
         source: bill.name,
-        summary: bill.orderSummary,
-        items: bill.items.map((item) => ({ ...item })),
+        summary: recordedItems?.length ? buildOrderSummary(recordedItems) : bill.orderSummary,
+        items: paidItems.map((item) => ({ ...item })),
         lowStockItems: Array.isArray(data.low_stock_items) ? data.low_stock_items : [],
         received_usd: data.received_usd ?? paymentDetails.received_usd ?? null,
         received_khr: data.received_khr ?? paymentDetails.received_khr ?? null,
@@ -759,6 +781,8 @@ export function POSProvider({ children }) {
 
       const invoiceId = data.invoice_id || formatInvoiceId(invoiceCounter)
       const recordedTotal = Number.isFinite(Number(data.split_total)) ? Number(data.split_total) : splitTotal
+      const recordedItems = serverBillItems(destinationId, data.lines)
+      const paidItems = recordedItems?.length ? recordedItems : splitItems
 
       const transaction = {
         id: invoiceId,
@@ -771,8 +795,8 @@ export function POSProvider({ children }) {
         total: recordedTotal,
         status: 'Completed',
         source: `${bill.name} (Split)`,
-        summary: splitItems.map((it) => `${it.qty}× ${it.name}`).join(', '),
-        items: splitItems.map((item) => ({ ...item })),
+        summary: paidItems.map((it) => `${it.qty}× ${it.name}`).join(', '),
+        items: paidItems.map((item) => ({ ...item })),
         lowStockItems: Array.isArray(data.low_stock_items) ? data.low_stock_items : [],
         received_usd: data.received_usd ?? paymentDetails.received_usd ?? null,
         received_khr: data.received_khr ?? paymentDetails.received_khr ?? null,
@@ -789,12 +813,12 @@ export function POSProvider({ children }) {
       const updatedBillItems = []
       const remainingDeductions = new Map()
       for (const splitItem of splitItems) {
-        const key = `${splitItem.menu_item_id ?? splitItem.id}::${splitItem.notes || ''}`
+        const key = String(splitItem.id)
         remainingDeductions.set(key, (remainingDeductions.get(key) || 0) + Number(splitItem.qty || 1))
       }
 
       for (const item of bill.items) {
-        const key = `${item.menu_item_id ?? item.id}::${item.notes || ''}`
+        const key = String(item.id)
         const toDeduct = remainingDeductions.get(key) || 0
         if (toDeduct > 0) {
           const newQty = item.qty - toDeduct

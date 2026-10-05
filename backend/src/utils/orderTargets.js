@@ -406,20 +406,89 @@ async function pickLinePrices(db, orderId, items, { isAdmin }) {
       [orderId],
     ).catch(async () => db.execute('SELECT menu_item_id, NULL AS notes, price FROM order_items WHERE order_id = ?', [orderId]))
     for (const row of rows) {
-      existing.set(lineKey(row.menu_item_id, row.notes), Number(row.price))
+      const key = lineKey(row.menu_item_id, row.notes)
+      const price = Number(row.price)
+      if (!Number.isFinite(price)) continue
+      if (!existing.has(key)) existing.set(key, [])
+      if (!existing.get(key).includes(price)) existing.get(key).push(price)
     }
   }
 
   return items.map((item) => {
-    if (isAdmin) {
-      const typed = parseOptionalMoney(item?.price ?? item?.unitPrice)
-      if (typed != null) return typed
-    }
+    const typed = parseOptionalMoney(item?.price ?? item?.unitPrice)
+    if (isAdmin && typed != null) return typed
     const menuId = parseMenuItemIdFromItem(item)
     if (!menuId) return null
-    const saved = existing.get(lineKey(menuId, item?.notes))
-    return Number.isFinite(saved) ? saved : null
+    const saved = existing.get(lineKey(menuId, item?.notes)) || []
+    if (typed != null && saved.includes(typed)) return typed
+    return saved.length === 1 ? saved[0] : null
   })
+}
+
+function duplicateLineKey(row) {
+  const notes = String(row.notes ?? '').trim()
+  const cents = Math.round(Number(row.price) * 100)
+  const menuId = Number.parseInt(row.menu_item_id, 10)
+  const item = Number.isFinite(menuId) && menuId > 0
+    ? `m:${menuId}`
+    : `c:${String(row.item_name ?? '').trim().toLowerCase()}`
+  return `${item}|${notes}|${cents}`
+}
+
+async function combineDuplicateLines(db, orderId) {
+  const [rows] = await db.execute(
+    'SELECT id, menu_item_id, item_name, notes, quantity, price FROM order_items WHERE order_id = ? ORDER BY id ASC',
+    [orderId],
+  )
+  const kept = new Map()
+  const removed = []
+  for (const row of rows) {
+    const key = duplicateLineKey(row)
+    const first = kept.get(key)
+    if (first) {
+      first.quantity += Number(row.quantity)
+      first.changed = true
+      removed.push(row.id)
+    } else {
+      kept.set(key, { id: row.id, price: Number(row.price), quantity: Number(row.quantity), changed: false })
+    }
+  }
+
+  for (const line of kept.values()) {
+    if (!line.changed) continue
+    await db.execute('UPDATE order_items SET quantity = ?, subtotal = ? WHERE id = ?', [
+      line.quantity,
+      Math.round(line.quantity * line.price * 100) / 100,
+      line.id,
+    ])
+  }
+  if (removed.length) {
+    await db.execute(
+      `DELETE FROM order_items WHERE id IN (${removed.map(() => '?').join(', ')})`,
+      removed,
+    )
+  }
+  return removed.length
+}
+
+async function readOrderLines(db, orderId, targetKey = null) {
+  const [rows] = await db.execute(
+    `SELECT oi.menu_item_id, oi.quantity, oi.price, oi.notes,
+            COALESCE(m.name, oi.item_name, 'Custom item') AS name
+     FROM order_items oi
+     LEFT JOIN menu_items m ON m.id = oi.menu_item_id
+     WHERE oi.order_id = ?
+     ORDER BY oi.id ASC`,
+    [orderId],
+  )
+  return rows.map((row) => ({
+    target_id: targetKey,
+    menu_item_id: row.menu_item_id,
+    name: formatOrderLineName(row.name, row.notes),
+    notes: row.notes || '',
+    quantity: Number(row.quantity),
+    price: Number(row.price),
+  }))
 }
 
 function billLineKey(line) {
@@ -454,6 +523,8 @@ function billMatchesBase(savedLines, baseItems) {
 module.exports = {
   TAKEOUT_KEY,
   billMatchesBase,
+  combineDuplicateLines,
+  readOrderLines,
   pendingOrderLockName,
   tableLockName,
   pickLinePrices,
