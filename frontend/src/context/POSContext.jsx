@@ -665,6 +665,7 @@ export function POSProvider({ children }) {
       }
 
       const invoiceId = data.invoice_id || formatInvoiceId(invoiceCounter)
+      const recordedTotal = Number.isFinite(Number(data.split_total)) ? Number(data.split_total) : splitTotal
 
       const transaction = {
         id: invoiceId,
@@ -672,9 +673,9 @@ export function POSProvider({ children }) {
         time,
         monthKey: date.slice(0, 7),
         payment: paymentMethod,
-        subtotal: splitTotal,
+        subtotal: recordedTotal,
         tax: 0,
-        total: splitTotal,
+        total: recordedTotal,
         status: 'Completed',
         source: `${bill.name} (Split)`,
         summary: splitItems.map((it) => `${it.qty}× ${it.name}`).join(', '),

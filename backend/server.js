@@ -76,6 +76,7 @@ const {
     adjustStockToCount,
     withTransaction,
 } = require('./src/utils/stockLedger');
+const { planSplitCheckout } = require('./src/utils/splitCheckout');
 const bcrypt = require('bcrypt');
 const { ensureOrdersSchema } = require('./src/utils/ordersSchema');
 const {
@@ -1267,10 +1268,13 @@ app.post('/api/orders/split-checkout', requirePermission('payment'), async (req,
             const resolvedTableId =
                 target.sourceType === 'Take Out' ? null : await resolveTableForeignKey(conn, table_id ?? target.tableId);
 
-            // Compute split subtotal
-            const splitTotal = Math.round(
-                items.reduce((sum, item) => sum + (Number(item.qty || item.quantity || 1) * Number(item.unitPrice || item.price || 0)), 0) * 100
-            ) / 100;
+            const [originalLines] = await conn.execute(
+                `SELECT id, menu_item_id, item_name, quantity, price, notes
+                 FROM order_items WHERE order_id = ? ORDER BY id ASC FOR UPDATE`,
+                [originalOrderId],
+            );
+            const plan = planSplitCheckout(originalLines, items);
+            const splitTotal = plan.splitTotal;
 
             const invoiceId = await allocateNextInvoiceId(conn);
 
@@ -1305,64 +1309,36 @@ app.post('/api/orders/split-checkout', requirePermission('payment'), async (req,
             );
             const splitOrderId = insertOrder.insertId;
 
-            // 2. Insert order items for split order and deduct from original order
-            const stockLines = [];
-            for (const splitItem of items) {
-                const splitQty = Number(splitItem.qty || splitItem.quantity || 1);
-                const splitPrice = Number(splitItem.unitPrice || splitItem.price || 0);
-                const menuItemId = splitItem.menu_item_id ? Number(splitItem.menu_item_id) : null;
-                const notes = splitItem.notes ? String(splitItem.notes) : '';
-                const lineName = splitItem.name || 'Split Item';
-
+            for (const line of plan.splitLines) {
                 await conn.execute(
                     `INSERT INTO order_items (order_id, menu_item_id, item_name, quantity, price, subtotal, notes)
                      VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                    [splitOrderId, menuItemId, lineName, splitQty, splitPrice, splitQty * splitPrice, notes],
+                    [splitOrderId, line.menu_item_id, line.item_name, line.quantity, line.price, line.quantity * line.price, line.notes],
                 );
-
-                stockLines.push({
-                    menu_item_id: menuItemId,
-                    quantity: splitQty,
-                    price: splitPrice,
-                });
-
-                // Deduct from original order items
-                const [existingLines] = await conn.execute(
-                    `SELECT id, quantity FROM order_items
-                     WHERE order_id = ? AND (menu_item_id <=> ? OR item_name = ?) AND notes = ?
-                     ORDER BY id ASC`,
-                    [originalOrderId, menuItemId, lineName, notes],
-                );
-
-                let remainingToDeduct = splitQty;
-                for (const line of existingLines) {
-                    if (remainingToDeduct <= 0) break;
-                    if (line.quantity <= remainingToDeduct) {
-                        remainingToDeduct -= line.quantity;
-                        await conn.execute('DELETE FROM order_items WHERE id = ?', [line.id]);
-                    } else {
-                        await conn.execute(
-                            'UPDATE order_items SET quantity = quantity - ?, subtotal = (quantity - ?) * price WHERE id = ?',
-                            [remainingToDeduct, remainingToDeduct, line.id],
-                        );
-                        remainingToDeduct = 0;
-                    }
+            }
+            for (const update of plan.lineUpdates) {
+                if (update.quantity === 0) {
+                    await conn.execute('DELETE FROM order_items WHERE id = ?', [update.id]);
+                } else {
+                    await conn.execute(
+                        'UPDATE order_items SET quantity = ?, subtotal = ? * price WHERE id = ?',
+                        [update.quantity, update.quantity, update.id],
+                    );
                 }
             }
 
-            // Deduct stock for the split items
-            const stockOutcome = await reconcileOrderStock(conn, splitOrderId, stockLines, req.user?.id ?? null);
+            await reconcileOrderStock(conn, originalOrderId, plan.remainingLines, req.user?.id ?? null);
+            const stockOutcome = await reconcileOrderStock(conn, splitOrderId, plan.splitLines, req.user?.id ?? null);
 
             // 3. Check remaining items in original pending order
-            const [remainingLines] = await conn.execute(
-                'SELECT id, quantity, price FROM order_items WHERE order_id = ?',
-                [originalOrderId],
-            );
+            const remainingLines = plan.remainingLines;
 
             let tableStatus = 'Occupied';
             if (remainingLines.length === 0) {
-                // All items on table paid
-                await conn.execute("UPDATE orders SET status = 'Completed', updated_at = NOW() WHERE id = ?", [originalOrderId]);
+                await conn.execute(
+                    "UPDATE orders SET status = 'Split', subtotal = 0, total = 0, total_amount = 0, updated_at = NOW() WHERE id = ?",
+                    [originalOrderId],
+                );
                 tableStatus = clear_table === false ? 'Paid' : 'Empty';
                 if (resolvedTableId) {
                     await conn.execute('UPDATE tables SET status = ? WHERE id = ?', [tableStatus, resolvedTableId]);
