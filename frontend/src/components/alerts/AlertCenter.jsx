@@ -103,7 +103,7 @@ export function AlertSeverityBadge({ severity }) {
   const style = SEVERITY_STYLES[severity] || SEVERITY_STYLES.warning
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1 ${style.badge}`}
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-2xs font-bold uppercase tracking-wide ring-1 ${style.badge}`}
     >
       {t(style.labelKey)}
     </span>
@@ -144,7 +144,7 @@ export function AlertCard({ alert, onAction, onDismiss, compact = false }) {
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <AlertSeverityBadge severity={alertBadgeSeverity(alert)} />
-            <span className="inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            <span className="inline-flex items-center gap-1 text-2xs font-medium uppercase tracking-wide text-muted-foreground">
               <CategoryIcon className="h-3 w-3" />
               {categoryLabel(t, alert.category)}
             </span>
@@ -152,7 +152,7 @@ export function AlertCard({ alert, onAction, onDismiss, compact = false }) {
           <h4 className="mt-1.5 text-sm font-semibold leading-snug text-foreground">{alert.title}</h4>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{alert.message}</p>
           {alert.category === 'expense' && (alert.meta?.actorName || alert.meta?.amount != null) ? (
-            <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+            <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-2xs">
               {alert.meta.actorName ? (
                 <div>
                   <dt className="text-muted-foreground">{t('alerts.staff')}</dt>
@@ -184,7 +184,7 @@ export function AlertCard({ alert, onAction, onDismiss, compact = false }) {
             </dl>
           ) : null}
           {alert.category === 'password_reset' && (alert.meta?.displayName || alert.meta?.username) ? (
-            <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+            <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-2xs">
               <div>
                 <dt className="text-muted-foreground">{t('alerts.staff')}</dt>
                 <dd className="font-medium text-foreground">{alert.meta.displayName || alert.meta.username}</dd>
@@ -215,7 +215,7 @@ export function AlertCard({ alert, onAction, onDismiss, compact = false }) {
               <button
                 type="button"
                 onClick={copyPassword}
-                className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-semibold text-violet-800 hover:bg-violet-100 dark:text-violet-200 dark:hover:bg-violet-900/50"
+                className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-2xs font-semibold text-violet-800 hover:bg-violet-100 dark:text-violet-200 dark:hover:bg-violet-900/50"
               >
                 <Copy className="h-3 w-3" />
                 {copied ? t('alerts.copied') : t('alerts.copy')}
@@ -223,13 +223,13 @@ export function AlertCard({ alert, onAction, onDismiss, compact = false }) {
             </div>
           ) : null}
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-            <p className="text-[11px] text-muted-foreground/80">{formatAlertTime(alert.timestamp, i18n.language)}</p>
+            <p className="text-2xs text-muted-foreground/80">{formatAlertTime(alert.timestamp, i18n.language)}</p>
             <div className="flex items-center gap-2">
               {alert.notificationId && onDismiss ? (
                 <button
                   type="button"
                   onClick={() => onDismiss(alert)}
-                  className="rounded-lg px-2.5 py-1 text-[11px] font-semibold text-muted-foreground hover:bg-slate-100 dark:hover:bg-zinc-800"
+                  className="rounded-lg px-2.5 py-1 text-2xs font-semibold text-muted-foreground hover:bg-slate-100 dark:hover:bg-zinc-800"
                 >
                   {t('alerts.markHandled')}
                 </button>
@@ -238,7 +238,7 @@ export function AlertCard({ alert, onAction, onDismiss, compact = false }) {
                 <button
                   type="button"
                   onClick={() => onAction?.(alert)}
-                  className="rounded-lg bg-forest-600 px-2.5 py-1 text-[11px] font-semibold text-white transition hover:bg-forest-500 dark:bg-forest-500 dark:hover:bg-forest-400"
+                  className="rounded-lg bg-forest-600 px-2.5 py-1 text-2xs font-semibold text-white transition hover:bg-forest-500 dark:bg-forest-500 dark:hover:bg-forest-400"
                 >
                   {alert.action.label}
                 </button>
@@ -317,12 +317,12 @@ export default function AlertCenter({
         {isWidget && total > 0 && (
           <div className="flex flex-wrap gap-1.5">
             {(counts?.critical || 0) > 0 && (
-              <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-800 dark:bg-red-950/50 dark:text-red-200">
+              <span className="rounded-full bg-red-100 px-2 py-0.5 text-2xs font-bold text-red-800 dark:bg-red-950/50 dark:text-red-200">
                 {t('alerts.criticalCount', { count: counts.critical })}
               </span>
             )}
             {(counts?.warning || 0) > 0 && (
-              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-2xs font-bold text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
                 {t('alerts.warningCount', { count: counts.warning })}
               </span>
             )}

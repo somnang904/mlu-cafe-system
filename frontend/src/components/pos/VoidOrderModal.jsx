@@ -152,7 +152,7 @@ export default function VoidOrderModal({ isOpen, onClose, order, onConfirmVoid }
               </div>
 
               <div>
-                <label className="text-[11px] font-medium text-slate-500 dark:text-zinc-400">
+                <label className="text-2xs font-medium text-slate-500 dark:text-zinc-400">
                   {t('users.adminUsername', { defaultValue: 'Manager Username' })}
                 </label>
                 <input
@@ -166,7 +166,7 @@ export default function VoidOrderModal({ isOpen, onClose, order, onConfirmVoid }
               </div>
 
               <div>
-                <label className="text-[11px] font-medium text-slate-500 dark:text-zinc-400">
+                <label className="text-2xs font-medium text-slate-500 dark:text-zinc-400">
                   {t('users.password', { defaultValue: 'Manager Password' })}
                 </label>
                 <input

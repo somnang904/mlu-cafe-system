@@ -535,7 +535,7 @@ export default function Order() {
                       <p className="text-[0.95rem] font-semibold leading-snug tracking-tight text-slate-900 dark:text-zinc-50">
                         {translateMenuName(item.name, i18n.language, t)}
                       </p>
-                      <p className="mt-1 text-[11px] font-medium uppercase tracking-[0.14em] text-cocoa-500/80 dark:text-zinc-500">
+                      <p className="mt-1 text-2xs font-medium uppercase tracking-[0.14em] text-cocoa-500/80 dark:text-zinc-500">
                         {categoryLabel(item.category, t)}
                       </p>
                     </div>

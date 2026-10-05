@@ -88,6 +88,7 @@ export default {
       fontFamily: {
         sans: [
           '"Noto Sans"',
+          '"Noto Sans Khmer UI"',
           '"Noto Sans Khmer"',
           'system-ui',
           '-apple-system',

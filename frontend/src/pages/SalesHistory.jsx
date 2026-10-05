@@ -332,7 +332,7 @@ export default function SalesHistory() {
                             {statusLabel(order.status, t)}
                           </StatusBadge>
                           {order.status?.toLowerCase() === 'refunded' && order.void_reason && (
-                            <span className="block mt-0.5 truncate text-[11px] text-red-600 dark:text-red-400 italic max-w-[140px]" title={order.void_reason}>
+                            <span className="block mt-0.5 truncate text-2xs text-red-600 dark:text-red-400 italic max-w-[140px]" title={order.void_reason}>
                               {order.void_reason}
                             </span>
                           )}

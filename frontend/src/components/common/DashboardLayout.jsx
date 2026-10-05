@@ -91,11 +91,11 @@ export default function DashboardLayout({ children, activePage, onNavigate }) {
 
           <div className="flex shrink-0 items-center gap-2">
             {!backendReachable ? (
-              <p className="max-w-[14rem] text-right text-[11px] leading-snug text-amber-800 dark:text-amber-200 sm:max-w-[18rem]" role="status">
+              <p className="max-w-[14rem] text-right text-2xs leading-snug text-amber-800 dark:text-amber-200 sm:max-w-[18rem]" role="status">
                 {t('connection.serverDown')}
               </p>
             ) : !internetOnline ? (
-              <p className="max-w-[12rem] text-right text-[11px] leading-snug text-muted sm:max-w-[16rem]" role="status">
+              <p className="max-w-[12rem] text-right text-2xs leading-snug text-muted sm:max-w-[16rem]" role="status">
                 {t('connection.noInternet')}
               </p>
             ) : null}

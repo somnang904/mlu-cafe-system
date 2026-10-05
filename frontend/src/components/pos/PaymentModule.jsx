@@ -101,7 +101,7 @@ export default function PaymentModule({ disabled, billTotal = 0, onConfirm }) {
       {/* Dual Currency Banner */}
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3 dark:border-emerald-500/20 dark:bg-emerald-950/20">
         <div>
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-800 dark:text-emerald-300">
+          <span className="text-2xs font-semibold uppercase tracking-wider text-emerald-800 dark:text-emerald-300">
             {t('payment.totalDue', { defaultValue: 'Total Due' })}
           </span>
           <p className="text-2xl font-bold leading-tight tabular-nums text-emerald-900 dark:text-emerald-300">
@@ -109,7 +109,7 @@ export default function PaymentModule({ disabled, billTotal = 0, onConfirm }) {
           </p>
         </div>
         <div className="text-right">
-          <span className="rounded-md bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
+          <span className="rounded-md bg-emerald-500/10 px-2 py-0.5 text-2xs font-medium text-emerald-700 dark:text-emerald-300">
             $1 = {exchangeRate.toLocaleString()} ៛
           </span>
           <p className="mt-1 text-lg font-bold tabular-nums text-emerald-700 dark:text-emerald-400">
@@ -120,7 +120,7 @@ export default function PaymentModule({ disabled, billTotal = 0, onConfirm }) {
 
       {/* Payment Method Selector */}
       <div>
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-zinc-400">
+        <p className="text-2xs font-semibold uppercase tracking-wider text-slate-500 dark:text-zinc-400">
           {t('payment.method')}
         </p>
         <div className="mt-1.5 grid grid-cols-2 gap-2">

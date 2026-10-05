@@ -227,7 +227,7 @@ export default function ShiftModal({ isOpen, onClose }) {
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-zinc-800 dark:bg-zinc-900">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                  <span className="text-2xs font-semibold uppercase tracking-wider text-slate-400">
                     {t('shifts.floatUsd', { defaultValue: 'Start Float ($)' })}
                   </span>
                   <p className="mt-1 text-base font-bold tabular-nums text-slate-900 dark:text-white">
@@ -235,7 +235,7 @@ export default function ShiftModal({ isOpen, onClose }) {
                   </p>
                 </div>
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-zinc-800 dark:bg-zinc-900">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                  <span className="text-2xs font-semibold uppercase tracking-wider text-slate-400">
                     {t('shifts.floatKhr', { defaultValue: 'Start Float (៛)' })}
                   </span>
                   <p className="mt-1 text-base font-bold tabular-nums text-slate-900 dark:text-white">
@@ -243,7 +243,7 @@ export default function ShiftModal({ isOpen, onClose }) {
                   </p>
                 </div>
                 <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-3 dark:border-emerald-500/20 dark:bg-emerald-950/20">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-800 dark:text-emerald-300">
+                  <span className="text-2xs font-semibold uppercase tracking-wider text-emerald-800 dark:text-emerald-300">
                     {t('shifts.cashSales', { defaultValue: 'Cash Sales' })}
                   </span>
                   <p className="mt-1 text-base font-bold tabular-nums text-emerald-950 dark:text-emerald-200">
@@ -251,7 +251,7 @@ export default function ShiftModal({ isOpen, onClose }) {
                   </p>
                 </div>
                 <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/10 p-3 dark:border-cyan-500/20 dark:bg-cyan-950/20">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-cyan-800 dark:text-cyan-300">
+                  <span className="text-2xs font-semibold uppercase tracking-wider text-cyan-800 dark:text-cyan-300">
                     {t('shifts.bankSales', { defaultValue: 'Bank Scan' })}
                   </span>
                   <p className="mt-1 text-base font-bold tabular-nums text-cyan-950 dark:text-cyan-200">
@@ -419,7 +419,7 @@ export default function ShiftModal({ isOpen, onClose }) {
                 <div className="border-b border-dashed border-stone-200 pb-3 text-center">
                   <h2 className="text-lg font-bold">{STORE.officialName}</h2>
                   <p className="text-xs text-stone-500">Z-REPORT · END OF SHIFT</p>
-                  <p className="mt-1 text-[11px] text-stone-400">
+                  <p className="mt-1 text-2xs text-stone-400">
                     Shift #{closingShiftResult?.id} · {closingShiftResult?.cashier_name}
                   </p>
                 </div>
@@ -482,7 +482,7 @@ export default function ShiftModal({ isOpen, onClose }) {
                     </span>
                   </div>
                   {closingShiftResult?.notes && (
-                    <p className="mt-2 text-[11px] text-stone-500 italic">
+                    <p className="mt-2 text-2xs text-stone-500 italic">
                       Note: {closingShiftResult.notes}
                     </p>
                   )}

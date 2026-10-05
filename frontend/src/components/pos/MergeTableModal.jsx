@@ -105,7 +105,7 @@ export default function MergeTableModal({ isOpen, onClose, tables = [], onMerge 
                 </option>
               ))}
             </select>
-            <p className="mt-1 text-[11px] text-slate-400">
+            <p className="mt-1 text-2xs text-slate-400">
               {t('tables.sourceTableNote', { defaultValue: 'This table will be cleared after its items are moved.' })}
             </p>
           </div>

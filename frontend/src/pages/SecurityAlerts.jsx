@@ -132,7 +132,7 @@ function LoginAlertsTab() {
                   <td className="px-4 py-3">{alert.location || t('securityAlerts.unknown')}</td>
                   <td className="px-4 py-3">{alert.failedAttempts}</td>
                   <td className="px-4 py-3">
-                    <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${statusClass(alert.status)}`}>
+                    <span className={`rounded-full px-2 py-0.5 text-2xs font-bold ${statusClass(alert.status)}`}>
                       {t(`securityAlerts.filters.${alert.status}`)}
                     </span>
                   </td>
@@ -274,7 +274,7 @@ function ActiveSessionsTab() {
                     <td className="px-4 py-3 font-medium">
                       {row.displayName || row.username || row.userId}
                       {isCurrent ? (
-                        <span className="ml-2 rounded-full bg-forest-100 px-2 py-0.5 text-[10px] font-bold text-forest-800 dark:bg-forest-950/40 dark:text-forest-200">
+                        <span className="ml-2 rounded-full bg-forest-100 px-2 py-0.5 text-2xs font-bold text-forest-800 dark:bg-forest-950/40 dark:text-forest-200">
                           {t('securityAlerts.thisDevice')}
                         </span>
                       ) : null}
@@ -284,7 +284,7 @@ function ActiveSessionsTab() {
                     <td className="px-4 py-3 whitespace-nowrap">{formatWhen(row.createdAt, i18n.language)}</td>
                     <td className="px-4 py-3 whitespace-nowrap">{formatWhen(row.lastSeenAt, i18n.language)}</td>
                     <td className="px-4 py-3">
-                      <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${
+                      <span className={`rounded-full px-2 py-0.5 text-2xs font-bold ${
                         isActive
                           ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200'
                           : 'bg-slate-100 text-slate-700 dark:bg-zinc-800 dark:text-zinc-200'

@@ -7,7 +7,7 @@ export default function OperatingHoursNotice({ compact = false, className = '' }
 
   if (compact) {
     return (
-      <p className={`text-[11px] leading-snug text-muted-foreground ${className}`.trim()}>
+      <p className={`text-2xs leading-snug text-muted-foreground ${className}`.trim()}>
         {notice}
       </p>
     )

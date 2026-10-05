@@ -142,7 +142,7 @@ export default function FinanceBarChart({
           <CartesianGrid stroke={theme.grid} strokeDasharray="3 3" vertical={false} />
           <XAxis
             dataKey="label"
-            tick={{ fill: theme.axis, fontSize: showEveryDayTick ? 10 : 11 }}
+            tick={{ fill: theme.axis, fontSize: showEveryDayTick ? 11 : 12 }}
             axisLine={{ stroke: theme.grid }}
             tickLine={false}
             interval={thinDailyTicks ? 4 : 0}
