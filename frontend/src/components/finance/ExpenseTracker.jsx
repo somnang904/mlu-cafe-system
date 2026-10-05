@@ -4,6 +4,7 @@ import { Plus, Trash2, Wallet } from 'lucide-react'
 import { apiFetch } from '../../services/apiClient'
 import { useModalKeyboard } from '../../hooks/useModalKeyboard'
 import { EXPENSE_CATEGORIES, expenseCategoryLabel } from '../../utils/expenseCategories'
+import { PaidFromBadge, PaidFromSelector } from './PaidFrom'
 
 const PAGE_SIZE = 25
 
@@ -28,6 +29,7 @@ export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChan
     description: '',
     amount: '',
     expense_date: todayIso(),
+    paid_from: 'drawer',
   })
 
   const panelRef = useModalKeyboard({
@@ -88,6 +90,7 @@ export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChan
           description: form.description,
           amount: Number(form.amount),
           expense_date: form.expense_date,
+          paid_from: form.paid_from,
         }),
       })
       const data = await res.json().catch(() => ({}))
@@ -98,6 +101,7 @@ export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChan
         description: '',
         amount: '',
         expense_date: todayIso(),
+        paid_from: 'drawer',
       })
       await loadExpenses()
       onChanged?.()
@@ -145,13 +149,14 @@ export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChan
       )}
 
       <div className="overflow-x-auto rounded-2xl border border-border/60">
-        <table className="w-full min-w-[640px] text-left text-sm">
+        <table className="w-full min-w-[720px] text-left text-sm">
           <thead>
             <tr className="table-head">
               <th className="px-4 py-3">{t('reservations.date')}</th>
               <th className="px-4 py-3">{t('common.category')}</th>
               <th className="px-4 py-3">{t('common.description')}</th>
               <th className="px-4 py-3">{t('common.amount')}</th>
+              <th className="px-4 py-3">{t('expenses.paidFrom')}</th>
               <th className="px-4 py-3">{t('common.by')}</th>
               <th className="px-4 py-3 text-right">{t('common.actions')}</th>
             </tr>
@@ -159,13 +164,13 @@ export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChan
           <tbody className="table-divider">
             {loading ? (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center text-muted">
+                <td colSpan={7} className="px-4 py-10 text-center text-muted">
                   {t('expenses.loading')}
                 </td>
               </tr>
             ) : visibleExpenses.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center text-muted">
+                <td colSpan={7} className="px-4 py-10 text-center text-muted">
                   <Wallet className="mx-auto mb-2 h-8 w-8 opacity-40" />
                   {t('expenses.empty')}
                 </td>
@@ -178,6 +183,9 @@ export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChan
                   <td className="px-4 py-3 text-muted">{row.description || '—'}</td>
                   <td className="px-4 py-3 font-semibold tabular-nums text-heading">
                     ${Number(row.amount).toFixed(2)}
+                  </td>
+                  <td className="px-4 py-3">
+                    <PaidFromBadge value={row.paid_from} />
                   </td>
                   <td className="px-4 py-3 text-muted">{row.created_by_name || '—'}</td>
                   <td className="px-4 py-3 text-right">
@@ -274,6 +282,11 @@ export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChan
                   className="input-field"
                 />
               </div>
+              <PaidFromSelector
+                idPrefix="expense-tracker"
+                value={form.paid_from}
+                onChange={(paidFrom) => setForm((current) => ({ ...current, paid_from: paidFrom }))}
+              />
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-stone-700 dark:text-zinc-300">
                   {t('reservations.date')}

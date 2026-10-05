@@ -7,6 +7,7 @@ import { apiFetch } from '../../services/apiClient'
 import { formatOrderDate } from '../../utils/dateTimeFormat'
 import { EXPENSE_CATEGORIES, expenseCategoryLabel } from '../../utils/expenseCategories'
 import { CategoryMoreMenu } from '../inventory/CategoryChips'
+import { PaidFromSelector } from './PaidFrom'
 
 const QUICK_AMOUNTS = [5, 10, 20, 50]
 
@@ -61,6 +62,7 @@ export default function ExpenseLogModal({
     description: '',
     amount: '',
     expense_date: todayIso(),
+    paid_from: 'drawer',
   })
 
   const dateRef = useRef(null)
@@ -111,6 +113,7 @@ export default function ExpenseLogModal({
           description: form.description,
           amount: Number(form.amount),
           expense_date: form.expense_date,
+          paid_from: form.paid_from,
         }),
       })
       const data = await res.json().catch(() => ({}))
@@ -246,6 +249,12 @@ export default function ExpenseLogModal({
             ) : null}
           </div>
         </div>
+
+        <PaidFromSelector
+          idPrefix="expense-log"
+          value={form.paid_from}
+          onChange={(paidFrom) => setForm((current) => ({ ...current, paid_from: paidFrom }))}
+        />
 
         <div>
           <p id="expense-date-label" className="mb-1.5 block text-sm font-medium text-stone-700 dark:text-zinc-300">

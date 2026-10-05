@@ -19,6 +19,10 @@ import { TABLE_STATUS_META } from '../data/tables'
 
 import MenuItemImage from '../components/menu/MenuItemImage'
 import SugarLevelModal from '../components/pos/SugarLevelModal'
+import StockBadge from '../components/pos/StockBadge'
+import ScrollRow from '../components/ui/ScrollRow'
+import TruncatedText from '../components/ui/TruncatedText'
+import { stockLevelOf } from '../utils/menuStock'
 import {
   availableServings,
   formatMenuPrice,
@@ -113,10 +117,30 @@ export default function Order() {
         setStockByMenu(next)
       })
       .catch(() => {})
+
+    apiFetch('/menu')
+      .then(async (res) => (res.ok ? res.json() : null))
+      .then((items) => {
+        if (!Array.isArray(items)) return
+        const byId = new Map(items.map((item) => [Number(item.id), item]))
+        setMenuItems((prev) =>
+          prev.map((item) => {
+            const fresh = byId.get(Number(item.id))
+            return fresh ? { ...item, stock_left: fresh.stock_left, stock_status: fresh.stock_status } : item
+          }),
+        )
+      })
+      .catch(() => {})
   }, [])
 
   useEffect(() => {
     loadStockLevels()
+    const interval = window.setInterval(loadStockLevels, 30000)
+    window.addEventListener('focus', loadStockLevels)
+    return () => {
+      window.clearInterval(interval)
+      window.removeEventListener('focus', loadStockLevels)
+    }
   }, [loadStockLevels])
 
   useEffect(() => {
@@ -455,39 +479,37 @@ export default function Order() {
             </div>
 
             <div className="relative">
-              <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-zinc-500" />
+              <Search
+                className="pointer-events-none absolute left-3.5 top-1/2 z-10 h-[1.125rem] w-[1.125rem] -translate-y-1/2 text-slate-500 dark:text-zinc-400"
+                aria-hidden
+              />
               <input
                 type="search"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={t('order.searchMenu')}
-                className="w-full rounded-xl border border-slate-100 bg-white py-2.5 pl-10 pr-4 text-sm text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-500"
+                className="input-field rounded-xl pl-11 shadow-sm"
               />
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              {CATEGORY_FILTERS.map(({ id, labelKey }) => {
-                const isActive = activeCategory === id
-                return (
-                  <button
-                    key={id}
-                    type="button"
-                    onClick={() => setActiveCategory(id)}
-                    className={
-                      isActive
-                        ? 'rounded-full bg-forest-500 px-3 py-1.5 text-sm font-medium text-white shadow-sm sm:px-4'
-                        : 'rounded-full bg-cocoa-50 px-3 py-1.5 text-sm text-cocoa-800 hover:bg-cocoa-100 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700 sm:px-4'
-                    }
-                  >
-                    {t(labelKey)}
-                  </button>
-                )
-              })}
-            </div>
+            <ScrollRow className="-mx-1 -my-1 gap-2 px-1 py-2">
+              {CATEGORY_FILTERS.map(({ id, labelKey }) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setActiveCategory(id)}
+                  className={`tab-pill shrink-0 whitespace-nowrap rounded-xl px-3.5 shadow-sm ${
+                    activeCategory === id ? 'tab-pill-active' : 'tab-pill-inactive'
+                  }`}
+                >
+                  {t(labelKey)}
+                </button>
+              ))}
+            </ScrollRow>
           </div>
 
           <div className="order-menu-scroll min-h-0 flex-1 overflow-y-auto p-4 pb-6">
-            <div className="grid grid-cols-2 content-start items-stretch gap-3 sm:gap-4 lg:grid-cols-3">
+            <div className="grid grid-cols-2 content-start items-stretch gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-2 xl:grid-cols-3">
               {filteredMenuItems.map((item, index) => {
                 const servings = availableServings(item)
                 const hotServing = servings.find((entry) => entry.id === 'hot')
@@ -495,16 +517,15 @@ export default function Order() {
                 // Hot/Ice whenever the item has both prices (Coffee, Tea, Matcha, etc.).
                 const showServingButtons = Boolean(hotServing) && Boolean(icedServing)
                 const isHighlighted = Number(highlightedId) === Number(item.id)
+                const stockLevel = stockLevelOf(item)
 
                 return (
                   <div
                     key={item.id}
                     id={`menu-item-${item.id}`}
-                    className={`group relative flex h-full min-w-0 w-full flex-col overflow-hidden rounded-3xl border bg-gradient-to-b from-white to-cocoa-50/40 p-3.5 text-left shadow-[0_1px_2px_rgba(28,25,23,0.04)] transition duration-200 dark:from-zinc-900 dark:to-zinc-950 sm:p-4 ${
-                      isHighlighted
-                        ? 'border-forest-500 ring-2 ring-forest-400/70'
-                        : 'border-cocoa-100/90 hover:-translate-y-0.5 hover:border-forest-300/80 hover:shadow-[0_12px_28px_-18px_rgba(16,185,129,0.45)] dark:border-zinc-800'
-                    } ${showServingButtons ? '' : 'cursor-pointer'}`}
+                    className={`surface-card group relative flex h-full min-w-0 w-full flex-col items-center p-3 text-center shadow-[0_2px_6px_rgba(40,55,35,0.06),0_8px_24px_rgba(40,55,35,0.10)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_4px_10px_rgba(40,55,35,0.08),0_14px_32px_rgba(40,55,35,0.14)] motion-reduce:hover:translate-y-0 dark:shadow-[0_8px_24px_rgba(0,0,0,0.45)] dark:hover:shadow-[0_14px_32px_rgba(0,0,0,0.55)] sm:p-4 ${
+                      isHighlighted ? 'border-forest-500 ring-2 ring-forest-400/70' : 'hover:border-olive-300'
+                    } ${stockLevel === 'out' ? 'opacity-70' : ''} ${showServingButtons ? '' : 'cursor-pointer'}`}
                     onClick={
                       showServingButtons ? undefined : () => handleMenuItemClick(item)
                     }
@@ -521,30 +542,28 @@ export default function Order() {
                     role={showServingButtons ? undefined : 'button'}
                     tabIndex={showServingButtons ? undefined : 0}
                   >
-                    <div className="relative mx-auto flex h-20 w-20 items-center justify-center sm:h-24 sm:w-24">
-                      <div
-                        className="absolute inset-0 rounded-full bg-gradient-to-br from-forest-100/80 via-cocoa-50 to-transparent opacity-90 dark:from-forest-950/50 dark:via-zinc-800/40"
-                        aria-hidden
-                      />
-                      <MenuItemImage
-                        imageUrl={item.image_url}
-                        alt={translateMenuName(item.name, i18n.language, t)}
-                        eager={index < 9}
-                        className="relative h-16 w-16 rounded-2xl object-cover shadow-md ring-1 ring-white/80 dark:ring-zinc-700/80 sm:h-20 sm:w-20"
-                      />
+                    <div className="flex w-full items-center justify-between gap-1.5">
+                      <span className="badge-olive truncate">{categoryLabel(item.category, t)}</span>
+                      <StockBadge level={stockLevel} left={item.stock_left} />
                     </div>
 
-                    <div className="mt-3 min-w-0 flex-1 text-center">
-                      <p className="text-[0.95rem] font-semibold leading-snug tracking-tight text-slate-900 dark:text-zinc-50">
-                        {translateMenuName(item.name, i18n.language, t)}
-                      </p>
-                      <p className="mt-1 text-2xs font-medium uppercase tracking-[0.14em] text-cocoa-500/80 dark:text-zinc-500">
-                        {categoryLabel(item.category, t)}
-                      </p>
-                    </div>
+                    <MenuItemImage
+                      imageUrl={item.image_url}
+                      alt={translateMenuName(item.name, i18n.language, t)}
+                      eager={index < 9}
+                      className="mt-2 h-20 w-20 rounded-2xl border border-slate-100 shadow-sm ring-1 ring-border dark:border-zinc-800 sm:h-24 sm:w-24"
+                      fallbackClassName="mt-2 flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl border border-slate-100 bg-slate-50 text-slate-400 ring-1 ring-border dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-500 sm:h-24 sm:w-24"
+                      iconClassName="h-8 w-8"
+                    />
+
+                    <TruncatedText
+                      text={translateMenuName(item.name, i18n.language, t)}
+                      wrapperClassName="mb-3 mt-3 w-full min-w-0 justify-center"
+                      className="text-heading text-base font-semibold"
+                    />
 
                     {showServingButtons ? (
-                      <div className="mt-3">
+                      <div className="mt-auto w-full">
                         <div
                           className={`grid min-w-0 gap-1.5 ${
                             hotServing && icedServing ? 'grid-cols-2' : 'grid-cols-1'
@@ -575,7 +594,7 @@ export default function Order() {
                         </div>
                       </div>
                     ) : (
-                      <div className="mt-3 flex min-h-10 items-center justify-center rounded-xl border border-forest-200 bg-forest-50 px-2 py-2 text-center text-sm font-bold tabular-nums text-forest-700 shadow-sm transition duration-200 group-hover:border-forest-500 group-hover:bg-forest-500 group-hover:text-white group-hover:shadow-md group-active:scale-[0.98] dark:border-forest-800/60 dark:bg-forest-950/40 dark:text-forest-300 dark:group-hover:bg-forest-600 dark:group-hover:text-white">
+                      <div className="mt-auto flex min-h-10 w-full items-center justify-center rounded-xl border border-forest-200 bg-forest-50 px-2 py-2 text-center text-sm font-bold tabular-nums text-forest-700 shadow-sm transition duration-200 group-hover:border-forest-500 group-hover:bg-forest-500 group-hover:text-white group-hover:shadow-md group-active:scale-[0.98] dark:border-forest-800/60 dark:bg-forest-950/40 dark:text-forest-300 dark:group-hover:bg-forest-600 dark:group-hover:text-white">
                         {formatMenuPrice(item)}
                       </div>
                     )}
