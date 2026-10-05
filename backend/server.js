@@ -80,7 +80,11 @@ const {
     withTransaction,
 } = require('./src/utils/stockLedger');
 const { planSplitCheckout } = require('./src/utils/splitCheckout');
-const bcrypt = require('bcrypt');
+const {
+    assertRefundable,
+    createApprovalLimiter,
+    resolveRefundApprover,
+} = require('./src/utils/refund');
 const { ensureOrdersSchema } = require('./src/utils/ordersSchema');
 const {
     getCurrentShift,
@@ -1407,6 +1411,7 @@ app.post('/api/orders/split-checkout', requirePermission('payment'), async (req,
 });
 
 // 3c. VOID / REFUND COMPLETED ORDER WITH MANAGER APPROVAL & STOCK RESTORATION
+const refundApprovalLimiter = createApprovalLimiter();
 app.post('/api/orders/:id/refund', requirePermission('payment'), async (req, res) => {
     if (rejectIfMaintenance(res)) return;
     const orderId = Number.parseInt(req.params.id, 10);
@@ -1419,34 +1424,17 @@ app.post('/api/orders/:id/refund', requirePermission('payment'), async (req, res
     if (!trimmedReason) {
         return res.status(400).json({ message: 'A reason for refunding / voiding the order is required.' });
     }
+    if (trimmedReason.length > 255) {
+        return res.status(400).json({ message: 'Reason must be 255 characters or less.' });
+    }
 
     try {
-        let authorizedManagerId = req.user?.id;
-
-        // If current user is not Admin, verify manager credentials
-        if (!isAdminRole(req.user?.role)) {
-            if (!manager_username || !manager_password) {
-                return res.status(403).json({
-                    message: 'Manager authorization (Admin username & password) required to void or refund orders.',
-                });
-            }
-
-            const [adminUsers] = await db.execute(
-                'SELECT id, username, password, role, is_active FROM users WHERE username = ? LIMIT 1',
-                [String(manager_username).trim()],
-            );
-
-            if (!adminUsers.length || !isAdminRole(adminUsers[0].role) || !adminUsers[0].is_active) {
-                return res.status(403).json({ message: 'Invalid manager credentials or insufficient permissions.' });
-            }
-
-            const passwordValid = await bcrypt.compare(String(manager_password), String(adminUsers[0].password || ''));
-            if (!passwordValid) {
-                return res.status(403).json({ message: 'Invalid manager password.' });
-            }
-
-            authorizedManagerId = adminUsers[0].id;
-        }
+        const authorizedManagerId = await resolveRefundApprover(
+            db,
+            req.user,
+            { username: manager_username, password: manager_password },
+            refundApprovalLimiter,
+        );
 
         const outcome = await withTransaction(db, async (conn) => {
             const [orderRows] = await conn.execute(
@@ -1460,11 +1448,7 @@ app.post('/api/orders/:id/refund', requirePermission('payment'), async (req, res
             }
 
             const order = orderRows[0];
-            if (String(order.status).toLowerCase() === 'refunded') {
-                const err = new Error('Order has already been refunded');
-                err.status = 400;
-                throw err;
-            }
+            assertRefundable(order);
 
             // Restore all deducted stock for this order
             await reconcileOrderStock(conn, orderId, [], authorizedManagerId);
@@ -1475,8 +1459,7 @@ app.post('/api/orders/:id/refund', requirePermission('payment'), async (req, res
                  SET status = 'Refunded',
                      void_reason = ?,
                      voided_by = ?,
-                     voided_at = NOW(),
-                     updated_at = NOW()
+                     voided_at = NOW()
                  WHERE id = ?`,
                 [trimmedReason, authorizedManagerId, orderId],
             );
@@ -1497,7 +1480,7 @@ app.post('/api/orders/:id/refund', requirePermission('payment'), async (req, res
             status: 'Refunded',
         });
     } catch (error) {
-        if (error.status === 400 || error.status === 403 || error.status === 404) {
+        if ([400, 403, 404, 429].includes(error.status)) {
             return res.status(error.status).json({ message: error.message });
         }
         res.status(500).json({ message: 'Failed to refund order', errorId: logError(error, { route: `${req.method} ${req.originalUrl}` }) });

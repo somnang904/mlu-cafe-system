@@ -162,6 +162,9 @@ export function POSProvider({ children }) {
       if (historyRows && Array.isArray(historyRows)) {
         const formattedHistory = historyRows.map((row) => ({
           id: row.invoice_id || row.id,
+          order_id: row.order_id,
+          void_reason: row.void_reason || null,
+          voided_at: row.voided_at || null,
           date: formatOrderDate(row.date || row.created_at),
           time: formatTime12Hour(row.time || row.created_at),
           monthKey: row.month_key || (row.date ? String(row.date).slice(0, 7) : null),
