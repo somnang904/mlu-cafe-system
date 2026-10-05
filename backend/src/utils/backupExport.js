@@ -98,11 +98,12 @@ async function writeExpensesSheet(workbook, db, period) {
       { header: 'Amount', key: 'amount', width: 12, style: { numFmt: '#,##0.00' } },
       { header: 'Expense date', key: 'expenseDate', width: 16 },
       { header: 'Recorded by', key: 'recordedBy', width: 18 },
+      { header: 'Paid from', key: 'paidFrom', width: 12 },
     ],
     query: async (lastId) => {
       const [rows] = await db.execute(
         `
-        SELECT id, category, description, amount, expense_date AS expenseDate, created_by_name AS recordedBy
+        SELECT id, category, description, amount, expense_date AS expenseDate, created_by_name AS recordedBy, paid_from AS paidFrom
         FROM expenses
         WHERE id > ?${filter.clause}
         ORDER BY id

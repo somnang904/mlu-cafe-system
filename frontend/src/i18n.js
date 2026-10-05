@@ -557,6 +557,8 @@ const resources = {
         noActiveShift: 'No active shift currently open.',
         shiftStarted: 'Shift started successfully',
         shiftEnded: 'Shift ended successfully',
+        drawerExpensesDeducted: '- {{amount}} cash-drawer expenses deducted',
+        drawerExpenses: 'Cash-drawer expenses:',
       },
       inventory: {
         subtitle: 'Stock levels',
@@ -566,7 +568,7 @@ const resources = {
         uncountableDescription: 'Tracked in kg.',
         stocktake: 'Stocktake',
         expense: 'Expense',
-        expenseHint: 'Record money taken from the till.',
+        expenseHint: 'Record what was spent and how it was paid.',
         stocktakeTitle: 'Stocktake',
         editMax: 'Edit max',
         colItem: 'Item',
@@ -856,6 +858,17 @@ const resources = {
         noteOptional: 'Note (optional)',
         saved: 'Expense saved',
         save: 'Save expense',
+        paidFrom: 'Paid from',
+        paidFromOptions: {
+          drawer: 'Cash drawer',
+          bank: 'Bank / ABA',
+          owner: 'Owner',
+        },
+        paidFromHints: {
+          drawer: 'Taken from the till. Lowers the expected cash when the shift closes.',
+          bank: 'Paid by bank or ABA transfer. The cash drawer is not affected.',
+          owner: 'Paid by the owner personally. The cash drawer is not affected.',
+        },
         categories: {
           inventoryRestock: 'Inventory restock',
           utilities: 'Utilities',
@@ -1663,6 +1676,8 @@ const resources = {
         noActiveShift: 'បច្ចុប្បន្នមិនទាន់មានវេនការងារណាមួយបើកនៅឡើយទេ។',
         shiftStarted: 'បានចាប់ផ្តើមវេនការងារដោយជោគជ័យ',
         shiftEnded: 'បានបិទបញ្ចប់វេនការងារដោយជោគជ័យ',
+        drawerExpensesDeducted: '- {{amount}} ចំណាយពីថតប្រាក់ ត្រូវបានដកចេញ',
+        drawerExpenses: 'ចំណាយពីថតប្រាក់៖',
       },
       inventory: {
         subtitle: 'កម្រិតស្តុក',
@@ -1783,7 +1798,7 @@ const resources = {
         uncountableDescription: 'តាមដានតាមទម្ងន់ជាគីឡូក្រាម (kg)។',
         stocktake: 'រាប់ស្តុក',
         expense: 'ចំណាយ',
-        expenseHint: 'កត់ត្រាលុយដែលយកចេញពីថតលុយ។',
+        expenseHint: 'កត់ត្រាការចំណាយ និងប្រភពប្រាក់ដែលបានបង់។',
         stocktakeTitle: 'រាប់ស្តុក',
         editMax: 'កែអតិបរមា',
         colItem: 'ទំនិញ',
@@ -1958,6 +1973,17 @@ const resources = {
         noteOptional: 'កំណត់សម្គាល់ (ស្រេចចិត្ត)',
         saved: 'បានរក្សាទុកចំណាយ',
         save: 'រក្សាទុកចំណាយ',
+        paidFrom: 'បង់ពី',
+        paidFromOptions: {
+          drawer: 'ថតប្រាក់',
+          bank: 'ធនាគារ / ABA',
+          owner: 'ម្ចាស់ហាង',
+        },
+        paidFromHints: {
+          drawer: 'យកលុយពីថតប្រាក់។ ប្រាក់ដែលត្រូវមានក្នុងថតពេលបិទវេននឹងថយចុះ។',
+          bank: 'បង់តាមការផ្ទេរប្រាក់ធនាគារ ឬ ABA។ មិនប៉ះពាល់ដល់ថតប្រាក់ទេ។',
+          owner: 'ម្ចាស់ហាងបង់ដោយផ្ទាល់។ មិនប៉ះពាល់ដល់ថតប្រាក់ទេ។',
+        },
         categories: {
           inventoryRestock: 'បំពេញស្តុក',
           utilities: 'ទឹកភ្លើង',

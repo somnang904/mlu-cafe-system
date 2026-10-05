@@ -2411,7 +2411,7 @@ app.post('/api/expenses', requireExpenseWriteAccess, async (req, res) => {
         await auditFromRequest(db, req, {
             action: 'expense_create',
             module: 'Expenses',
-            description: `Logged $${Number(expense.amount).toFixed(2)} (${expense.category})`,
+            description: `Logged $${Number(expense.amount).toFixed(2)} (${expense.category}, paid from ${expense.paid_from})`,
         });
         // Staff/cashier till withdrawals notify admins only (not when admin logs it themselves).
         if (!isAdminRole(req.user?.role)) {

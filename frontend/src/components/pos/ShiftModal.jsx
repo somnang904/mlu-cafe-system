@@ -286,7 +286,7 @@ export default function ShiftModal({ isOpen, onClose }) {
                 </div>
                 {shift.expenses_usd > 0 && (
                   <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">
-                    - {formatUsd(shift.expenses_usd)} expenses deducted from drawer
+                    {t('shifts.drawerExpensesDeducted', { amount: formatUsd(shift.expenses_usd) })}
                   </p>
                 )}
                 {shift.cash_refunds_usd > 0 && (
@@ -474,7 +474,7 @@ export default function ShiftModal({ isOpen, onClose }) {
                     <span className="tabular-nums font-medium">{formatUsd(closingShiftResult?.bank_sales_usd)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-stone-500">Expenses Deducted:</span>
+                    <span className="text-stone-500">{t('shifts.drawerExpenses')}</span>
                     <span className="tabular-nums font-medium text-rose-600">
                       -{formatUsd(closingShiftResult?.expenses_usd)}
                     </span>
