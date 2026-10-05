@@ -20,6 +20,8 @@ import { TABLE_STATUS_META } from '../data/tables'
 import MenuItemImage from '../components/menu/MenuItemImage'
 import SugarLevelModal from '../components/pos/SugarLevelModal'
 import StockBadge from '../components/pos/StockBadge'
+import ScrollRow from '../components/ui/ScrollRow'
+import TruncatedText from '../components/ui/TruncatedText'
 import { stockLevelOf } from '../utils/menuStock'
 import {
   availableServings,
@@ -490,24 +492,24 @@ export default function Order() {
               />
             </div>
 
-            <div className="flex flex-wrap gap-2">
+            <ScrollRow className="-mx-1 -my-1 gap-2 px-1 py-2">
               {CATEGORY_FILTERS.map(({ id, labelKey }) => (
                 <button
                   key={id}
                   type="button"
                   onClick={() => setActiveCategory(id)}
-                  className={`tab-pill rounded-xl shadow-sm ${
+                  className={`tab-pill shrink-0 whitespace-nowrap rounded-xl px-3.5 shadow-sm ${
                     activeCategory === id ? 'tab-pill-active' : 'tab-pill-inactive'
                   }`}
                 >
                   {t(labelKey)}
                 </button>
               ))}
-            </div>
+            </ScrollRow>
           </div>
 
           <div className="order-menu-scroll min-h-0 flex-1 overflow-y-auto p-4 pb-6">
-            <div className="grid grid-cols-2 content-start items-stretch gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+            <div className="grid grid-cols-2 content-start items-stretch gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-2 xl:grid-cols-3">
               {filteredMenuItems.map((item, index) => {
                 const servings = availableServings(item)
                 const hotServing = servings.find((entry) => entry.id === 'hot')
@@ -554,12 +556,14 @@ export default function Order() {
                       iconClassName="h-8 w-8"
                     />
 
-                    <p className="text-heading mt-3 line-clamp-2 min-w-0 flex-1 text-base font-semibold">
-                      {translateMenuName(item.name, i18n.language, t)}
-                    </p>
+                    <TruncatedText
+                      text={translateMenuName(item.name, i18n.language, t)}
+                      wrapperClassName="mb-3 mt-3 w-full min-w-0 justify-center"
+                      className="text-heading text-base font-semibold"
+                    />
 
                     {showServingButtons ? (
-                      <div className="mt-3">
+                      <div className="mt-auto w-full">
                         <div
                           className={`grid min-w-0 gap-1.5 ${
                             hotServing && icedServing ? 'grid-cols-2' : 'grid-cols-1'
@@ -590,7 +594,7 @@ export default function Order() {
                         </div>
                       </div>
                     ) : (
-                      <div className="mt-3 flex min-h-10 items-center justify-center rounded-xl border border-forest-200 bg-forest-50 px-2 py-2 text-center text-sm font-bold tabular-nums text-forest-700 shadow-sm transition duration-200 group-hover:border-forest-500 group-hover:bg-forest-500 group-hover:text-white group-hover:shadow-md group-active:scale-[0.98] dark:border-forest-800/60 dark:bg-forest-950/40 dark:text-forest-300 dark:group-hover:bg-forest-600 dark:group-hover:text-white">
+                      <div className="mt-auto flex min-h-10 w-full items-center justify-center rounded-xl border border-forest-200 bg-forest-50 px-2 py-2 text-center text-sm font-bold tabular-nums text-forest-700 shadow-sm transition duration-200 group-hover:border-forest-500 group-hover:bg-forest-500 group-hover:text-white group-hover:shadow-md group-active:scale-[0.98] dark:border-forest-800/60 dark:bg-forest-950/40 dark:text-forest-300 dark:group-hover:bg-forest-600 dark:group-hover:text-white">
                         {formatMenuPrice(item)}
                       </div>
                     )}

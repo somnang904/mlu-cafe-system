@@ -90,6 +90,8 @@ const resources = {
       },
       a11y: {
         toggleTheme: 'Toggle theme',
+        scrollLeft: 'Scroll left',
+        scrollRight: 'Scroll right',
         switchToLightMode: 'Switch to light mode',
         switchToDarkMode: 'Switch to dark mode',
         switchToEnglish: 'Switch to English',
@@ -1221,6 +1223,8 @@ const resources = {
       },
       a11y: {
         toggleTheme: 'ប្តូររូបរាង',
+        scrollLeft: 'រំកិលទៅឆ្វេង',
+        scrollRight: 'រំកិលទៅស្ដាំ',
         switchToLightMode: 'ប្តូរទៅរបៀបភ្លឺ',
         switchToDarkMode: 'ប្តូរទៅរបៀបងងឹត',
         switchToEnglish: 'ប្តូរទៅភាសាអង់គ្លេស',
