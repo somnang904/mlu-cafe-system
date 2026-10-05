@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Clock, X, AlertCircle, Printer } from 'lucide-react'
 import { useModalKeyboard } from '../../hooks/useModalKeyboard'
 import { apiFetch } from '../../services/apiClient'
-import { formatUsd, formatKhr } from '../../utils/currency'
+import { formatUsd, formatKhr, DEFAULT_EXCHANGE_RATE } from '../../utils/currency'
 import { STORE } from '../../config/store'
 
 export default function ShiftModal({ isOpen, onClose }) {
@@ -51,6 +51,11 @@ export default function ShiftModal({ isOpen, onClose }) {
   }, [isOpen])
 
   if (!isOpen) return null
+
+  const previewRate = Number(shift?.exchange_rate) > 0 ? Number(shift.exchange_rate) : DEFAULT_EXCHANGE_RATE
+  const previewDiffUsd = (parseFloat(countedUsd) || 0) - Number(shift?.expected_cash_usd || 0)
+  const previewDiffKhr = (parseFloat(countedKhr) || 0) - Number(shift?.expected_cash_khr || 0)
+  const previewDiffTotalUsd = previewDiffUsd + previewDiffKhr / previewRate
 
   const handleStartShift = async (e) => {
     e.preventDefault()
@@ -369,18 +374,26 @@ export default function ShiftModal({ isOpen, onClose }) {
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs dark:border-zinc-800 dark:bg-zinc-900">
                   <div className="flex justify-between">
                     <span className="text-slate-500">Expected:</span>
-                    <span className="font-semibold tabular-nums">{formatUsd(shift.expected_cash_usd)}</span>
+                    <span className="font-semibold tabular-nums">
+                      {formatUsd(shift.expected_cash_usd)} / {formatKhr(shift.expected_cash_khr)}
+                    </span>
                   </div>
                   <div className="flex justify-between mt-1">
                     <span className="text-slate-500">Difference (Over/Short):</span>
+                    <span className="font-semibold tabular-nums">
+                      {formatUsd(previewDiffUsd)} / {formatKhr(previewDiffKhr)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between mt-1">
+                    <span className="text-slate-500">Total Difference (in $):</span>
                     <span
                       className={`font-bold tabular-nums ${
-                        parseFloat(countedUsd) - shift.expected_cash_usd >= 0
+                        previewDiffTotalUsd >= 0
                           ? 'text-emerald-600 dark:text-emerald-400'
                           : 'text-rose-600 dark:text-rose-400'
                       }`}
                     >
-                      {formatUsd(parseFloat(countedUsd) - shift.expected_cash_usd)}
+                      {formatUsd(previewDiffTotalUsd)}
                     </span>
                   </div>
                 </div>
@@ -476,23 +489,33 @@ export default function ShiftModal({ isOpen, onClose }) {
                   )}
                   <div className="flex justify-between font-bold pt-1 border-t border-stone-100">
                     <span>Expected in Drawer:</span>
-                    <span className="tabular-nums">{formatUsd(closingShiftResult?.expected_cash_usd)}</span>
+                    <span className="tabular-nums">
+                      {formatUsd(closingShiftResult?.expected_cash_usd)} / {formatKhr(closingShiftResult?.expected_cash_khr)}
+                    </span>
                   </div>
                 </div>
 
                 <div className="py-3 text-xs space-y-1.5">
                   <div className="flex justify-between font-bold">
                     <span>Actual Counted Cash:</span>
-                    <span className="tabular-nums">{formatUsd(closingShiftResult?.closing_cash_usd)}</span>
+                    <span className="tabular-nums">
+                      {formatUsd(closingShiftResult?.closing_cash_usd)} / {formatKhr(closingShiftResult?.closing_cash_khr)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-stone-500">Difference (Over/Short):</span>
+                    <span className="tabular-nums font-medium">
+                      {formatUsd(closingShiftResult?.difference_usd)} / {formatKhr(closingShiftResult?.difference_khr)}
+                    </span>
                   </div>
                   <div className="flex justify-between font-bold text-sm">
-                    <span>Difference (Over/Short):</span>
+                    <span>Total Difference (in $):</span>
                     <span
                       className={`tabular-nums ${
-                        Number(closingShiftResult?.difference_usd) >= 0 ? 'text-emerald-700' : 'text-rose-700'
+                        Number(closingShiftResult?.difference_total_usd) >= 0 ? 'text-emerald-700' : 'text-rose-700'
                       }`}
                     >
-                      {formatUsd(closingShiftResult?.difference_usd)}
+                      {formatUsd(closingShiftResult?.difference_total_usd)}
                     </span>
                   </div>
                   {closingShiftResult?.notes && (

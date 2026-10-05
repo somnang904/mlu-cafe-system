@@ -6,6 +6,7 @@ import {
   formatUsd,
   formatKhr,
   calculateCashChange,
+  splitChange,
   usdToKhr,
 } from '../../utils/currency'
 
@@ -56,6 +57,7 @@ export default function PaymentModule({ disabled, billTotal = 0, onConfirm }) {
       exchangeRate,
     })
   }, [billTotal, parsedReceivedUsd, parsedReceivedKhr, exchangeRate])
+  const changeSplit = splitChange(changeCalculation.changeUsd, exchangeRate)
 
   const isCash = method === 'Cash'
   const isExactDisabled = isCash && (!changeCalculation.isSufficient && (parsedReceivedUsd > 0 || parsedReceivedKhr > 0))
@@ -248,6 +250,17 @@ export default function PaymentModule({ disabled, billTotal = 0, onConfirm }) {
                       </span>
                     </div>
                   </div>
+                  {changeSplit.usd + changeSplit.khr > 0 && (
+                    <p className="mt-1 text-right text-xs font-medium tabular-nums text-emerald-800 dark:text-emerald-300">
+                      {t('payment.giveBack', { defaultValue: 'Give back' })}:{' '}
+                      {[
+                        changeSplit.usd > 0 ? formatUsd(changeSplit.usd) : null,
+                        changeSplit.khr > 0 ? formatKhr(changeSplit.khr) : null,
+                      ]
+                        .filter(Boolean)
+                        .join(' + ')}
+                    </p>
+                  )}
                 </div>
               )}
             </div>

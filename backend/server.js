@@ -92,6 +92,7 @@ const {
     endShift,
     listShiftHistory,
 } = require('./src/utils/shifts');
+const { normalizeCheckoutPayment } = require('./src/utils/cashDrawer');
 const {
     ensureExpensesSchema,
     listExpenses,
@@ -1100,7 +1101,6 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
         received_usd = null,
         received_khr = null,
         change_usd = null,
-        change_khr = null,
         exchange_rate = null,
     } = req.body ?? {};
 
@@ -1156,11 +1156,19 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
 
             const invoiceId = await allocateNextInvoiceId(conn);
 
-            const recUsd = received_usd != null && Number.isFinite(Number(received_usd)) ? Number(received_usd) : null;
-            const recKhr = received_khr != null && Number.isFinite(Number(received_khr)) ? Number(received_khr) : null;
-            const chgUsd = change_usd != null && Number.isFinite(Number(change_usd)) ? Number(change_usd) : null;
-            const chgKhr = change_khr != null && Number.isFinite(Number(change_khr)) ? Number(change_khr) : null;
-            const exRate = exchange_rate != null && Number.isFinite(Number(exchange_rate)) ? Number(exchange_rate) : null;
+            const payment = normalizeCheckoutPayment({
+                method,
+                totalUsd: finalTotal,
+                receivedUsd: received_usd,
+                receivedKhr: received_khr,
+                changeUsd: change_usd,
+                exchangeRate: exchange_rate,
+            });
+            const recUsd = payment.received_usd;
+            const recKhr = payment.received_khr;
+            const chgUsd = payment.change_usd;
+            const chgKhr = payment.change_khr;
+            const exRate = payment.exchange_rate;
 
             const [result] = await conn.execute(
                 `UPDATE orders
@@ -2343,8 +2351,8 @@ app.post('/api/shifts/start', requirePermission('payment'), async (req, res) => 
 
         res.status(201).json({ message: 'Shift started successfully', shift });
     } catch (error) {
-        if (error.status === 400) {
-            return res.status(400).json({ message: error.message });
+        if (error.status === 400 || error.status === 409) {
+            return res.status(error.status).json({ message: error.message });
         }
         res.status(500).json({ message: 'Failed to start shift', errorId: logError(error, { route: 'POST /api/shifts/start' }) });
     }
@@ -2367,12 +2375,12 @@ app.post('/api/shifts/end', requirePermission('payment'), async (req, res) => {
         await auditFromRequest(db, req, {
             action: 'shift_end',
             module: 'Payment',
-            description: `Closed shift #${shift.id} (Z-Report): Counted $${Number(shift.closing_cash_usd).toFixed(2)} (Diff: $${Number(shift.difference_usd).toFixed(2)})`,
+            description: `Closed shift #${shift.id} (Z-Report): Counted $${Number(shift.closing_cash_usd).toFixed(2)} + ${Number(shift.closing_cash_khr).toLocaleString()} ៛ (Diff: $${Number(shift.difference_usd).toFixed(2)} / ${Number(shift.difference_khr).toLocaleString()} ៛, total $${Number(shift.difference_total_usd).toFixed(2)})`,
         });
 
         res.status(200).json({ message: 'Shift closed successfully (Z-Report generated)', shift });
     } catch (error) {
-        if (error.status === 400 || error.status === 404) {
+        if (error.status === 400 || error.status === 404 || error.status === 409) {
             return res.status(error.status).json({ message: error.message });
         }
         res.status(500).json({ message: 'Failed to close shift', errorId: logError(error, { route: 'POST /api/shifts/end' }) });

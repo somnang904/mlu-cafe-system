@@ -1,4 +1,6 @@
 const { ensureInnoDb } = require('./stockSchema')
+const { columnExists } = require('./ordersSchema')
+const { summarizeCashOrders, computeCashDifference } = require('./cashDrawer')
 
 let shiftsSchemaReady = null
 
@@ -32,6 +34,15 @@ async function ensureShiftsSchema(db) {
         ) ENGINE=InnoDB CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
       `)
       await ensureInnoDb(db, 'shifts')
+      if (!(await columnExists(db, 'shifts', 'cash_net_usd'))) {
+        await db.execute('ALTER TABLE shifts ADD COLUMN cash_net_usd DECIMAL(10,2) NULL AFTER cash_sales_khr')
+      }
+      if (!(await columnExists(db, 'shifts', 'exchange_rate'))) {
+        await db.execute('ALTER TABLE shifts ADD COLUMN exchange_rate DECIMAL(10,2) NULL AFTER difference_khr')
+      }
+      if (!(await columnExists(db, 'shifts', 'difference_total_usd'))) {
+        await db.execute('ALTER TABLE shifts ADD COLUMN difference_total_usd DECIMAL(10,2) NULL AFTER exchange_rate')
+      }
     })().catch((err) => {
       shiftsSchemaReady = null
       throw err
@@ -40,20 +51,60 @@ async function ensureShiftsSchema(db) {
   return shiftsSchemaReady
 }
 
-async function getLiveShiftMetrics(db, startTime) {
+function shiftError(message, status) {
+  const error = new Error(message)
+  error.status = status
+  return error
+}
+
+async function dbNow(db) {
+  const [rows] = await db.execute('SELECT NOW() AS now')
+  return rows[0].now
+}
+
+async function withShiftLock(db, fn) {
+  const conn = await db.getConnection()
+  try {
+    const [lockRows] = await conn.query("SELECT GET_LOCK(CONCAT(DATABASE(), ':shift-open'), 10) AS got")
+    if (Number(lockRows[0]?.got) !== 1) {
+      throw shiftError('Another shift change is in progress. Please try again.', 409)
+    }
+    try {
+      return await fn(conn)
+    } finally {
+      await conn.query("SELECT RELEASE_LOCK(CONCAT(DATABASE(), ':shift-open'))")
+    }
+  } finally {
+    conn.release()
+  }
+}
+
+function parseCount(value, label, { required }) {
+  if (value === null || value === undefined || value === '') {
+    if (required) throw shiftError(`${label} is required`, 400)
+    return 0
+  }
+  const number = Number(value)
+  if (!Number.isFinite(number) || number < 0) {
+    throw shiftError(`${label} must be a non-negative number`, 400)
+  }
+  return number
+}
+
+async function getLiveShiftMetrics(db, startTime, endTime) {
   // Cash Sales
   const [cashRows] = await db.execute(
-    `SELECT
-       COALESCE(SUM(total), 0) AS total_usd,
-       COALESCE(SUM(received_khr), 0) AS total_khr
+    `SELECT total, received_usd, received_khr, change_usd, change_khr, exchange_rate
      FROM orders
      WHERE status = 'Completed'
        AND payment_method = 'Cash'
-       AND updated_at >= ?`,
-    [startTime],
+       AND updated_at >= ? AND updated_at <= ?
+     ORDER BY updated_at ASC, id ASC`,
+    [startTime, endTime],
   )
-  const cashSalesUsd = Math.round(Number(cashRows[0]?.total_usd || 0) * 100) / 100
-  const cashSalesKhr = Math.round(Number(cashRows[0]?.total_khr || 0) * 100) / 100
+  const cash = summarizeCashOrders(cashRows)
+  const cashSalesUsd = cash.netUsd
+  const cashSalesKhr = cash.netKhr
 
   // Bank Scan Sales
   const [bankRows] = await db.execute(
@@ -62,8 +113,8 @@ async function getLiveShiftMetrics(db, startTime) {
      FROM orders
      WHERE status = 'Completed'
        AND payment_method = 'Bank Scan'
-       AND updated_at >= ?`,
-    [startTime],
+       AND updated_at >= ? AND updated_at <= ?`,
+    [startTime, endTime],
   )
   const bankSalesUsd = Math.round(Number(bankRows[0]?.total_usd || 0) * 100) / 100
 
@@ -71,8 +122,8 @@ async function getLiveShiftMetrics(db, startTime) {
   const [expenseRows] = await db.execute(
     `SELECT COALESCE(SUM(amount), 0) AS total_expenses
      FROM expenses
-     WHERE created_at >= ?`,
-    [startTime],
+     WHERE created_at >= ? AND created_at <= ?`,
+    [startTime, endTime],
   )
   const expensesUsd = Math.round(Number(expenseRows[0]?.total_expenses || 0) * 100) / 100
 
@@ -92,12 +143,14 @@ async function getLiveShiftMetrics(db, startTime) {
     `SELECT COUNT(*) AS order_count
      FROM orders
      WHERE status = 'Completed'
-       AND updated_at >= ?`,
-    [startTime],
+       AND updated_at >= ? AND updated_at <= ?`,
+    [startTime, endTime],
   )
   const orderCount = Number(countRows[0]?.order_count || 0)
 
   return {
+    cashSalesValueUsd: cash.salesUsd,
+    exchangeRate: cash.exchangeRate,
     cashSalesUsd,
     cashSalesKhr,
     bankSalesUsd,
@@ -121,7 +174,7 @@ async function getCurrentShift(db, userId = null) {
   if (!rows.length) return null
 
   const shift = rows[0]
-  const metrics = await getLiveShiftMetrics(db, shift.start_time)
+  const metrics = await getLiveShiftMetrics(db, shift.start_time, await dbNow(db))
 
   const openFloatUsd = Number(shift.opening_float_usd || 0)
   const openFloatKhr = Number(shift.opening_float_khr || 0)
@@ -136,7 +189,9 @@ async function getCurrentShift(db, userId = null) {
     status: shift.status,
     opening_float_usd: openFloatUsd,
     opening_float_khr: openFloatKhr,
-    cash_sales_usd: metrics.cashSalesUsd,
+    cash_sales_usd: metrics.cashSalesValueUsd,
+    cash_net_usd: metrics.cashSalesUsd,
+    exchange_rate: metrics.exchangeRate,
     cash_sales_khr: metrics.cashSalesKhr,
     bank_sales_usd: metrics.bankSalesUsd,
     expenses_usd: metrics.expensesUsd,
@@ -150,24 +205,27 @@ async function getCurrentShift(db, userId = null) {
 async function startShift(db, { userId, cashierName, openingFloatUsd = 0, openingFloatKhr = 0 }) {
   await ensureShiftsSchema(db)
 
-  const [existing] = await db.execute(
-    `SELECT id FROM shifts WHERE status = 'Open' LIMIT 1`,
-  )
-  if (existing.length) {
-    const error = new Error('An active shift is already open. Please close it first.')
-    error.status = 400
-    throw error
-  }
-
   const parsedFloatUsd = Math.max(0, Math.round(Number(openingFloatUsd || 0) * 100) / 100)
   const parsedFloatKhr = Math.max(0, Math.round(Number(openingFloatKhr || 0)))
+  if (!Number.isFinite(parsedFloatUsd) || !Number.isFinite(parsedFloatKhr)) {
+    throw shiftError('Opening float must be a number', 400)
+  }
 
-  const [result] = await db.execute(
-    `INSERT INTO shifts
-      (user_id, cashier_name, opening_float_usd, opening_float_khr, expected_cash_usd, expected_cash_khr, status)
-     VALUES (?, ?, ?, ?, ?, ?, 'Open')`,
-    [userId, cashierName || 'Cashier', parsedFloatUsd, parsedFloatKhr, parsedFloatUsd, parsedFloatKhr],
-  )
+  await withShiftLock(db, async (conn) => {
+    const [existing] = await conn.execute(
+      `SELECT id FROM shifts WHERE status = 'Open' LIMIT 1`,
+    )
+    if (existing.length) {
+      throw shiftError('An active shift is already open. Please close it first.', 400)
+    }
+
+    await conn.execute(
+      `INSERT INTO shifts
+        (user_id, cashier_name, opening_float_usd, opening_float_khr, expected_cash_usd, expected_cash_khr, status)
+       VALUES (?, ?, ?, ?, ?, ?, 'Open')`,
+      [userId, cashierName || 'Cashier', parsedFloatUsd, parsedFloatKhr, parsedFloatUsd, parsedFloatKhr],
+    )
+  })
 
   return getCurrentShift(db, userId)
 }
@@ -186,23 +244,32 @@ async function endShift(db, { shiftId, closingCashUsd, closingCashKhr, notes = '
   }
 
   const shift = rows[0]
-  const metrics = await getLiveShiftMetrics(db, shift.start_time)
+  const endTime = await dbNow(db)
+  const metrics = await getLiveShiftMetrics(db, shift.start_time, endTime)
 
   const openFloatUsd = Number(shift.opening_float_usd || 0)
   const openFloatKhr = Number(shift.opening_float_khr || 0)
   const expectedCashUsd = expectedDrawerUsd(openFloatUsd, metrics)
   const expectedCashKhr = Math.round((openFloatKhr + metrics.cashSalesKhr) * 100) / 100
 
-  const countUsd = Math.round(Number(closingCashUsd || 0) * 100) / 100
-  const countKhr = Math.round(Number(closingCashKhr || 0))
+  const countUsd = Math.round(parseCount(closingCashUsd, 'closing_cash_usd', { required: true }) * 100) / 100
+  const countKhr = Math.round(parseCount(closingCashKhr, 'closing_cash_khr', { required: false }))
   const diffUsd = Math.round((countUsd - expectedCashUsd) * 100) / 100
   const diffKhr = Math.round(countKhr - expectedCashKhr)
+  const diff = computeCashDifference({
+    expectedUsd: expectedCashUsd,
+    expectedKhr: expectedCashKhr,
+    countedUsd: countUsd,
+    countedKhr: countKhr,
+    exchangeRate: metrics.exchangeRate,
+  })
 
-  await db.execute(
+  const [result] = await db.execute(
     `UPDATE shifts
-     SET end_time = NOW(),
+     SET end_time = ?,
          cash_sales_usd = ?,
          cash_sales_khr = ?,
+         cash_net_usd = ?,
          bank_sales_usd = ?,
          expenses_usd = ?,
          expected_cash_usd = ?,
@@ -211,12 +278,16 @@ async function endShift(db, { shiftId, closingCashUsd, closingCashKhr, notes = '
          closing_cash_khr = ?,
          difference_usd = ?,
          difference_khr = ?,
+         exchange_rate = ?,
+         difference_total_usd = ?,
          notes = ?,
          status = 'Closed'
-     WHERE id = ?`,
+     WHERE id = ? AND status = 'Open'`,
     [
-      metrics.cashSalesUsd,
+      endTime,
+      metrics.cashSalesValueUsd,
       metrics.cashSalesKhr,
+      metrics.cashSalesUsd,
       metrics.bankSalesUsd,
       metrics.expensesUsd,
       expectedCashUsd,
@@ -225,10 +296,15 @@ async function endShift(db, { shiftId, closingCashUsd, closingCashKhr, notes = '
       countKhr,
       diffUsd,
       diffKhr,
+      metrics.exchangeRate,
+      diff.totalUsd,
       String(notes || '').trim().slice(0, 500),
       shiftId,
     ],
   )
+  if (result.affectedRows === 0) {
+    throw shiftError('Shift not found or already closed', 404)
+  }
 
   const [updated] = await db.execute('SELECT * FROM shifts WHERE id = ?', [shiftId])
   return {
