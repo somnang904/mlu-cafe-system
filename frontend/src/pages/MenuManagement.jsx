@@ -524,7 +524,7 @@ export default function MenuManagement() {
             tabIndex={-1}
             role="dialog"
             aria-modal="true"
-            className="modal-panel relative z-10 max-h-[90vh] w-full max-w-lg p-6"
+            className="modal-panel relative z-10 max-h-[90vh] w-full max-w-xl p-6"
           >
             <div className="flex items-center justify-between">
               <h3 className="text-heading text-lg">
@@ -633,12 +633,13 @@ export default function MenuManagement() {
               )}
 
               <div>
-                <div className="mb-2 flex items-center justify-between">
-                  <label className="flex items-center gap-1.5 text-sm font-medium text-stone-700 dark:text-zinc-300">
+                {/* nowrap keeps each button on one line; on very narrow phones the whole toggle drops below the label as one unit. */}
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                  <label className="flex items-center gap-1.5 whitespace-nowrap text-sm font-medium text-stone-700 dark:text-zinc-300">
                     <ImageIcon className={FIELD_ICON_CLASS} aria-hidden />
                     {t('menuAdmin.imagePath')}
                   </label>
-                  <div className="flex rounded-lg bg-stone-100 p-0.5 dark:bg-zinc-800">
+                  <div className="flex shrink-0 whitespace-nowrap rounded-lg bg-stone-100 p-0.5 dark:bg-zinc-800">
                     <button
                       type="button"
                       onClick={() => setImageMode('upload')}
