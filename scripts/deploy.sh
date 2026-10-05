@@ -39,9 +39,22 @@ echo "[$(date '+%F %T')] Deploying ${local_rev:0:7} -> ${remote_rev:0:7}"
 
 git reset --hard --quiet origin/main
 
-npm --prefix backend install --no-audit --no-fund
-npm --prefix frontend install --include=dev --no-audit --no-fund
-npm run build
+# This droplet has under 1 GB of RAM and the kernel has killed mysqld during past
+# builds. Run the build at low priority and make the kernel pick it, not MySQL,
+# when memory runs short.
+run_build() {
+  if command -v systemd-run >/dev/null 2>&1; then
+    systemd-run --quiet --pipe --wait --collect \
+      -p MemoryMax=700M -p CPUWeight=20 -p OOMScoreAdjust=1000 \
+      /bin/bash -c "$1"
+  else
+    nice -n 19 /bin/bash -c "$1"
+  fi
+}
+
+run_build 'npm --prefix backend install --no-audit --no-fund'
+run_build 'npm --prefix frontend install --include=dev --no-audit --no-fund'
+run_build 'npm run build'
 
 pm2 restart "$PM2_APP" --update-env
 

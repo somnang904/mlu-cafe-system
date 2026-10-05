@@ -188,11 +188,16 @@ app.use(helmet({
 }));
 
 const allowedOrigins = env.security.allowedOrigins;
+// Outside production, Vite may pick 5174 or another port when 5173 is taken; blocking it
+// only looks like "username or password is incorrect" at the login screen.
+const LOCALHOST_DEV_ORIGIN = /^http:\/\/(localhost|127\.0\.0\.1):\d+$/;
 app.use(cors({
     origin(origin, callback) {
         // Same-origin and server-to-server calls arrive without an Origin header.
         if (!origin) return callback(null, true);
-        if (allowedOrigins.includes(origin.replace(/\/$/, ''))) return callback(null, true);
+        const normalized = origin.replace(/\/$/, '');
+        if (allowedOrigins.includes(normalized)) return callback(null, true);
+        if (!env.isProduction && LOCALHOST_DEV_ORIGIN.test(normalized)) return callback(null, true);
         logSecurity('cors_blocked', { origin });
         return callback(null, false);
     },

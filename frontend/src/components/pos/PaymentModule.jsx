@@ -60,7 +60,11 @@ export default function PaymentModule({ disabled, billTotal = 0, onConfirm }) {
   const changeSplit = splitChange(changeCalculation.changeUsd, exchangeRate)
 
   const isCash = method === 'Cash'
-  const isExactDisabled = isCash && (!changeCalculation.isSufficient && (parsedReceivedUsd > 0 || parsedReceivedKhr > 0))
+  // Cash has to be counted before the sale is recorded. Leaving the boxes empty used to
+  // book the bill as paid in exact dollars, which puts the wrong currency in the drawer
+  // when the guest actually paid riel.
+  const cashEntered = parsedReceivedUsd > 0 || parsedReceivedKhr > 0
+  const isExactDisabled = isCash && !changeCalculation.isSufficient
 
   const handleExactCashUsd = () => {
     setReceivedUsdInput(Number(billTotal).toFixed(2))
@@ -74,21 +78,12 @@ export default function PaymentModule({ disabled, billTotal = 0, onConfirm }) {
 
   const handleConfirm = () => {
     if (disabled || !method) return
-    if (isCash && !changeCalculation.isSufficient && (parsedReceivedUsd > 0 || parsedReceivedKhr > 0)) {
-      return
-    }
+    if (isCash && !changeCalculation.isSufficient) return
 
-    // If cashier left inputs blank but clicked confirm, treat as exact cash in USD
-    const finalRecUsd = isCash && parsedReceivedUsd === 0 && parsedReceivedKhr === 0
-      ? Number(billTotal)
-      : parsedReceivedUsd
+    const finalRecUsd = parsedReceivedUsd
     const finalRecKhr = parsedReceivedKhr
-    const finalChangeUsd = isCash && parsedReceivedUsd === 0 && parsedReceivedKhr === 0
-      ? 0
-      : changeCalculation.changeUsd
-    const finalChangeKhr = isCash && parsedReceivedUsd === 0 && parsedReceivedKhr === 0
-      ? 0
-      : changeCalculation.changeKhr
+    const finalChangeUsd = changeCalculation.changeUsd
+    const finalChangeKhr = changeCalculation.changeKhr
 
     onConfirm?.(method, {
       clearImmediately,
@@ -291,6 +286,13 @@ export default function PaymentModule({ disabled, billTotal = 0, onConfirm }) {
       </div>
 
       {/* Confirm Button */}
+      {isExactDisabled && (
+        <p className="text-center text-xs font-medium text-amber-700 dark:text-amber-300" role="status">
+          {cashEntered
+            ? t('payment.needMoreCash', { defaultValue: 'Cash received does not cover the bill yet.' })
+            : t('payment.enterCashFirst', { defaultValue: 'Enter the cash received, or tap Exact $ / Exact ៛.' })}
+        </p>
+      )}
       <button
         type="button"
         disabled={disabled || isExactDisabled}

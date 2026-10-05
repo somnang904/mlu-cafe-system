@@ -48,15 +48,22 @@ function noteBackend(reachable) {
   window.dispatchEvent(new CustomEvent(BACKEND_STATUS_EVENT, { detail: { reachable } }))
 }
 
-function noteSessionExpired() {
-  window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT))
+function noteSessionExpired(path, body) {
+  // Name the request that ended the session: without it an unexpected sign-out
+  // leaves nothing to go on.
+  console.warn(`[auth] signed out by 401 from ${path}`, body || '')
+  window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT, { detail: { path } }))
 }
 
-function storeRenewedToken(response) {
+function storeRenewedToken(response, requestToken) {
   const renewed = response.headers.get(RENEWED_TOKEN_HEADER)
   if (!renewed) return
   const session = readSession()
   if (!session?.token) return
+  // The renewal keeps the session id of the token that was sent. A request still in
+  // flight from a previous sign-in would otherwise overwrite the new session with a
+  // token for the old, revoked one, signing the user straight back out.
+  if (session.token !== requestToken) return
   writeSession({ ...session, token: renewed })
 }
 
@@ -94,10 +101,20 @@ export async function apiFetch(path, options = {}) {
         ...fetchOptions,
         headers,
       })
-      noteBackend(true)
-      storeRenewedToken(response)
-      if (token && !isPublicApiPath(normalizedPath) && response.status === 401) {
-        noteSessionExpired()
+      // 503 means the API answered but its database is down: the till should show the
+      // paused banner, not act as if everything is fine.
+      noteBackend(response.status !== 503)
+      storeRenewedToken(response, token)
+      // Only end the session when the rejected token is still the one in storage.
+      // A poll that was already in flight during a sign-out lands with the old token
+      // moments after the next sign-in, and must not take the new session down with it.
+      if (
+        token
+        && !isPublicApiPath(normalizedPath)
+        && response.status === 401
+        && token === getAuthToken()
+      ) {
+        noteSessionExpired(normalizedPath, await response.clone().text().catch(() => ''))
       }
       if (response.status < 500 || attempt === attempts - 1) return response
     } catch (error) {
@@ -196,8 +213,8 @@ export async function apiUpload(path, fieldName, file) {
 
   noteBackend(true)
   const payload = await response.json().catch(() => ({}))
-  if (response.status === 401) {
-    noteSessionExpired()
+  if (response.status === 401 && token === getAuthToken()) {
+    noteSessionExpired(normalizedPath, payload?.message)
   }
 
   if (!response.ok) {

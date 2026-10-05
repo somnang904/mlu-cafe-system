@@ -6,6 +6,17 @@ import { apiFetch } from '../../services/apiClient'
 import { formatUsd, formatKhr, DEFAULT_EXCHANGE_RATE } from '../../utils/currency'
 import { STORE } from '../../config/store'
 
+/** Drawer movement reads as a change, so it keeps its sign; paying riel can take dollars out. */
+function signedUsd(amount) {
+  const value = Number(amount) || 0
+  return `${value < 0 ? '−' : '+'}${formatUsd(Math.abs(value))}`
+}
+
+function signedKhr(amount) {
+  const value = Number(amount) || 0
+  return `${value < 0 ? '−' : '+'}${formatKhr(Math.abs(value))}`
+}
+
 export default function ShiftModal({ isOpen, onClose }) {
   const { t } = useTranslation()
   const panelRef = useModalKeyboard({ isOpen, onEscape: onClose, primaryActionMode: 'never' })
@@ -254,6 +265,12 @@ export default function ShiftModal({ isOpen, onClose }) {
                   </span>
                   <p className="mt-1 text-base font-bold tabular-nums text-emerald-950 dark:text-emerald-200">
                     {formatUsd(shift.cash_sales_usd)}
+                  </p>
+                  {/* The sales value above is in dollars whatever the guest handed over, so
+                      show what each currency actually did in the drawer, change included. */}
+                  <p className="mt-0.5 text-2xs font-medium tabular-nums text-emerald-700 dark:text-emerald-400">
+                    {t('shifts.intoDrawer', { defaultValue: 'In drawer' })}:{' '}
+                    {signedUsd(shift.cash_net_usd)} · {signedKhr(shift.cash_sales_khr)}
                   </p>
                 </div>
                 <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/10 p-3 dark:border-cyan-500/20 dark:bg-cyan-950/20">
