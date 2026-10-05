@@ -283,6 +283,11 @@ export default function ShiftModal({ isOpen, onClose }) {
                     - {formatUsd(shift.expenses_usd)} expenses deducted from drawer
                   </p>
                 )}
+                {shift.cash_refunds_usd > 0 && (
+                  <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">
+                    - {formatUsd(shift.cash_refunds_usd)} refunded for earlier shifts&apos; cash sales
+                  </p>
+                )}
               </div>
 
               <div className="flex gap-2 pt-2">
@@ -460,6 +465,14 @@ export default function ShiftModal({ isOpen, onClose }) {
                       -{formatUsd(closingShiftResult?.expenses_usd)}
                     </span>
                   </div>
+                  {closingShiftResult?.cash_refunds_usd > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-stone-500">Earlier Sales Refunded:</span>
+                      <span className="tabular-nums font-medium text-rose-600">
+                        -{formatUsd(closingShiftResult.cash_refunds_usd)}
+                      </span>
+                    </div>
+                  )}
                   <div className="flex justify-between font-bold pt-1 border-t border-stone-100">
                     <span>Expected in Drawer:</span>
                     <span className="tabular-nums">{formatUsd(closingShiftResult?.expected_cash_usd)}</span>

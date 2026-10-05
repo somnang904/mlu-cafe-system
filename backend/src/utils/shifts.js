@@ -76,6 +76,17 @@ async function getLiveShiftMetrics(db, startTime) {
   )
   const expensesUsd = Math.round(Number(expenseRows[0]?.total_expenses || 0) * 100) / 100
 
+  const [refundRows] = await db.execute(
+    `SELECT COALESCE(SUM(total), 0) AS total_usd
+     FROM orders
+     WHERE status = 'Refunded'
+       AND payment_method = 'Cash'
+       AND voided_at >= ?
+       AND updated_at < ?`,
+    [startTime, startTime],
+  )
+  const cashRefundsUsd = Math.round(Number(refundRows[0]?.total_usd || 0) * 100) / 100
+
   // Orders count
   const [countRows] = await db.execute(
     `SELECT COUNT(*) AS order_count
@@ -91,8 +102,14 @@ async function getLiveShiftMetrics(db, startTime) {
     cashSalesKhr,
     bankSalesUsd,
     expensesUsd,
+    cashRefundsUsd,
     orderCount,
   }
+}
+
+function expectedDrawerUsd(openingFloatUsd, metrics) {
+  const total = openingFloatUsd + metrics.cashSalesUsd - metrics.expensesUsd - (metrics.cashRefundsUsd || 0)
+  return Math.round(total * 100) / 100
 }
 
 async function getCurrentShift(db, userId = null) {
@@ -108,7 +125,7 @@ async function getCurrentShift(db, userId = null) {
 
   const openFloatUsd = Number(shift.opening_float_usd || 0)
   const openFloatKhr = Number(shift.opening_float_khr || 0)
-  const expectedCashUsd = Math.round((openFloatUsd + metrics.cashSalesUsd - metrics.expensesUsd) * 100) / 100
+  const expectedCashUsd = expectedDrawerUsd(openFloatUsd, metrics)
   const expectedCashKhr = Math.round((openFloatKhr + metrics.cashSalesKhr) * 100) / 100
 
   return {
@@ -123,6 +140,7 @@ async function getCurrentShift(db, userId = null) {
     cash_sales_khr: metrics.cashSalesKhr,
     bank_sales_usd: metrics.bankSalesUsd,
     expenses_usd: metrics.expensesUsd,
+    cash_refunds_usd: metrics.cashRefundsUsd,
     expected_cash_usd: expectedCashUsd,
     expected_cash_khr: expectedCashKhr,
     order_count: metrics.orderCount,
@@ -172,7 +190,7 @@ async function endShift(db, { shiftId, closingCashUsd, closingCashKhr, notes = '
 
   const openFloatUsd = Number(shift.opening_float_usd || 0)
   const openFloatKhr = Number(shift.opening_float_khr || 0)
-  const expectedCashUsd = Math.round((openFloatUsd + metrics.cashSalesUsd - metrics.expensesUsd) * 100) / 100
+  const expectedCashUsd = expectedDrawerUsd(openFloatUsd, metrics)
   const expectedCashKhr = Math.round((openFloatKhr + metrics.cashSalesKhr) * 100) / 100
 
   const countUsd = Math.round(Number(closingCashUsd || 0) * 100) / 100
@@ -215,6 +233,7 @@ async function endShift(db, { shiftId, closingCashUsd, closingCashKhr, notes = '
   const [updated] = await db.execute('SELECT * FROM shifts WHERE id = ?', [shiftId])
   return {
     ...updated[0],
+    cash_refunds_usd: metrics.cashRefundsUsd,
     order_count: metrics.orderCount,
   }
 }
@@ -230,6 +249,8 @@ async function listShiftHistory(db, limit = 30) {
 
 module.exports = {
   ensureShiftsSchema,
+  getLiveShiftMetrics,
+  expectedDrawerUsd,
   getCurrentShift,
   startShift,
   endShift,
