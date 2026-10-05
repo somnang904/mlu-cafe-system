@@ -7,6 +7,10 @@ export const STORE = {
   shortName: 'Mlu',
   logoUrl: '/logo/logo.png',
   sidebarLogoUrl: '/logo/sidebar-logo.png',
+  // logo.png with its transparent side margins trimmed, sized for the sidebar;
+  // the dark copy has light lettering and brighter greens for the dark theme.
+  sidebarFullLogoUrl: '/logo/logo-full-sidebar.webp',
+  sidebarFullLogoDarkUrl: '/logo/logo-full-sidebar-dark.webp',
   location: 'Pink Paradise Rd, Wat Bo Village, Siem Reap, Cambodia',
   address: 'Pink Paradise Rd, Wat Bo Village, Siem Reap, Cambodia',
   phone: 'Tel: 099 333 225',
