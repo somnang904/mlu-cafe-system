@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Eye, EyeOff, X } from 'lucide-react'
+import { Eye, EyeOff } from 'lucide-react'
 import ThemeToggle from '../components/ui/ThemeToggle'
 import LanguageToggle from '../components/ui/LanguageToggle'
 import { consumeConnectionLost } from '../services/sessionStorage'

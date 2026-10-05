@@ -36,6 +36,13 @@ export function khrToUsd(khr, rate = DEFAULT_EXCHANGE_RATE) {
   return Math.round((val / rate) * 100) / 100
 }
 
+export function splitChange(changeUsd, rate = DEFAULT_EXCHANGE_RATE) {
+  const change = Math.max(0, Math.round((Number(changeUsd) || 0) * 100) / 100)
+  const safeRate = Number(rate) > 0 ? Number(rate) : DEFAULT_EXCHANGE_RATE
+  const usd = Math.floor(change + 1e-9)
+  return { usd, khr: roundKhrCash((change - usd) * safeRate) }
+}
+
 export function calculateCashChange({
   totalDueUsd = 0,
   receivedUsd = 0,
@@ -50,11 +57,11 @@ export function calculateCashChange({
   const recKhrInUsd = recKhr / rate
   const totalReceivedUsd = recUsd + recKhrInUsd
 
-  const isSufficient = totalReceivedUsd >= dueUsd - 0.001
+  const isSufficient = totalReceivedUsd >= dueUsd - 50 / rate - 0.001
   const remainingDueUsd = isSufficient ? 0 : dueUsd - totalReceivedUsd
   const remainingDueKhr = roundKhrCash(remainingDueUsd * rate)
 
-  const changeUsd = isSufficient ? totalReceivedUsd - dueUsd : 0
+  const changeUsd = isSufficient ? Math.max(0, totalReceivedUsd - dueUsd) : 0
   const changeKhr = roundKhrCash(changeUsd * rate)
 
   return {

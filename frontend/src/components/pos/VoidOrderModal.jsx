@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { RotateCcw, X, AlertTriangle, ShieldCheck, Lock } from 'lucide-react'
+import { RotateCcw, X, AlertTriangle, Lock } from 'lucide-react'
 import { useModalKeyboard } from '../../hooks/useModalKeyboard'
 import { useAuth } from '../../context/AuthContext'
 import { isAdminRole } from '../../utils/permissions'
@@ -41,10 +41,15 @@ export default function VoidOrderModal({ isOpen, onClose, order, onConfirmVoid }
       return
     }
 
+    if (!order.order_id) {
+      setError('This sale is still syncing. Please try again in a moment.')
+      return
+    }
+
     setSubmitting(true)
     setError('')
     try {
-      await onConfirmVoid?.(order.order_id || order.id, reason.trim(), {
+      await onConfirmVoid?.(order.order_id, reason.trim(), {
         username: managerUsername.trim(),
         password: managerPassword,
       })

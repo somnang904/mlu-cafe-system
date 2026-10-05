@@ -117,43 +117,30 @@ export function groupActiveRows(activeOrderRows) {
 }
 
 export function reconcileActiveOrders(prevTables, prevTakeOut, groupedOrders) {
-  const hasServerData = groupedOrders && Object.keys(groupedOrders).length > 0
-
   const tables = prevTables.map((table) => {
-    const stringId = table.id.toString()
-    const serverItems = groupedOrders?.[stringId]
+    const serverItems = groupedOrders?.[table.id.toString()]
 
     if (serverItems?.length) {
       return applyItemsToBill(table, serverItems, statusForItems(serverItems))
     }
-
-    if (hasServerData) {
-      if (table.items?.length > 0) {
-        return table
-      }
-      if (table.status === 'paid') {
-        return table
-      }
-      return {
-        ...table,
-        status: 'empty',
-        orderSummary: null,
-        orderTotal: null,
-        items: [],
-      }
+    if (table.status === 'paid' && !table.items?.length) {
+      return table
     }
-
-    return table
+    return {
+      ...table,
+      status: 'empty',
+      orderSummary: null,
+      orderTotal: null,
+      items: [],
+    }
   })
 
   const serverTakeout = groupedOrders?.takeout
-  let takeOut = prevTakeOut
-
-  if (serverTakeout?.length) {
-    takeOut = applyItemsToBill(TAKEOUT_BILL, serverTakeout, statusForItems(serverTakeout))
-  } else if (hasServerData) {
-    takeOut = prevTakeOut.items?.length > 0 ? prevTakeOut : TAKEOUT_BILL
-  }
+  const takeOut = serverTakeout?.length
+    ? applyItemsToBill(TAKEOUT_BILL, serverTakeout, statusForItems(serverTakeout))
+    : prevTakeOut.status === 'paid' && !prevTakeOut.items?.length
+      ? prevTakeOut
+      : TAKEOUT_BILL
 
   return { tables, takeOut }
 }

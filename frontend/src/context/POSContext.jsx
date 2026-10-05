@@ -94,6 +94,23 @@ export function POSProvider({ children }) {
   const navigateRef = useRef(null)
   const tablesRef = useRef(initialState.tables)
   const takeOutRef = useRef(initialState.takeOut)
+  const syncRef = useRef({ inFlight: 0, epoch: 0, refreshPending: false })
+  const saveQueueRef = useRef(new Map())
+  const refreshActiveOrdersRef = useRef(null)
+
+  const beginSync = useCallback(() => {
+    const sync = syncRef.current
+    sync.inFlight += 1
+    sync.epoch += 1
+    return () => {
+      sync.inFlight -= 1
+      sync.epoch += 1
+      if (sync.inFlight === 0 && sync.refreshPending) {
+        sync.refreshPending = false
+        refreshActiveOrdersRef.current?.()
+      }
+    }
+  }, [])
 
   // Mirrored into refs so async handlers read current floor state without re-subscribing.
   useEffect(() => {
@@ -145,6 +162,9 @@ export function POSProvider({ children }) {
       if (historyRows && Array.isArray(historyRows)) {
         const formattedHistory = historyRows.map((row) => ({
           id: row.invoice_id || row.id,
+          order_id: row.order_id,
+          void_reason: row.void_reason || null,
+          voided_at: row.voided_at || null,
           date: formatOrderDate(row.date || row.created_at),
           time: formatTime12Hour(row.time || row.created_at),
           monthKey: row.month_key || (row.date ? String(row.date).slice(0, 7) : null),
@@ -238,13 +258,20 @@ export function POSProvider({ children }) {
 
   const transferTable = useCallback(async (fromId, toId) => {
     const token = getAuthToken()
-    const response = await apiFetch('/tables/transfer', {
-      method: 'POST',
-      token,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from_table_id: fromId, to_table_id: toId }),
-    })
-    const data = await response.json().catch(() => ({}))
+    const endSync = beginSync()
+    let response
+    let data
+    try {
+      response = await apiFetch('/tables/transfer', {
+        method: 'POST',
+        token,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from_table_id: fromId, to_table_id: toId }),
+      })
+      data = await response.json().catch(() => ({}))
+    } finally {
+      endSync()
+    }
     if (!response.ok) {
       throw new Error(data.message || 'Failed to transfer table')
     }
@@ -280,15 +307,22 @@ export function POSProvider({ children }) {
     })
 
     return data
-  }, [])
+  }, [beginSync])
 
   const clearTable = useCallback(async (targetId) => {
     const token = getAuthToken()
-    const response = await apiFetch(`/tables/${targetId}/clear`, {
-      method: 'POST',
-      token,
-    })
-    const data = await response.json().catch(() => ({}))
+    const endSync = beginSync()
+    let response
+    let data
+    try {
+      response = await apiFetch(`/tables/${targetId}/clear`, {
+        method: 'POST',
+        token,
+      })
+      data = await response.json().catch(() => ({}))
+    } finally {
+      endSync()
+    }
     if (!response.ok) {
       throw new Error(data.message || 'Failed to clear table')
     }
@@ -321,7 +355,7 @@ export function POSProvider({ children }) {
     }
 
     return data
-  }, [])
+  }, [beginSync])
 
   useEffect(() => {
     writeActiveOrdersSnapshot({ tables, takeOut, invoiceCounter })
@@ -335,11 +369,26 @@ export function POSProvider({ children }) {
     const token = getAuthToken()
     if (!token) return
 
+    const sync = syncRef.current
+    if (sync.inFlight > 0) {
+      sync.refreshPending = true
+      return
+    }
+    const startEpoch = sync.epoch
+
     try {
       const res = await apiFetch('/orders/active', { token })
       if (!res.ok) return
       const activeOrderRows = await res.json()
       if (!activeOrderRows || !Array.isArray(activeOrderRows)) return
+      if (sync.epoch !== startEpoch) {
+        sync.refreshPending = true
+        if (sync.inFlight === 0) {
+          sync.refreshPending = false
+          refreshActiveOrdersRef.current?.()
+        }
+        return
+      }
 
       const groupedOrders = groupActiveRows(activeOrderRows)
       const reconciled = reconcileActiveOrders(
@@ -349,10 +398,28 @@ export function POSProvider({ children }) {
       )
       setTables(reconciled.tables)
       setTakeOut(reconciled.takeOut)
-    } catch (_) {
-      // Background retry
+    } catch {
+      // Background poll: the next refresh retries, so a failed fetch is not surfaced.
     }
   }, [])
+
+  useEffect(() => {
+    refreshActiveOrdersRef.current = refreshActiveOrders
+  }, [refreshActiveOrders])
+
+  useEffect(() => {
+    const interval = window.setInterval(refreshActiveOrders, 15_000)
+    const refreshOnFocus = () => {
+      if (document.visibilityState === 'visible') refreshActiveOrders()
+    }
+    window.addEventListener('focus', refreshOnFocus)
+    document.addEventListener('visibilitychange', refreshOnFocus)
+    return () => {
+      window.clearInterval(interval)
+      window.removeEventListener('focus', refreshOnFocus)
+      document.removeEventListener('visibilitychange', refreshOnFocus)
+    }
+  }, [refreshActiveOrders])
 
   useEffect(() => {
     refreshActiveOrders()
@@ -365,7 +432,9 @@ export function POSProvider({ children }) {
         refreshActiveOrders()
         loadSalesHistory()
       }
-    } catch (_) {}
+    } catch {
+      // BroadcastChannel is missing in some browsers; cross-tab sync is optional.
+    }
 
     return () => {
       if (channel) channel.close()
@@ -404,30 +473,48 @@ export function POSProvider({ children }) {
     },
   ]
 
-  const persistBillItems = async (targetId, items) => {
-    const response = await apiFetch('/orders/items', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ...buildOrderTargetPayload(targetId),
-        items: mapBillItemsForApi(items),
-      }),
+  const persistBillItems = (targetId, items, baseItems) => {
+    const key = String(targetId)
+    const endSync = beginSync()
+    const previous = saveQueueRef.current.get(key) || Promise.resolve()
+    const save = previous
+      .catch(() => {})
+      .then(async () => {
+        const response = await apiFetch('/orders/items', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...buildOrderTargetPayload(targetId),
+            items: mapBillItemsForApi(items),
+            base_items: mapBillItemsForApi(baseItems),
+          }),
+        })
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}))
+          throw new Error(data.detail || data.message || `Server status returned ${response.status}`)
+        }
+      })
+    const tracked = save.finally(() => {
+      if (saveQueueRef.current.get(key) === tracked) saveQueueRef.current.delete(key)
+      endSync()
     })
-    if (!response.ok) {
-      const data = await response.json().catch(() => ({}))
-      throw new Error(data.detail || data.message || `Server status returned ${response.status}`)
-    }
+    saveQueueRef.current.set(key, tracked)
+    return tracked.catch((err) => {
+      refreshActiveOrders()
+      throw err
+    })
   }
 
   const updateBillState = (destinationId, items, statusOverride) => {
     if (destinationId === 'takeout') {
       setTakeOut((prev) => applyItemsToBill(prev, items, statusOverride))
     } else {
-      setTables((prev) =>
-        prev.map((table) =>
+      setTables((prev) => {
+        const next = prev.map((table) =>
           table.id === destinationId ? applyItemsToBill(table, items, statusOverride) : table,
-        ),
-      )
+        )
+        return items.length === 0 ? releaseMergedTables(next, destinationId) : next
+      })
     }
   }
 
@@ -453,9 +540,11 @@ export function POSProvider({ children }) {
       return applyItemsToBill(bill, finalizedItems, status)
     }
 
+    const endSync = beginSync()
     try {
       await postOrderToServer(destinationId, safeCartItems)
     } catch (err) {
+      endSync()
       console.error('Failed to log order to MySQL:', err.message)
       return false
     }
@@ -467,14 +556,16 @@ export function POSProvider({ children }) {
         prev.map((table) => (table.id === destinationId ? updateBill(table) : table)),
       )
     }
+    endSync()
 
     return true
   }
 
   const updateBillItems = (destinationId, items) => {
     const status = statusForTarget(items)
+    const baseItems = getBillById(destinationId)?.items || []
     if (items.length === 0) {
-      persistBillItems(destinationId, items)
+      persistBillItems(destinationId, items, baseItems)
         .then(() => updateBillState(destinationId, items, status))
         .catch((err) => {
           console.error('Failed to clear bill items:', err.message)
@@ -482,7 +573,7 @@ export function POSProvider({ children }) {
       return
     }
     updateBillState(destinationId, items, status)
-    persistBillItems(destinationId, items).catch((err) => {
+    persistBillItems(destinationId, items, baseItems).catch((err) => {
       console.error('Failed to sync bill items:', err.message)
     })
   }
@@ -525,9 +616,10 @@ export function POSProvider({ children }) {
 
     const { subtotal, tax, total } = calculateTotals(bill.items)
     const { date, time } = formatNow()
+    const endSync = beginSync()
 
     try {
-      await persistBillItems(destinationId, bill.items)
+      await persistBillItems(destinationId, bill.items, bill.items)
 
       const response = await apiFetch('/orders/checkout', {
         method: 'POST',
@@ -586,7 +678,9 @@ export function POSProvider({ children }) {
         const channel = new BroadcastChannel('mlu-pos-sync')
         channel.postMessage({ type: 'order-checkout', id: invoiceId })
         channel.close()
-      } catch (_) {}
+      } catch {
+        // BroadcastChannel is missing in some browsers; cross-tab sync is optional.
+      }
       window.dispatchEvent(new CustomEvent('mlu-order-completed', { detail: transaction }))
 
       if (clearImmediately) {
@@ -620,6 +714,8 @@ export function POSProvider({ children }) {
     } catch (err) {
       console.error('Failed logging transaction payment:', err.message)
       return { error: err.message || 'Payment failed' }
+    } finally {
+      endSync()
     }
   }
 
@@ -661,6 +757,7 @@ export function POSProvider({ children }) {
       }
 
       const invoiceId = data.invoice_id || formatInvoiceId(invoiceCounter)
+      const recordedTotal = Number.isFinite(Number(data.split_total)) ? Number(data.split_total) : splitTotal
 
       const transaction = {
         id: invoiceId,
@@ -668,9 +765,9 @@ export function POSProvider({ children }) {
         time,
         monthKey: date.slice(0, 7),
         payment: paymentMethod,
-        subtotal: splitTotal,
+        subtotal: recordedTotal,
         tax: 0,
-        total: splitTotal,
+        total: recordedTotal,
         status: 'Completed',
         source: `${bill.name} (Split)`,
         summary: splitItems.map((it) => `${it.qty}× ${it.name}`).join(', '),
@@ -733,14 +830,17 @@ export function POSProvider({ children }) {
           else setTables((prev) => prev.map((t) => (t.id === destinationId ? markedPaid : t)))
         }
       } else {
-        updateBillItems(destinationId, updatedBillItems)
+        updateBillState(destinationId, updatedBillItems, statusForTarget(updatedBillItems))
+        refreshActiveOrders()
       }
 
       try {
         const channel = new BroadcastChannel('mlu-pos-sync')
         channel.postMessage({ type: 'order-checkout', id: invoiceId })
         channel.close()
-      } catch (_) {}
+      } catch {
+        // BroadcastChannel is missing in some browsers; cross-tab sync is optional.
+      }
       window.dispatchEvent(new CustomEvent('mlu-order-completed', { detail: transaction }))
 
       return transaction
@@ -784,6 +884,7 @@ export function POSProvider({ children }) {
   }
 
   const mergeTables = async (fromTableId, toTableId) => {
+    const endSync = beginSync()
     try {
       const response = await apiFetch('/tables/merge', {
         method: 'POST',
@@ -830,6 +931,8 @@ export function POSProvider({ children }) {
     } catch (err) {
       console.error('Failed merging tables:', err.message)
       throw err
+    } finally {
+      endSync()
     }
   }
 

@@ -50,6 +50,8 @@ function reportFileBase(selectedMonth) {
 function sanitizeFileBase(value) {
   return String(value || '')
     .replace(/\.(xlsx|pdf)$/i, '')
+    // Control characters are invalid in Windows file names, so matching them is intended.
+    // eslint-disable-next-line no-control-regex
     .replace(/[\\/:*?"<>|\u0000-\u001f]/g, '')
     .replace(/\s+/g, ' ')
     .trim()
@@ -318,7 +320,9 @@ export default function ReportsAnalysis() {
       channel.onmessage = () => {
         refreshReportData()
       }
-    } catch (_) {}
+    } catch {
+      // BroadcastChannel is missing in some browsers; cross-tab sync is optional.
+    }
 
     window.addEventListener('mlu-order-completed', refreshReportData)
 

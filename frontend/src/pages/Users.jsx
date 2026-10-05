@@ -38,7 +38,6 @@ const PERMISSION_LABEL_KEYS = {
   reports: 'nav.reports',
 }
 
-const ALLOWED_ROLES = ['Cashier', 'Staff']
 const ASSIGNABLE_ROLES = ['Cashier', 'Staff']
 
 function passwordMeetsPolicy(password) {

@@ -1,10 +1,12 @@
 import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Scissors, X, Minus, Plus, Check } from 'lucide-react'
+import { Scissors, X, Minus, Plus } from 'lucide-react'
 import { useModalKeyboard } from '../../hooks/useModalKeyboard'
 import { translateMenuName, translateDrinkNotes } from '../../utils/menuNameTranslations'
 import { formatUsd, formatKhr, usdToKhr, DEFAULT_EXCHANGE_RATE } from '../../utils/currency'
 import PaymentModule from './PaymentModule'
+
+const NO_ITEMS = []
 
 export default function SplitBillModal({ isOpen, onClose, bill, onPaySplit }) {
   const { t, i18n } = useTranslation()
@@ -14,7 +16,8 @@ export default function SplitBillModal({ isOpen, onClose, bill, onPaySplit }) {
   const [splitQuantities, setSplitQuantities] = useState({})
   const [showCheckout, setShowCheckout] = useState(false)
 
-  const items = bill?.items || []
+  // Shared fallback: a fresh [] each render would invalidate the useMemo below every time.
+  const items = bill?.items ?? NO_ITEMS
 
   const handleQtyChange = (itemId, maxQty, delta) => {
     setSplitQuantities((prev) => {

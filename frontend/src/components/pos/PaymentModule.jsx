@@ -1,4 +1,4 @@
-import { Banknote, ScanLine, Calculator, DollarSign, Coins, Check, ArrowRight } from 'lucide-react'
+import { Banknote, ScanLine, Calculator } from 'lucide-react'
 import { useState, useMemo, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
@@ -6,6 +6,7 @@ import {
   formatUsd,
   formatKhr,
   calculateCashChange,
+  splitChange,
   usdToKhr,
 } from '../../utils/currency'
 
@@ -15,7 +16,7 @@ const PAYMENT_METHODS = [
 ]
 
 export default function PaymentModule({ disabled, billTotal = 0, onConfirm }) {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const [method, setMethod] = useState('Cash')
   const [exchangeRate] = useState(DEFAULT_EXCHANGE_RATE)
   const [receivedUsdInput, setReceivedUsdInput] = useState('')
@@ -34,7 +35,9 @@ export default function PaymentModule({ disabled, billTotal = 0, onConfirm }) {
     setClearImmediately(val)
     try {
       localStorage.setItem('mlu_pos_clear_immediately', String(val))
-    } catch {}
+    } catch {
+      // Storage can be blocked (private mode); the toggle still works for this session.
+    }
   }
 
   // Pre-fill exact cash or reset when billTotal changes
@@ -54,6 +57,7 @@ export default function PaymentModule({ disabled, billTotal = 0, onConfirm }) {
       exchangeRate,
     })
   }, [billTotal, parsedReceivedUsd, parsedReceivedKhr, exchangeRate])
+  const changeSplit = splitChange(changeCalculation.changeUsd, exchangeRate)
 
   const isCash = method === 'Cash'
   const isExactDisabled = isCash && (!changeCalculation.isSufficient && (parsedReceivedUsd > 0 || parsedReceivedKhr > 0))
@@ -246,6 +250,17 @@ export default function PaymentModule({ disabled, billTotal = 0, onConfirm }) {
                       </span>
                     </div>
                   </div>
+                  {changeSplit.usd + changeSplit.khr > 0 && (
+                    <p className="mt-1 text-right text-xs font-medium tabular-nums text-emerald-800 dark:text-emerald-300">
+                      {t('payment.giveBack', { defaultValue: 'Give back' })}:{' '}
+                      {[
+                        changeSplit.usd > 0 ? formatUsd(changeSplit.usd) : null,
+                        changeSplit.khr > 0 ? formatKhr(changeSplit.khr) : null,
+                      ]
+                        .filter(Boolean)
+                        .join(' + ')}
+                    </p>
+                  )}
                 </div>
               )}
             </div>
