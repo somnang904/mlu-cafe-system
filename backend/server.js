@@ -55,6 +55,7 @@ const multer = require('multer');
 const { exportBusinessDataFile } = require('./src/utils/backupExport');
 const { createSalesPdf } = require('./src/utils/salesPdf');
 const { createReportExport } = require('./src/utils/reportExport');
+const { refundDateSql, refundedStatusSql, saleStatusSql } = require('./src/utils/salesTotals');
 const { createDownloadDump, pipeDownload, restoreDatabaseFromFile } = require('./src/utils/backupSql');
 const { ensureApplicationSchema } = require('./src/utils/ensureAppSchema');
 const { applyStocktake, stocktakeNote, buildStocktakeWorkbook } = require('./src/utils/stocktake');
@@ -1631,10 +1632,13 @@ app.put('/api/orders/items', requireOrderWriteAccess, async (req, res) => {
 });
 
 // 6. FETCH COMPLETED SALES HISTORY LOGS
+const SALE_STATUS_SQL = saleStatusSql();
+const REFUNDED_STATUS_SQL = refundedStatusSql();
+const REFUND_DATE_SQL = refundDateSql();
 app.get('/api/orders/history', requireSalesHistoryAccess, async (req, res) => {
     const monthParam = typeof req.query.month === 'string' ? req.query.month.trim() : '';
     const monthMatch = /^(\d{4})-(\d{2})$/.exec(monthParam);
-    let dateFilterSql = 'AND updated_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)';
+    let rangeSql = (column) => `${column} >= DATE_SUB(CURDATE(), INTERVAL ? DAY)`;
     let dateFilterParams = [730];
 
     if (monthMatch) {
@@ -1645,7 +1649,7 @@ app.get('/api/orders/history', requireSalesHistoryAccess, async (req, res) => {
             const nextMonth = month === 12 ? 1 : month + 1;
             const nextYear = month === 12 ? year + 1 : year;
             const endDate = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
-            dateFilterSql = 'AND updated_at >= ? AND updated_at < ?';
+            rangeSql = (column) => `${column} >= ? AND ${column} < ?`;
             dateFilterParams = [startDate, endDate];
         }
     } else {
@@ -1675,15 +1679,19 @@ app.get('/api/orders/history', requireSalesHistoryAccess, async (req, res) => {
                 exchange_rate,
                 void_reason,
                 DATE_FORMAT(voided_at, '%Y-%m-%d %h:%i %p') AS voided_at,
+                CASE
+                    WHEN ${REFUNDED_STATUS_SQL} THEN DATE_FORMAT(${REFUND_DATE_SQL}, '%Y-%m-%d')
+                    ELSE NULL
+                END AS refund_date,
                 DATE_FORMAT(updated_at, '%Y-%m-%d') AS date,
                 DATE_FORMAT(updated_at, '%h:%i %p') AS time,
                 DATE_FORMAT(updated_at, '%Y-%m') AS month_key
-            FROM orders 
-            WHERE UPPER(status) IN ('COMPLETED', 'PAID', 'REFUNDED')
-              ${dateFilterSql}
+            FROM orders
+            WHERE (${SALE_STATUS_SQL} AND ${rangeSql('updated_at')})
+               OR (${REFUNDED_STATUS_SQL} AND ${rangeSql(REFUND_DATE_SQL)})
             ORDER BY updated_at DESC
         `;
-        const [historyRows] = await db.execute(query, dateFilterParams);
+        const [historyRows] = await db.execute(query, [...dateFilterParams, ...dateFilterParams]);
 
         if (historyRows.length === 0) {
             return res.status(200).json([]);
@@ -1737,6 +1745,7 @@ app.get('/api/orders/history', requireSalesHistoryAccess, async (req, res) => {
                 exchange_rate: row.exchange_rate != null ? parseFloat(row.exchange_rate) : null,
                 void_reason: row.void_reason || null,
                 voided_at: row.voided_at || null,
+                refund_date: row.refund_date || null,
                 summary: items.length
                     ? items.map((item) => `${item.qty}× ${item.name}`).join(', ')
                     : 'Items logged',

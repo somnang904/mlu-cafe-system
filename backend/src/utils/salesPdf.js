@@ -6,9 +6,17 @@ const {
   roundMoney,
   salesPdfFilename,
 } = require('./exportParams')
-const { drawDocumentHeader, drawNote, drawTable, renderPdf } = require('./pdfLayout')
+const { drawDocumentHeader, drawNote, drawSectionTitle, drawTable, renderPdf } = require('./pdfLayout')
+const {
+  formatRefundMoney,
+  refundDateSql,
+  refundedStatusSql,
+  saleStatusSql,
+} = require('./salesTotals')
 
-const COMPLETED = `UPPER(status) IN ('COMPLETED', 'PAID')`
+const SOLD = saleStatusSql()
+const REFUNDED = refundedStatusSql()
+const REFUND_DATE = refundDateSql()
 const PAYMENT_SQL = `COALESCE(NULLIF(payment_method, ''), NULLIF(payment_type, ''), 'Cash')`
 const TOTAL_SQL = `COALESCE(total, total_amount, 0)`
 
@@ -47,7 +55,28 @@ function statusLabel(status) {
   const value = String(status || '').trim().toLowerCase()
   if (value === 'paid') return 'Paid'
   if (value === 'completed') return 'Completed'
+  if (value === 'refunded') return 'Refunded'
   return pdfSafe(status)
+}
+
+function emptyTotals() {
+  return { orders: 0, gross: 0, refundOrders: 0, refunds: 0, net: 0, cash: 0, bank: 0, other: 0 }
+}
+
+function addSale(totals, payment, amount, count = 1) {
+  totals.orders += count
+  totals.gross = roundMoney(totals.gross + amount)
+  totals.net = roundMoney(totals.net + amount)
+  const bucket = paymentBucket(payment)
+  totals[bucket] = roundMoney(totals[bucket] + amount)
+}
+
+function addRefund(totals, payment, amount, count = 1) {
+  totals.refundOrders += count
+  totals.refunds = roundMoney(totals.refunds + amount)
+  totals.net = roundMoney(totals.net - amount)
+  const bucket = paymentBucket(payment)
+  totals[bucket] = roundMoney(totals[bucket] - amount)
 }
 
 async function loadMonthSales(db, period) {
@@ -63,19 +92,34 @@ async function loadMonthSales(db, period) {
       status,
       DATE_FORMAT(updated_at, '%Y-%m-%d %h:%i %p') AS sold_at
     FROM orders
-    WHERE ${COMPLETED}
+    WHERE ${SOLD}
       AND updated_at >= ? AND updated_at < ?
     ORDER BY updated_at ASC, id ASC
     `,
     [period.startDate, period.endDate],
   )
 
-  const totals = { orders: rows.length, gross: 0, cash: 0, bank: 0, other: 0 }
+  const [refundRows] = await db.execute(
+    `
+    SELECT
+      id,
+      invoice_id,
+      ${PAYMENT_SQL} AS payment,
+      ${TOTAL_SQL} AS total,
+      DATE_FORMAT(updated_at, '%Y-%m-%d %h:%i %p') AS sold_at,
+      DATE_FORMAT(${REFUND_DATE}, '%Y-%m-%d %h:%i %p') AS refunded_at
+    FROM orders
+    WHERE ${REFUNDED}
+      AND ${REFUND_DATE} >= ? AND ${REFUND_DATE} < ?
+    ORDER BY ${REFUND_DATE} ASC, id ASC
+    `,
+    [period.startDate, period.endDate],
+  )
+
+  const totals = emptyTotals()
   const lines = rows.map((row) => {
     const amount = roundMoney(row.total)
-    totals.gross = roundMoney(totals.gross + amount)
-    const bucket = paymentBucket(row.payment)
-    totals[bucket] = roundMoney(totals[bucket] + amount)
+    addSale(totals, row.payment, amount)
     return {
       orderId: orderLabel(row),
       source: sourceLabel(row),
@@ -85,45 +129,80 @@ async function loadMonthSales(db, period) {
       status: statusLabel(row.status),
     }
   })
-  return { lines, totals }
+  const refunds = refundRows.map((row) => {
+    const amount = roundMoney(row.total)
+    addRefund(totals, row.payment, amount)
+    return {
+      orderId: orderLabel(row),
+      soldAt: row.sold_at || '',
+      refundedAt: row.refunded_at || '',
+      payment: row.payment || 'Cash',
+      total: amount,
+    }
+  })
+  return { lines, refunds, totals }
 }
 
 async function loadAllTimeSummary(db) {
-  const [rows] = await db.execute(
+  const [saleRows] = await db.execute(
     `
     SELECT
       DATE_FORMAT(updated_at, '%Y-%m') AS month_key,
+      ${PAYMENT_SQL} AS payment,
       COUNT(*) AS orders,
-      COALESCE(SUM(${TOTAL_SQL}), 0) AS gross,
-      COALESCE(SUM(CASE WHEN LOWER(${PAYMENT_SQL}) = 'cash' THEN ${TOTAL_SQL} ELSE 0 END), 0) AS cash_total,
-      COALESCE(SUM(CASE WHEN LOWER(${PAYMENT_SQL}) = 'bank scan' THEN ${TOTAL_SQL} ELSE 0 END), 0) AS bank_total,
-      COALESCE(SUM(CASE
-        WHEN LOWER(${PAYMENT_SQL}) NOT IN ('cash', 'bank scan') THEN ${TOTAL_SQL}
-        ELSE 0
-      END), 0) AS other_total
+      COALESCE(SUM(${TOTAL_SQL}), 0) AS amount
     FROM orders
-    WHERE ${COMPLETED}
-    GROUP BY DATE_FORMAT(updated_at, '%Y-%m')
-    ORDER BY month_key ASC
+    WHERE ${SOLD}
+    GROUP BY DATE_FORMAT(updated_at, '%Y-%m'), ${PAYMENT_SQL}
+    `,
+  )
+  const [refundRows] = await db.execute(
+    `
+    SELECT
+      DATE_FORMAT(${REFUND_DATE}, '%Y-%m') AS month_key,
+      ${PAYMENT_SQL} AS payment,
+      COUNT(*) AS orders,
+      COALESCE(SUM(${TOTAL_SQL}), 0) AS amount
+    FROM orders
+    WHERE ${REFUNDED}
+    GROUP BY DATE_FORMAT(${REFUND_DATE}, '%Y-%m'), ${PAYMENT_SQL}
     `,
   )
 
-  const months = rows.map((row) => ({
-    monthKey: row.month_key,
-    orders: Number(row.orders) || 0,
-    gross: roundMoney(row.gross),
-    cash: roundMoney(row.cash_total),
-    bank: roundMoney(row.bank_total),
-    other: roundMoney(row.other_total),
-  }))
+  const byMonth = new Map()
+  const monthTotals = (key) => {
+    if (!byMonth.has(key)) byMonth.set(key, emptyTotals())
+    return byMonth.get(key)
+  }
+  for (const row of saleRows) {
+    const month = monthTotals(row.month_key)
+    const amount = roundMoney(row.amount)
+    addSale(month, row.payment, amount, Number(row.orders) || 0)
+  }
+  for (const row of refundRows) {
+    const month = monthTotals(row.month_key)
+    const amount = roundMoney(row.amount)
+    addRefund(month, row.payment, amount, Number(row.orders) || 0)
+  }
+
+  const months = [...byMonth.entries()]
+    .sort(([left], [right]) => String(left).localeCompare(String(right)))
+    .map(([monthKey, month]) => ({ monthKey, ...month }))
   const totals = months.reduce((sum, month) => ({
     orders: sum.orders + month.orders,
     gross: roundMoney(sum.gross + month.gross),
+    refundOrders: sum.refundOrders + month.refundOrders,
+    refunds: roundMoney(sum.refunds + month.refunds),
+    net: roundMoney(sum.net + month.net),
     cash: roundMoney(sum.cash + month.cash),
     bank: roundMoney(sum.bank + month.bank),
     other: roundMoney(sum.other + month.other),
-  }), { orders: 0, gross: 0, cash: 0, bank: 0, other: 0 })
+  }), emptyTotals())
   return { months, totals }
+}
+
+function netOf(totals) {
+  return totals.net ?? roundMoney((totals.gross || 0) - (totals.refunds || 0))
 }
 
 function monthName(monthKey) {
@@ -148,7 +227,7 @@ function buildSalesPdfBuffer({ period, generatedBy, monthData, summary }) {
     })
 
     if (period.scope === 'month') {
-      y = drawNote(doc, y, `Completed orders for ${period.label}.`)
+      y = drawNote(doc, y, `Orders sold in ${period.label}. Refunds are counted on the day they were made.`)
       const rows = monthData.lines.map((line) => ({
         values: [
           line.orderId,
@@ -178,19 +257,56 @@ function buildSalesPdfBuffer({ period, generatedBy, monthData, summary }) {
         { label: 'Total', width: 70, align: 'right' },
         { label: 'Status', width: 60 },
       ], rows)
-      y = drawNote(doc, y, `Cash ${formatMoney(monthData.totals.cash)}    Bank ${formatMoney(monthData.totals.bank)}`)
-      if (monthData.totals.other > 0) {
-        drawNote(doc, y, `Other payments ${formatMoney(monthData.totals.other)}`)
+      const refunds = monthData.refunds || []
+      if (refunds.length) {
+        y = drawSectionTitle(doc, y, `Refunds made in ${period.label}`)
+        const refundRows = refunds.map((line) => ({
+          values: [
+            line.orderId,
+            line.soldAt,
+            line.refundedAt,
+            line.payment,
+            formatRefundMoney(line.total),
+          ],
+        }))
+        refundRows.push({
+          total: true,
+          values: [
+            'Total',
+            '',
+            '',
+            `${monthData.totals.refundOrders || 0} refunds`,
+            formatRefundMoney(monthData.totals.refunds),
+          ],
+        })
+        y = drawTable(doc, y, [
+          { label: 'Order ID', width: 90 },
+          { label: 'Sold at', width: 120 },
+          { label: 'Refunded at', width: 120 },
+          { label: 'Payment', width: 85 },
+          { label: 'Amount', width: 80, align: 'right' },
+        ], refundRows)
+      }
+      y = drawNote(
+        doc,
+        y,
+        `Sales ${formatMoney(monthData.totals.gross)}    Refunds ${formatRefundMoney(monthData.totals.refunds)}    Net ${formatMoney(netOf(monthData.totals))}`,
+      )
+      y = drawNote(doc, y, `Net cash ${formatMoney(monthData.totals.cash)}    Net bank ${formatMoney(monthData.totals.bank)}`)
+      if (monthData.totals.other !== 0) {
+        drawNote(doc, y, `Net other payments ${formatMoney(monthData.totals.other)}`)
       }
       return
     }
 
-    y = drawNote(doc, y, 'Month-by-month summary. This file does not list every order.')
+    y = drawNote(doc, y, 'Month-by-month summary. Sales by sale month, refunds by refund month. This file does not list every order.')
     const rows = summary.months.map((month) => ({
       values: [
         monthName(month.monthKey),
         String(month.orders),
         formatMoney(month.gross),
+        formatRefundMoney(month.refunds),
+        formatMoney(netOf(month)),
         formatMoney(month.cash),
         formatMoney(month.bank),
       ],
@@ -201,19 +317,23 @@ function buildSalesPdfBuffer({ period, generatedBy, monthData, summary }) {
         'Grand total',
         String(summary.totals.orders),
         formatMoney(summary.totals.gross),
+        formatRefundMoney(summary.totals.refunds),
+        formatMoney(netOf(summary.totals)),
         formatMoney(summary.totals.cash),
         formatMoney(summary.totals.bank),
       ],
     })
     y = drawTable(doc, y, [
-      { label: 'Month', width: 130 },
-      { label: 'Orders', width: 70, align: 'right' },
-      { label: 'Gross revenue', width: 110, align: 'right' },
-      { label: 'Cash', width: 100, align: 'right' },
-      { label: 'Bank', width: 100, align: 'right' },
+      { label: 'Month', width: 95 },
+      { label: 'Orders', width: 50, align: 'right' },
+      { label: 'Sales', width: 80, align: 'right' },
+      { label: 'Refunds', width: 75, align: 'right' },
+      { label: 'Net', width: 80, align: 'right' },
+      { label: 'Net cash', width: 65, align: 'right' },
+      { label: 'Net bank', width: 65, align: 'right' },
     ], rows)
-    if (summary.totals.other > 0) {
-      drawNote(doc, y, `Other payments ${formatMoney(summary.totals.other)} are included in gross revenue only.`)
+    if (summary.totals.other !== 0) {
+      drawNote(doc, y, `Net other payments ${formatMoney(summary.totals.other)} are included in net only.`)
     }
   })
 }

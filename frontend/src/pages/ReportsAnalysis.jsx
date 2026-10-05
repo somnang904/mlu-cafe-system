@@ -7,6 +7,7 @@ import {
   FileText,
   Loader2,
   Receipt,
+  RotateCcw,
   ShoppingBag,
   TrendingDown,
   TrendingUp,
@@ -23,7 +24,6 @@ import {
   DEFAULT_HISTORY_DAYS,
   buildDynamicMonthFilterOptions,
   filterCompletedOrders,
-  filterOrdersByMonth,
   formatMonthLabel,
 } from '../utils/salesHistoryAnalytics'
 import {
@@ -35,7 +35,7 @@ import {
 } from '../utils/profitAnalytics'
 
 const REPORT_EXPORT_SECTIONS = [
-  { id: 'income', labelKey: 'reports.income' },
+  { id: 'income', labelKey: 'reports.salesAndRefunds' },
   { id: 'expenses', labelKey: 'reports.expenses' },
   { id: 'profit', labelKey: 'reports.netProfit' },
   { id: 'orders', labelKey: 'reports.ordersFulfilled' },
@@ -332,19 +332,14 @@ export default function ReportsAnalysis() {
     }
   }, [refreshReportData, expenseTick])
 
-  const monthScopedSales = useMemo(
-    () => filterOrdersByMonth(completedSales, selectedMonth),
-    [completedSales, selectedMonth],
-  )
-
   const monthScopedExpenses = useMemo(
     () => filterExpensesByMonth(expenses, selectedMonth),
     [expenses, selectedMonth],
   )
 
   const profit = useMemo(
-    () => summarizeProfit(monthScopedSales, monthScopedExpenses),
-    [monthScopedSales, monthScopedExpenses],
+    () => summarizeProfit(completedSales, monthScopedExpenses, selectedMonth),
+    [completedSales, monthScopedExpenses, selectedMonth],
   )
 
   const expenseBreakdown = useMemo(
@@ -366,15 +361,29 @@ export default function ReportsAnalysis() {
           month: formatMonthLabel(selectedMonth, t),
         })
 
-  const incomeLabel = t('reports.income')
+  const incomeLabel = t('reports.netSales')
   const spendingLabel = t('reports.spending')
 
   const statCards = [
     {
-      label: incomeLabel,
+      label: t('reports.sales'),
       value: `$${profit.revenue.toFixed(2)}`,
       icon: TrendingUp,
       accent: 'bg-forest-500',
+    },
+    {
+      label: t('reports.refunds'),
+      value: `-$${profit.refunds.toFixed(2)}`,
+      hint: t('reports.refundsHint', { count: profit.refundOrders }),
+      icon: RotateCcw,
+      accent: 'bg-red-600',
+    },
+    {
+      label: t('reports.netSales'),
+      value: `$${profit.net.toFixed(2)}`,
+      hint: t('reports.netSalesHint'),
+      icon: BarChart3,
+      accent: 'bg-forest-600',
     },
     {
       label: t('reports.expenses'),
@@ -427,13 +436,14 @@ export default function ReportsAnalysis() {
         </div>
       ) : null}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {statCards.map(({ label, value, icon: Icon, accent }) => (
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        {statCards.map(({ label, value, hint, icon: Icon, accent }) => (
           <div key={label} className="surface-card p-5">
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-muted text-sm">{label}</p>
                 <p className="text-heading mt-2 text-2xl font-bold tabular-nums">{value}</p>
+                {hint ? <p className="text-muted mt-1 text-xs">{hint}</p> : null}
               </div>
               <div className={`flex h-11 w-11 items-center justify-center rounded-xl ${accent} text-white`}>
                 <Icon className="h-5 w-5" />

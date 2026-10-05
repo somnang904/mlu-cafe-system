@@ -165,6 +165,7 @@ export function POSProvider({ children }) {
           order_id: row.order_id,
           void_reason: row.void_reason || null,
           voided_at: row.voided_at || null,
+          refundDate: row.refund_date || null,
           date: formatOrderDate(row.date || row.created_at),
           time: formatTime12Hour(row.time || row.created_at),
           monthKey: row.month_key || (row.date ? String(row.date).slice(0, 7) : null),
@@ -870,7 +871,7 @@ export function POSProvider({ children }) {
       setSalesHistory((prev) =>
         prev.map((order) =>
           order.order_id === orderId || order.id === data.invoice_id || order.id === orderId
-            ? { ...order, status: 'Refunded', void_reason: reason }
+            ? { ...order, status: 'Refunded', void_reason: reason, refundDate: formatOrderDate(new Date()) }
             : order,
         ),
       )

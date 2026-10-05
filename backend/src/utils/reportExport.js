@@ -15,10 +15,22 @@ const {
   renderPdf,
 } = require('./pdfLayout')
 
+const {
+  formatRefundMoney,
+  mergeSalesAndRefunds,
+  refundDateSql,
+  refundedStatusSql,
+  saleStatusSql,
+  salesAndRefunds,
+} = require('./salesTotals')
+
 const HISTORY_DAYS = 730
 const MONTH_LOOKBACK = 16
-const COMPLETED = `UPPER(status) IN ('COMPLETED', 'PAID')`
+const SOLD = saleStatusSql()
+const REFUNDED = refundedStatusSql()
+const REFUND_DATE = refundDateSql()
 const TOTAL_SQL = `COALESCE(total, total_amount, 0)`
+const EMPTY_TOTALS = salesAndRefunds()
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
@@ -44,39 +56,71 @@ function daysInMonth(monthKey) {
   return new Date(year, month, 0).getDate()
 }
 
-async function sumOrders(db, whereSql, params) {
-  const [[row]] = await db.execute(
-    `
-    SELECT COUNT(*) AS orders, COALESCE(SUM(${TOTAL_SQL}), 0) AS revenue
-    FROM orders
-    WHERE ${COMPLETED} AND ${whereSql}
-    `,
-    params,
-  )
-  return {
-    orders: Number(row?.orders) || 0,
-    revenue: roundMoney(row?.revenue),
+function rangeSql(dateSql, period) {
+  if (period.scope === 'month') {
+    return { sql: `${dateSql} >= ? AND ${dateSql} < ?`, params: [period.startDate, period.endDate] }
   }
+  return { sql: `${dateSql} >= DATE_SUB(CURDATE(), INTERVAL ? DAY)`, params: [HISTORY_DAYS] }
 }
 
-async function orderBuckets(db, whereSql, params, grain) {
+async function bucketRows(db, statusSql, dateSql, period, grain) {
   const format = grain === 'day' ? '%Y-%m-%d' : '%Y-%m'
+  const range = rangeSql(dateSql, period)
   const [rows] = await db.execute(
     `
     SELECT
-      DATE_FORMAT(updated_at, '${format}') AS bucket,
+      DATE_FORMAT(${dateSql}, '${format}') AS bucket,
       COUNT(*) AS orders,
-      COALESCE(SUM(${TOTAL_SQL}), 0) AS revenue
+      COALESCE(SUM(${TOTAL_SQL}), 0) AS amount
     FROM orders
-    WHERE ${COMPLETED} AND ${whereSql}
-    GROUP BY DATE_FORMAT(updated_at, '${format}')
+    WHERE ${statusSql} AND ${range.sql}
+    GROUP BY DATE_FORMAT(${dateSql}, '${format}')
     `,
-    params,
+    range.params,
   )
-  return new Map(rows.map((row) => [row.bucket, {
-    orders: Number(row.orders) || 0,
-    revenue: roundMoney(row.revenue),
-  }]))
+  return rows
+}
+
+async function salesBuckets(db, period, grain) {
+  const sales = await bucketRows(db, SOLD, 'updated_at', period, grain)
+  const refunds = await bucketRows(db, REFUNDED, REFUND_DATE, period, grain)
+  return mergeSalesAndRefunds(sales, refunds)
+}
+
+function sumBuckets(buckets) {
+  const total = { orders: 0, sales: 0, refundOrders: 0, refunds: 0 }
+  for (const bucket of buckets.values()) {
+    total.orders += bucket.orders
+    total.sales += bucket.sales
+    total.refundOrders += bucket.refundOrders
+    total.refunds += bucket.refunds
+  }
+  return salesAndRefunds(total)
+}
+
+function breakdownRow(label, sales, expensesTotal) {
+  return {
+    label,
+    orders: sales.orders,
+    revenue: sales.sales,
+    refundOrders: sales.refundOrders,
+    refunds: sales.refunds,
+    net: sales.net,
+    expenses: expensesTotal,
+    profit: roundMoney(sales.net - expensesTotal),
+  }
+}
+
+function reportSummary(sales, spending) {
+  return {
+    revenue: sales.sales,
+    refunds: sales.refunds,
+    net: sales.net,
+    expenses: spending,
+    profit: roundMoney(sales.net - spending),
+    orders: sales.orders,
+    refundOrders: sales.refundOrders,
+  }
 }
 
 function expenseMap(expenses, grain) {
@@ -111,81 +155,85 @@ async function loadExpensesInScope(db, period) {
 
 async function loadReportData(db, period) {
   if (period.scope === 'month') {
-    const whereSql = 'updated_at >= ? AND updated_at < ?'
-    const params = [period.startDate, period.endDate]
-    const summary = await sumOrders(db, whereSql, params)
+    const salesByDay = await salesBuckets(db, period, 'day')
+    const summary = sumBuckets(salesByDay)
     const expenses = await loadExpensesInScope(db, period)
     const spending = roundMoney(expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0))
-    const salesByDay = await orderBuckets(db, whereSql, params, 'day')
     const spendByDay = expenseMap(expenses, 'day')
     const breakdown = Array.from({ length: daysInMonth(period.fileKey) }, (_, index) => {
       const day = String(index + 1).padStart(2, '0')
       const key = `${period.fileKey}-${day}`
-      const sales = salesByDay.get(key) || { orders: 0, revenue: 0 }
-      const expensesTotal = spendByDay.get(key)?.amount || 0
-      return {
-        label: key,
-        orders: sales.orders,
-        revenue: sales.revenue,
-        expenses: expensesTotal,
-        profit: roundMoney(sales.revenue - expensesTotal),
-      }
+      return breakdownRow(key, salesByDay.get(key) || EMPTY_TOTALS, spendByDay.get(key)?.amount || 0)
     })
     return {
       period,
-      summary: {
-        revenue: summary.revenue,
-        expenses: spending,
-        profit: roundMoney(summary.revenue - spending),
-        orders: summary.orders,
-      },
+      summary: reportSummary(summary, spending),
       breakdown,
       breakdownLabel: 'Daily breakdown',
       spending: categoryTotals(expenses),
     }
   }
 
-  const whereSql = 'updated_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)'
-  const summary = await sumOrders(db, whereSql, [HISTORY_DAYS])
+  const salesByMonth = await salesBuckets(db, period, 'month')
+  const summary = sumBuckets(salesByMonth)
   const expenses = await loadExpensesInScope(db, period)
   const spending = roundMoney(expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0))
-  const salesByMonth = await orderBuckets(db, whereSql, [HISTORY_DAYS], 'month')
   const spendByMonth = expenseMap(expenses, 'month')
   const breakdown = lastMonthKeys(MONTH_LOOKBACK)
-    .map((key) => {
-      const sales = salesByMonth.get(key) || { orders: 0, revenue: 0 }
-      const expensesTotal = spendByMonth.get(key)?.amount || 0
-      return {
-        label: monthLabel(key),
-        orders: sales.orders,
-        revenue: sales.revenue,
-        expenses: expensesTotal,
-        profit: roundMoney(sales.revenue - expensesTotal),
-      }
-    })
-    .filter((row) => row.revenue > 0 || row.expenses > 0)
+    .map((key) => breakdownRow(
+      monthLabel(key),
+      salesByMonth.get(key) || EMPTY_TOTALS,
+      spendByMonth.get(key)?.amount || 0,
+    ))
+    .filter((row) => row.revenue > 0 || row.refunds > 0 || row.expenses > 0)
 
   return {
     period,
-    summary: {
-      revenue: summary.revenue,
-      expenses: spending,
-      profit: roundMoney(summary.revenue - spending),
-      orders: summary.orders,
-    },
+    summary: reportSummary(summary, spending),
     breakdown,
     breakdownLabel: 'Monthly breakdown',
     spending: categoryTotals(expenses),
   }
 }
 
+const COUNT_METRICS = new Set(['Orders fulfilled', 'Orders refunded'])
+
+function negative(value) {
+  const amount = roundMoney(value)
+  return amount ? -amount : 0
+}
+
+function netOf(row) {
+  return row.net ?? roundMoney((row.revenue || 0) - (row.refunds || 0))
+}
+
 function summaryRows(data, sections) {
+  const { summary } = data
   const rows = []
-  if (sections.includes('income')) rows.push(['Income', data.summary.revenue])
-  if (sections.includes('expenses')) rows.push(['Expenses', data.summary.expenses])
-  if (sections.includes('profit')) rows.push(['Net profit', data.summary.profit])
-  if (sections.includes('orders')) rows.push(['Orders fulfilled', data.summary.orders])
+  if (sections.includes('income')) {
+    rows.push(['Sales', summary.revenue])
+    rows.push(['Refunds', negative(summary.refunds)])
+    rows.push(['Net sales', netOf(summary)])
+  }
+  if (sections.includes('expenses')) rows.push(['Expenses', summary.expenses])
+  if (sections.includes('profit')) rows.push(['Net profit', summary.profit])
+  if (sections.includes('orders')) {
+    rows.push(['Orders fulfilled', summary.orders])
+    rows.push(['Orders refunded', summary.refundOrders || 0])
+  }
   return rows
+}
+
+function breakdownValues(row) {
+  return [
+    row.label,
+    row.orders,
+    row.revenue,
+    negative(row.refunds),
+    netOf(row),
+    row.expenses,
+    row.profit,
+  ]
 }
 
 function styleHeader(row) {
@@ -229,7 +277,7 @@ async function buildReportWorkbook(data, sections) {
       if (rowNumber === 1) return
       const metric = row.getCell(1).value
       const cell = row.getCell(2)
-      if (metric === 'Orders fulfilled') {
+      if (COUNT_METRICS.has(metric)) {
         cell.numFmt = '#,##0'
       } else if (typeof cell.value === 'number') {
         cell.numFmt = '$#,##0.00'
@@ -240,9 +288,9 @@ async function buildReportWorkbook(data, sections) {
     addSheet(
       workbook,
       data.period.scope === 'month' ? 'Daily' : 'Monthly',
-      ['Period', 'Orders', 'Income', 'Expenses', 'Net profit'],
-      data.breakdown.map((row) => [row.label, row.orders, row.revenue, row.expenses, row.profit]),
-      [3, 4, 5],
+      ['Period', 'Orders', 'Sales', 'Refunds', 'Net sales', 'Expenses', 'Net profit'],
+      data.breakdown.map(breakdownValues),
+      [3, 4, 5, 6, 7],
     )
   }
   if (sections.includes('spending')) {
@@ -279,7 +327,12 @@ function buildReportPdfBuffer(data, sections, generatedBy) {
           { label: 'Value', width: 140, align: 'right' },
         ],
         summary.map(([metric, value]) => ({
-          values: [metric, metric === 'Orders fulfilled' ? String(value) : formatMoney(value)],
+          values: [
+            metric,
+            COUNT_METRICS.has(metric)
+              ? String(value)
+              : metric === 'Refunds' ? formatRefundMoney(value) : formatMoney(value),
+          ],
         })),
       )
     }
@@ -290,17 +343,21 @@ function buildReportPdfBuffer(data, sections, generatedBy) {
         doc,
         y,
         [
-          { label: 'Period', width: 140 },
-          { label: 'Orders', width: 70, align: 'right' },
-          { label: 'Income', width: 100, align: 'right' },
-          { label: 'Expenses', width: 100, align: 'right' },
-          { label: 'Net profit', width: 100, align: 'right' },
+          { label: 'Period', width: 95 },
+          { label: 'Orders', width: 50, align: 'right' },
+          { label: 'Sales', width: 75, align: 'right' },
+          { label: 'Refunds', width: 70, align: 'right' },
+          { label: 'Net sales', width: 75, align: 'right' },
+          { label: 'Expenses', width: 70, align: 'right' },
+          { label: 'Net profit', width: 75, align: 'right' },
         ],
         data.breakdown.map((row) => ({
           values: [
             row.label,
             String(row.orders),
             formatMoney(row.revenue),
+            formatRefundMoney(row.refunds),
+            formatMoney(netOf(row)),
             formatMoney(row.expenses),
             formatMoney(row.profit),
           ],
