@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, useCallback } from 'react'
+import { flushSync } from 'react-dom'
 import { readSession } from '../services/sessionStorage'
 
 const ThemeContext = createContext(null)
@@ -66,8 +67,42 @@ export function ThemeProvider({ children }) {
     localStorage.setItem('theme', theme)
   }, [theme, boundUserId])
 
-  const toggleTheme = useCallback(() => {
-    setTheme((prev) => (prev === 'light' ? 'dark' : 'light'))
+  /**
+   * Pass the click event to reveal the new theme as a circle growing from the
+   * clicked control (View Transitions API). Falls back to an instant switch when
+   * the browser lacks the API or the user prefers reduced motion.
+   */
+  const toggleTheme = useCallback((event) => {
+    const next = document.documentElement.classList.contains('dark') ? 'light' : 'dark'
+    const commit = () => {
+      flushSync(() => setTheme(next))
+      applyThemeToDocument(next)
+    }
+
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (!document.startViewTransition || reduceMotion) {
+      commit()
+      return
+    }
+
+    const rect = event?.currentTarget?.getBoundingClientRect?.()
+    const x = rect ? rect.left + rect.width / 2 : window.innerWidth - 40
+    const y = rect ? rect.top + rect.height / 2 : 40
+    const radius = Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y))
+
+    const root = document.documentElement
+    // Colour transitions would animate inside the new snapshot and blur the wave edge.
+    root.classList.add('theme-switching')
+    const transition = document.startViewTransition(commit)
+    transition.ready
+      .then(() => {
+        root.animate(
+          { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${radius}px at ${x}px ${y}px)`] },
+          { duration: 650, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', pseudoElement: '::view-transition-new(root)' },
+        )
+      })
+      .catch(() => {})
+    transition.finished.finally(() => root.classList.remove('theme-switching'))
   }, [])
 
   return (

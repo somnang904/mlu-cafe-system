@@ -16,7 +16,7 @@ export default function ThemeToggle({ className = '', variant = 'icon' }) {
     return (
       <button
         type="button"
-        onClick={toggleTheme}
+        onClick={(event) => toggleTheme(event)}
         aria-label={label}
         aria-pressed={isDark}
         className={`interactive-btn relative inline-flex h-9 w-14 shrink-0 items-center rounded-full border border-slate-200 bg-slate-100 p-0.5 transition-colors duration-300 dark:border-zinc-700 dark:bg-zinc-800 ${className}`}
@@ -39,7 +39,7 @@ export default function ThemeToggle({ className = '', variant = 'icon' }) {
   return (
     <button
       type="button"
-      onClick={toggleTheme}
+      onClick={(event) => toggleTheme(event)}
       aria-label={label}
       aria-pressed={isDark}
       className={`interactive-btn relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-border/50 bg-card/50 text-foreground backdrop-blur-sm transition-all hover:border-border hover:bg-card active:scale-95 dark:bg-card/40 ${className}`}

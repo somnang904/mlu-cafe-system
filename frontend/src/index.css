@@ -789,6 +789,29 @@
     }
   }
 
+  /* Theme switch: ThemeContext grows a circle from the toggle over the old snapshot,
+     so the default cross-fade is turned off and the new view always sits on top. */
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none;
+    mix-blend-mode: normal;
+  }
+
+  ::view-transition-new(root) {
+    z-index: 2;
+  }
+
+  ::view-transition-old(root) {
+    z-index: 1;
+  }
+
+  .theme-switching,
+  .theme-switching *,
+  .theme-switching *::before,
+  .theme-switching *::after {
+    transition: none !important;
+  }
+
   @keyframes beam-border-spin {
     to {
       rotate: 1turn;
