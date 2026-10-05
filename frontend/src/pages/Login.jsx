@@ -5,6 +5,7 @@ import ThemeToggle from '../components/ui/ThemeToggle'
 import LanguageToggle from '../components/ui/LanguageToggle'
 import { consumeConnectionLost } from '../services/sessionStorage'
 import BrandLogo from '../components/common/BrandLogo'
+import { STORE } from '../config/store'
 
 export default function Login({ onLogin }) {
   const { t } = useTranslation()
@@ -76,13 +77,13 @@ export default function Login({ onLogin }) {
 
       <div className="login-page relative z-10 mx-auto flex min-h-screen w-full max-w-6xl items-center justify-center gap-x-10 px-4 py-10 sm:px-8 lg:gap-x-16 lg:px-12">
         <div className="hidden lg:flex lg:w-[42%] lg:items-center lg:justify-center">
-          <BrandLogo glow className="h-auto w-full max-h-[380px] max-w-[320px] object-contain" />
+          <BrandLogo glow darkSrc={STORE.logoDarkUrl} className="h-auto w-full max-h-[380px] max-w-[320px] object-contain" />
         </div>
 
         <div className="flex w-full items-center justify-center lg:w-[58%]">
           <div className="w-full max-w-[420px]">
             <div className="mb-8 flex justify-center lg:hidden">
-              <BrandLogo glow className="h-auto w-full max-h-[180px] max-w-[180px] object-contain sm:max-h-[220px] sm:max-w-[220px]" />
+              <BrandLogo glow darkSrc={STORE.logoDarkUrl} className="h-auto w-full max-h-[180px] max-w-[180px] object-contain sm:max-h-[220px] sm:max-w-[220px]" />
             </div>
 
             <div className="flex w-full flex-col gap-5 rounded-3xl border border-cocoa-100/80 bg-white/70 p-6 shadow-xl shadow-cocoa-900/10 ring-1 ring-white/40 backdrop-blur-xl sm:p-8 dark:border-white/10 dark:bg-zinc-900/55 dark:shadow-black/30 dark:ring-white/10">

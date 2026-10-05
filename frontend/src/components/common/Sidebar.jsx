@@ -269,36 +269,19 @@ export default function Sidebar({ activePage, onNavigate, mobileOpen = false, on
           {/* Expanded sidebar: the login page's full logo (trimmed of its transparent
             margins) so the "KITCHEN & CAFÉ / SIEM REAP" lettering matches exactly.
             Dark mode swaps in a copy with light lettering and brighter greens. */}
-          <div className="sm:hidden lg:block">
-            <BrandLogo
-              glow
-
-              src={STORE.sidebarFullLogoUrl}
-
-              className="h-auto w-[92px] object-contain dark:hidden!"
-
-              title={STORE.officialName}
-            />
-
-            <BrandLogo
-              glow
-
-              src={STORE.sidebarFullLogoDarkUrl}
-
-              className="hidden h-auto w-[92px] object-contain dark:inline-flex!"
-
-              title={STORE.officialName}
-            />
-          </div>
+          <BrandLogo
+            glow
+            src={STORE.sidebarFullLogoUrl}
+            darkSrc={STORE.sidebarFullLogoDarkUrl}
+            className="h-auto w-[92px] object-contain sm:hidden lg:inline-flex"
+            title={STORE.officialName}
+          />
 
           {/* Collapsed icon rail (tablet): wordmark only. */}
           <BrandLogo
             glow
-
             src={STORE.sidebarLogoUrl}
-
             className="hidden h-auto w-10 object-contain sm:inline-flex lg:hidden"
-
             title={STORE.officialName}
           />
 
