@@ -1,6 +1,7 @@
 const { ensureInnoDb } = require('./stockSchema')
 const { columnExists } = require('./ordersSchema')
 const { summarizeCashOrders, computeCashDifference } = require('./cashDrawer')
+const { ensureExpensesSchema } = require('./expenses')
 
 let shiftsSchemaReady = null
 
@@ -119,10 +120,12 @@ async function getLiveShiftMetrics(db, startTime, endTime) {
   const bankSalesUsd = Math.round(Number(bankRows[0]?.total_usd || 0) * 100) / 100
 
   // Expenses taken from till
+  await ensureExpensesSchema(db)
   const [expenseRows] = await db.execute(
     `SELECT COALESCE(SUM(amount), 0) AS total_expenses
      FROM expenses
-     WHERE created_at >= ? AND created_at <= ?`,
+     WHERE paid_from = 'drawer'
+       AND created_at >= ? AND created_at <= ?`,
     [startTime, endTime],
   )
   const expensesUsd = Math.round(Number(expenseRows[0]?.total_expenses || 0) * 100) / 100

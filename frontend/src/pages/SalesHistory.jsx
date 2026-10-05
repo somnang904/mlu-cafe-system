@@ -10,7 +10,7 @@ import {
   DEFAULT_HISTORY_DAYS,
   buildDynamicMonthFilterOptions,
   filterCompletedOrders,
-  filterOrdersByMonth,
+  filterOrdersForPeriod,
   formatMonthLabel,
   getCurrentMonthKey,
   summarizeSalesMetrics,
@@ -94,13 +94,13 @@ export default function SalesHistory() {
   }, [selectedMonth, loadSalesHistory])
 
   const monthScopedHistory = useMemo(
-    () => filterOrdersByMonth(completedHistory, selectedMonth),
+    () => filterOrdersForPeriod(completedHistory, selectedMonth),
     [completedHistory, selectedMonth],
   )
 
   const monthMetrics = useMemo(
-    () => summarizeSalesMetrics(monthScopedHistory),
-    [monthScopedHistory],
+    () => summarizeSalesMetrics(completedHistory, selectedMonth),
+    [completedHistory, selectedMonth],
   )
 
   const filteredLogs = useMemo(() => {
@@ -156,7 +156,7 @@ export default function SalesHistory() {
             onMonthChange={setSelectedMonth}
             monthOptions={monthOptions}
           />
-          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <div className="mt-4 grid gap-3 sm:grid-cols-3 xl:grid-cols-5">
             <div className="surface-inset rounded-xl px-4 py-3">
               <p className="text-muted text-xs uppercase tracking-wider">
                 {t('sales.period', { defaultValue: 'Period' })}
@@ -181,6 +181,25 @@ export default function SalesHistory() {
               </p>
               <p className="text-heading mt-1 text-2xl font-bold tabular-nums text-forest-600 dark:text-forest-400">
                 ${monthMetrics.grossRevenue.toFixed(2)}
+              </p>
+            </div>
+            <div className="surface-inset rounded-xl px-4 py-3">
+              <p className="text-muted text-xs uppercase tracking-wider">
+                {t('sales.refunds')}
+              </p>
+              <p className="text-heading mt-1 text-2xl font-bold tabular-nums text-red-700 dark:text-red-300">
+                -${monthMetrics.refunds.toFixed(2)}
+              </p>
+              <p className="text-muted mt-1 text-xs">
+                {t('sales.refundedCount', { count: monthMetrics.ordersRefunded })}
+              </p>
+            </div>
+            <div className="surface-inset rounded-xl px-4 py-3">
+              <p className="text-muted text-xs uppercase tracking-wider">
+                {t('sales.netRevenue')}
+              </p>
+              <p className="text-heading mt-1 text-2xl font-bold tabular-nums">
+                ${monthMetrics.netRevenue.toFixed(2)}
               </p>
             </div>
           </div>

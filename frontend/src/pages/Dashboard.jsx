@@ -280,7 +280,13 @@ export default function Dashboard({ onNavigate }) {
     {
       title: t('dashboard.todaySales', { defaultValue: "Today's Sales" }),
       value: `$${dashboardStats.todayRevenue.toFixed(2)}`,
-      change: `${dashboardStats.todayOrderCount} ${t('dashboard.ordersToday', { defaultValue: 'orders today' })}`,
+      change:
+        dashboardStats.todayRefundCount > 0
+          ? `${dashboardStats.todayOrderCount} ${t('dashboard.ordersToday', { defaultValue: 'orders today' })} · ${t('dashboard.refundsToday', {
+              refunds: dashboardStats.todayRefunds.toFixed(2),
+              net: dashboardStats.todayNetSales.toFixed(2),
+            })}`
+          : `${dashboardStats.todayOrderCount} ${t('dashboard.ordersToday', { defaultValue: 'orders today' })}`,
       icon: DollarSign,
       color: 'bg-forest-500',
       light: 'badge-forest',
@@ -345,7 +351,7 @@ export default function Dashboard({ onNavigate }) {
                   <p className="text-heading mt-2 line-clamp-2 break-words text-3xl font-semibold tracking-tight tabular-nums">{stat.value}</p>
                   <p className={`mt-2 inline-flex max-w-full items-center gap-1 ${stat.light}`}>
                     <TrendingUp className="h-3 w-3 shrink-0" />
-                    <span className="min-w-0 truncate">{stat.change}</span>
+                    <span className="min-w-0 break-words">{stat.change}</span>
                   </p>
                 </div>
                 <div

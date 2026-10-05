@@ -1,4 +1,10 @@
 import { formatDateTimeDisplay, formatOrderDate, sortOrdersByDateTime } from './dateTimeFormat'
+import {
+  getRefundDateKey,
+  isSoldOrder,
+  normalizeOrderDate,
+  summarizeSalesAndRefunds,
+} from './salesHistoryAnalytics'
 
 export function buildWeeklySalesData(orders) {
   const days = []
@@ -16,18 +22,9 @@ export function buildWeeklySalesData(orders) {
     })
   }
 
-  const dayMap = Object.fromEntries(days.map((day) => [day.key, day]))
-
-  for (const order of orders) {
-    if (order.status && order.status !== 'Completed') continue
-    const dateKey = order.date
-    if (!dateKey || !dayMap[dateKey]) continue
-    dayMap[dateKey].revenue += Number.parseFloat(order.total || 0)
-  }
-
   return days.map((day) => ({
     ...day,
-    revenue: Math.round(day.revenue * 100) / 100,
+    revenue: summarizeSalesAndRefunds(orders, day.key).net,
   }))
 }
 
@@ -41,14 +38,16 @@ export function buildPaymentSplitData(orders, options = {}) {
   let bankScan = 0
 
   for (const order of orders) {
-    if (order.status && order.status !== 'Completed') continue
-    if (!String(order.date || '').startsWith(monthKey)) continue
-    const total = Number.parseFloat(order.total || 0)
+    if (!isSoldOrder(order)) continue
+    const total = Number.parseFloat(order.total || 0) || 0
+    const sold = String(normalizeOrderDate(order) || '').startsWith(monthKey) ? total : 0
+    const refunded = String(getRefundDateKey(order) || '').startsWith(monthKey) ? total : 0
+    const amount = sold - refunded
     const method = order.payment_method || order.payment || 'Cash'
     if (method === 'Bank Scan') {
-      bankScan += total
+      bankScan += amount
     } else {
-      cash += total
+      cash += amount
     }
   }
 
@@ -62,19 +61,18 @@ export function buildDashboardStats(orders, user, todaySpending = 0) {
   const completed = orders.filter((order) => !order.status || order.status === 'Completed')
   // Must use local date — toISOString() is UTC and breaks after midnight in Cambodia (UTC+7).
   const todayKey = formatOrderDate(new Date())
-  const todayOrders = completed.filter((order) => order.date === todayKey)
-  const todayRevenue = todayOrders.reduce(
-    (sum, order) => sum + Number.parseFloat(order.total || 0),
-    0,
-  )
+  const today = summarizeSalesAndRefunds(orders, todayKey)
   const spending = Number(todaySpending) || 0
-  const netProfit = Math.round((todayRevenue - spending) * 100) / 100
+  const netProfit = Math.round((today.net - spending) * 100) / 100
 
   return {
-    todayRevenue: Math.round(todayRevenue * 100) / 100,
+    todayRevenue: today.sales,
+    todayRefunds: today.refunds,
+    todayRefundCount: today.refundOrders,
+    todayNetSales: today.net,
     todaySpending: Math.round(spending * 100) / 100,
     netProfit,
-    todayOrderCount: todayOrders.length,
+    todayOrderCount: today.salesOrders,
     totalOrders: completed.length,
     cashierName: user?.display_name || user?.displayName || 'Staff',
   }

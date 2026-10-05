@@ -1,7 +1,7 @@
 import {
   buildDailySalesForMonth,
   buildMonthlyTotalsChart,
-  filterOrdersByMonth,
+  summarizeSalesAndRefunds,
 } from './salesHistoryAnalytics'
 
 function roundMoney(value) {
@@ -40,14 +40,17 @@ export function summarizeExpenses(expenses) {
   }
 }
 
-export function summarizeProfit(orders, expenses) {
-  const revenue = orders.reduce((sum, order) => sum + Number.parseFloat(order.total || 0), 0)
+export function summarizeProfit(orders, expenses, periodKey = 'all') {
+  const totals = summarizeSalesAndRefunds(orders, periodKey)
   const spending = expenses.reduce((sum, expense) => sum + Number.parseFloat(expense.amount || 0), 0)
   return {
-    revenue: roundMoney(revenue),
+    revenue: totals.sales,
+    refunds: totals.refunds,
+    net: totals.net,
     expenses: roundMoney(spending),
-    profit: roundMoney(revenue - spending),
-    orders: orders.length,
+    profit: roundMoney(totals.net - spending),
+    orders: totals.salesOrders,
+    refundOrders: totals.refundOrders,
   }
 }
 
@@ -83,8 +86,8 @@ export function buildMonthlyProfitChart(orders, expenses, monthOptions) {
         ...month,
         expenses: expensesTotal,
         profit: roundMoney(month.revenue - expensesTotal),
-        salesOrders: filterOrdersByMonth(orders, month.monthKey).length,
+        salesOrders: month.orders,
       }
     })
-    .filter((month) => month.revenue > 0 || month.expenses > 0)
+    .filter((month) => month.sales > 0 || month.refunds > 0 || month.expenses > 0)
 }
