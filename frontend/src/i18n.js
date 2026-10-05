@@ -84,6 +84,10 @@ const resources = {
         accessRestrictedDescription: "You don't have access.",
         goToAllowedPage: 'Go to allowed page',
       },
+      pwa: {
+        installApp: 'Install app',
+        installAppLong: 'Install Mlu Kitchen & Cafe as an app on this device',
+      },
       a11y: {
         toggleTheme: 'Toggle theme',
         switchToLightMode: 'Switch to light mode',
@@ -1186,6 +1190,10 @@ const resources = {
         accessRestricted: 'ការចូលប្រើត្រូវបានដាក់កំហិត',
         accessRestrictedDescription: 'អ្នកមិនមានសិទ្ធិចូលប្រើទេ។',
         goToAllowedPage: 'ទៅទំព័រដែលអនុញ្ញាត',
+      },
+      pwa: {
+        installApp: 'ដំឡើងកម្មវិធី',
+        installAppLong: 'ដំឡើង Mlu Kitchen & Cafe ជាកម្មវិធីនៅលើឧបករណ៍នេះ',
       },
       a11y: {
         toggleTheme: 'ប្តូររូបរាង',
