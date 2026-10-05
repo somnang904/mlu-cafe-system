@@ -80,6 +80,7 @@ const {
     withTransaction,
 } = require('./src/utils/stockLedger');
 const { planSplitCheckout } = require('./src/utils/splitCheckout');
+const { loadMenuStock } = require('./src/utils/menuStock');
 const {
     assertRefundable,
     createApprovalLimiter,
@@ -767,7 +768,12 @@ app.get('/api/menu', async (req, res) => {
              FROM menu_items
              ORDER BY ${menuCategoryFieldSql()}, id`,
         );
-        res.status(200).json(items.map(serializeMenuItem));
+        const stock = await loadMenuStock(db);
+        res.status(200).json(items.map((item) => ({
+            ...serializeMenuItem(item),
+            stock_left: stock.get(Number(item.id))?.stock_left ?? null,
+            stock_status: stock.get(Number(item.id))?.stock_status ?? null,
+        })));
     } catch (error) {
         console.error("Error fetching menu items:", error);
         res.status(500).json({ message: "Failed to load menu items" });
