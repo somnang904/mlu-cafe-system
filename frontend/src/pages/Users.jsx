@@ -160,7 +160,7 @@ function UserFormModal({ mode, user, onClose, onSave }) {
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="modal-backdrop" aria-hidden="true" />
 
-      <div className="modal-panel relative z-10 max-h-[90vh] w-full max-w-md overflow-y-auto p-6">
+      <div className="modal-panel relative z-10 max-h-[90vh] w-full max-w-xl overflow-y-auto p-6">
         <ModalHeader
           icon={isEdit ? ShieldCheck : UserPlus}
           title={isEdit ? t('users.editPermissions') : t('users.addNew')}
@@ -204,9 +204,9 @@ function UserFormModal({ mode, user, onClose, onSave }) {
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
-              <FieldLabel icon={Lock} htmlFor="user-password">
+              <FieldLabel icon={Lock} htmlFor="user-password" className="whitespace-nowrap">
                 {isEdit ? t('users.newPasswordOptional') : t('users.password')}
               </FieldLabel>
               <div className="relative flex items-center">
@@ -229,12 +229,9 @@ function UserFormModal({ mode, user, onClose, onSave }) {
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
-              {isEdit && (
-                <p className="mt-1 text-2xs text-stone-400">{t('users.passwordResetHint')}</p>
-              )}
             </div>
             <div>
-              <FieldLabel icon={KeyRound} htmlFor="user-confirm-password">
+              <FieldLabel icon={KeyRound} htmlFor="user-confirm-password" className="whitespace-nowrap">
                 {t('users.confirmPassword')}
               </FieldLabel>
               <div className="relative flex items-center">
@@ -258,6 +255,9 @@ function UserFormModal({ mode, user, onClose, onSave }) {
                 </button>
               </div>
             </div>
+            {isEdit && (
+              <p className="text-2xs text-slate-500 sm:col-span-2 dark:text-zinc-400">{t('users.passwordResetHint')}</p>
+            )}
           </div>
 
           <div>
