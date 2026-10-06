@@ -345,8 +345,6 @@ export default function Users() {
   const [userToDelete, setUserToDelete] = useState(null)
   const [isDeleting, setIsDeleting] = useState(false)
   const [error, setError] = useState('')
-  const [resetNotice, setResetNotice] = useState(null)
-  const [resettingId, setResettingId] = useState(null)
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -404,31 +402,6 @@ export default function Users() {
     } catch (err) {
       setError(err.message || t('users.errors.save'))
       throw err
-    }
-  }
-
-  const resetUserPassword = async (event, account) => {
-    event.stopPropagation()
-    if (resettingId) return
-    setError('')
-    setResettingId(account.id)
-    try {
-      const res = await apiFetch(`/users/${account.id}/reset-password`, { method: 'POST' })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        throw new Error(data.message || t('users.errors.reset'))
-      }
-      if (data.token && data.user) {
-        adoptSession(data.token, data.user)
-      }
-      setResetNotice({
-        username: account.username,
-        temporaryPassword: data.temporaryPassword || '',
-      })
-    } catch (err) {
-      setError(err.message || t('users.errors.reset'))
-    } finally {
-      setResettingId(null)
     }
   }
 
@@ -538,16 +511,6 @@ export default function Users() {
                   <td className="px-6 py-4 text-right" onClick={(event) => event.stopPropagation()}>
                     <button
                       type="button"
-                      onClick={(event) => resetUserPassword(event, user)}
-                      disabled={resettingId === user.id}
-                      title={t('users.resetPassword')}
-                      aria-label={t('users.resetPassword')}
-                      className="rounded-lg p-2 text-stone-400 transition hover:bg-forest-50 hover:text-forest-700 disabled:opacity-40 dark:hover:bg-forest-950/40 dark:hover:text-forest-300"
-                    >
-                      <KeyRound className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
                       onClick={(event) => {
                         event.stopPropagation()
                         openEditModal(user)
@@ -590,27 +553,6 @@ export default function Users() {
           onSave={handleSaveUser}
         />
       )}
-      {resetNotice ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="modal-backdrop" aria-hidden="true" />
-          <div role="dialog" aria-modal="true" className="modal-panel relative z-10 w-full max-w-md p-6">
-            <ModalHeader icon={KeyRound} title={t('users.resetPasswordTitle')} onClose={() => setResetNotice(null)} />
-            <p className="mt-3 text-sm text-slate-500 dark:text-zinc-400">{t('users.resetPasswordBody', { username: resetNotice.username })}</p>
-            <p className="mt-4 break-all rounded-xl bg-stone-100 px-4 py-3 font-mono text-sm text-slate-900 dark:bg-zinc-800 dark:text-zinc-100">
-              {resetNotice.temporaryPassword}
-            </p>
-            <div className="mt-4 flex justify-end">
-              <button
-                type="button"
-                className="btn-primary beam-border px-4 py-2 text-sm shadow-[0_4px_14px_rgba(16,185,129,0.35)]"
-                onClick={() => setResetNotice(null)}
-              >
-                {t('common.close')}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
       <ConfirmDeleteModal
         isOpen={Boolean(userToDelete)}
         title={t('users.deleteTitle')}
