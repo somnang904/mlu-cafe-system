@@ -4,11 +4,10 @@ import { useTranslation } from 'react-i18next'
 import { apiFetch } from '../services/apiClient'
 import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal'
 import FieldLabel from '../components/ui/FieldLabel'
-import IconSelect from '../components/ui/IconSelect'
 import ModalHeader from '../components/ui/ModalHeader'
 import { useAuth } from '../context/AuthContext'
 import {
-  STAFF_DEFAULT_PERMISSIONS,
+  CASHIER_DEFAULT_PERMISSIONS,
   defaultPermissionsForRole,
   isAdminRole,
   normalizePermissions,
@@ -41,8 +40,6 @@ const PERMISSION_LABEL_KEYS = {
   reports: 'nav.reports',
 }
 
-const ASSIGNABLE_ROLES = ['Cashier', 'Staff']
-
 function passwordMeetsPolicy(password) {
   return password.length >= 8 && /[A-Za-z]/.test(password) && /[0-9]/.test(password)
 }
@@ -55,12 +52,6 @@ function roleLabel(t, role) {
 function permissionLabel(t, permissionId) {
   const key = PERMISSION_LABEL_KEYS[permissionId]
   return key ? t(key) : permissionId
-}
-
-function roleBlurbKey(role) {
-  if (isAdminRole(role)) return 'users.roleBlurbAdmin'
-  if (String(role).toLowerCase() === 'cashier') return 'users.roleBlurbCashier'
-  return 'users.roleBlurbStaff'
 }
 
 function sortUsersWithAdminsFirst(userList) {
@@ -82,28 +73,15 @@ function UserFormModal({ mode, user, onClose, onSave }) {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
-  const [role, setRole] = useState(() => {
-    if (editingExistingAdmin) return 'Admin'
-    const normalized = String(user?.role || '').toLowerCase()
-    if (normalized === 'cashier' || normalized === 'supervisor') return 'Cashier'
-    if (normalized === 'staff') return 'Staff'
-    return 'Staff'
-  })
+  const role = editingExistingAdmin ? 'Admin' : 'Cashier'
   const [permissions, setPermissions] = useState(() => {
     if (isAdminRole(user?.role)) return []
     if (user?.permissions) return normalizePermissions(user.permissions)
-    return [...STAFF_DEFAULT_PERMISSIONS]
+    return [...CASHIER_DEFAULT_PERMISSIONS]
   })
   const [error, setError] = useState('')
-  const isAdminUser = editingExistingAdmin || isAdminRole(role)
+  const isAdminUser = editingExistingAdmin
   const availablePermissions = useMemo(() => permissionOptionsForRole(), [])
-
-  const handleRoleChange = (nextRole) => {
-    if (editingExistingAdmin) return
-    if (!ASSIGNABLE_ROLES.includes(nextRole)) return
-    setRole(nextRole)
-    setPermissions(defaultPermissionsForRole(nextRole))
-  }
 
   const handlePermissionToggle = (sectionId) => {
     setPermissions((prev) =>
@@ -272,24 +250,19 @@ function UserFormModal({ mode, user, onClose, onSave }) {
             <FieldLabel icon={ShieldCheck} htmlFor="user-role">
               {t('users.assignmentRole')}
             </FieldLabel>
-            {editingExistingAdmin ? (
-              <p id="user-role" className="input-field px-3 py-2 text-sm font-medium text-emerald-800 dark:text-emerald-200">
-                {roleLabel(t, 'Admin')}
-              </p>
-            ) : (
-              <IconSelect
-                id="user-role"
-                value={role}
-                onChange={handleRoleChange}
-                options={[
-                  { value: 'Staff', label: t('users.roles.staff'), icon: User },
-                  { value: 'Cashier', label: t('users.roles.cashier'), icon: Wallet },
-                ]}
-                className="rounded-xl"
-              />
-            )}
+            <p
+              id="user-role"
+              className={`input-field flex items-center gap-2.5 px-3 py-2 text-sm font-medium ${
+                editingExistingAdmin
+                  ? 'text-emerald-800 dark:text-emerald-200'
+                  : 'text-slate-900 dark:text-zinc-100'
+              }`}
+            >
+              {editingExistingAdmin ? null : <Wallet className="h-4 w-4 shrink-0 text-forest-600 dark:text-forest-400" aria-hidden />}
+              {roleLabel(t, role)}
+            </p>
             <p className="text-muted mt-1.5 text-2xs leading-snug">
-              {editingExistingAdmin ? t('users.roleBlurbAdminFixed') : t(roleBlurbKey(role))}
+              {editingExistingAdmin ? t('users.roleBlurbAdminFixed') : t('users.roleBlurbCashier')}
             </p>
           </div>
 
