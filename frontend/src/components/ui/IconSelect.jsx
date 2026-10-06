@@ -5,7 +5,7 @@ import { Check, ChevronDown } from 'lucide-react'
 const LIST_GAP = 6
 const LIST_MAX_HEIGHT = 320
 
-export default function IconSelect({ id, value, options, onChange, placeholder, className = '' }) {
+export default function IconSelect({ id, value, options, onChange, placeholder, disabled = false, className = '' }) {
   const listId = useId()
   const triggerRef = useRef(null)
   const listRef = useRef(null)
@@ -13,7 +13,9 @@ export default function IconSelect({ id, value, options, onChange, placeholder, 
   const [activeIndex, setActiveIndex] = useState(-1)
   const [position, setPosition] = useState(null)
 
-  const selectable = options.map((option, index) => (option.header ? -1 : index)).filter((index) => index >= 0)
+  const selectable = options
+    .map((option, index) => (option.header || option.disabled ? -1 : index))
+    .filter((index) => index >= 0)
   const foundIndex = options.findIndex((option) => !option.header && option.value === value)
   const selectedIndex = foundIndex >= 0 ? foundIndex : placeholder != null ? -1 : (selectable[0] ?? -1)
   const selected = selectedIndex >= 0 ? options[selectedIndex] : null
@@ -34,6 +36,7 @@ export default function IconSelect({ id, value, options, onChange, placeholder, 
   }, [])
 
   const openList = () => {
+    if (disabled) return
     updatePosition()
     setActiveIndex(selectedIndex >= 0 ? selectedIndex : (selectable[0] ?? -1))
     setOpen(true)
@@ -41,7 +44,7 @@ export default function IconSelect({ id, value, options, onChange, placeholder, 
 
   const choose = (index) => {
     const option = options[index]
-    if (option && !option.header) onChange(option.value)
+    if (option && !option.header && !option.disabled) onChange(option.value)
     setOpen(false)
     triggerRef.current?.focus()
   }
@@ -132,9 +135,10 @@ export default function IconSelect({ id, value, options, onChange, placeholder, 
         aria-expanded={open}
         aria-controls={listId}
         aria-activedescendant={open && activeIndex >= 0 ? `${listId}-${activeIndex}` : undefined}
+        disabled={disabled}
         onClick={() => (open ? setOpen(false) : openList())}
         onKeyDown={handleKeyDown}
-        className={`input-field flex cursor-pointer items-center gap-2.5 text-left ${open ? 'border-forest-500 ring-2 ring-forest-500/20' : ''} ${className}`}
+        className={`input-field flex cursor-pointer items-center gap-2.5 text-left disabled:cursor-not-allowed disabled:opacity-60 ${open ? 'border-forest-500 ring-2 ring-forest-500/20' : ''} ${className}`}
       >
         {SelectedIcon ? (
           <SelectedIcon className="h-4 w-4 shrink-0 text-forest-600 dark:text-forest-400" aria-hidden />
@@ -190,12 +194,15 @@ export default function IconSelect({ id, value, options, onChange, placeholder, 
                     data-index={index}
                     role="option"
                     aria-selected={isSelected}
+                    aria-disabled={option.disabled || undefined}
                     onMouseDown={(event) => event.preventDefault()}
-                    onMouseEnter={() => setActiveIndex(index)}
+                    onMouseEnter={() => (option.disabled ? null : setActiveIndex(index))}
                     onClick={() => choose(index)}
-                    className={`flex cursor-pointer select-none items-center gap-2.5 rounded-lg px-3 py-2 transition-colors ${
-                      isActive ? 'bg-white/10 dark:bg-zinc-900/10' : ''
-                    } ${isSelected ? 'font-semibold' : 'font-medium'}`}
+                    className={`flex select-none items-center gap-2.5 rounded-lg px-3 py-2 transition-colors ${
+                      option.disabled ? 'cursor-not-allowed opacity-40' : 'cursor-pointer'
+                    } ${isActive ? 'bg-white/10 dark:bg-zinc-900/10' : ''} ${
+                      isSelected ? 'font-semibold' : 'font-medium'
+                    }`}
                   >
                     {Icon ? (
                       <Icon
