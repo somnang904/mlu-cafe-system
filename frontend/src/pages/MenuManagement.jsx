@@ -13,6 +13,7 @@ import {
   Leaf,
   Link,
   Loader2,
+  Plus,
   Salad,
   Sandwich,
   Search,
@@ -24,14 +25,16 @@ import {
   Trash2,
   Upload,
   UtensilsCrossed,
-  X,
 } from 'lucide-react'
 import { apiFetch } from '../services/apiClient'
 import { cacheMenuItems, getMenuFallback } from '../utils/offlineFallbacks'
 import MenuItemImage from '../components/menu/MenuItemImage'
 import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal'
+import ModalHeader from '../components/ui/ModalHeader'
 import IconSelect from '../components/ui/IconSelect'
 import Tooltip from '../components/ui/Tooltip'
+import ScrollRow from '../components/ui/ScrollRow'
+import TruncatedText from '../components/ui/TruncatedText'
 import { useModalKeyboard } from '../hooks/useModalKeyboard'
 import { compressImage, MENU_IMAGE_ACCEPT } from '../utils/compressImage'
 import { formatMenuPrice, isDrinkMenuCategory } from '../utils/drinkOptions'
@@ -417,20 +420,20 @@ export default function MenuManagement() {
             <span className="hidden sm:inline">{t('menuAdmin.addNewItem')}</span>
           </button>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <ScrollRow className="-mx-1 -my-1 gap-2 px-1 py-2">
           {categories.map((category) => (
             <button
               key={category}
               type="button"
               onClick={() => setActiveCategory(category)}
-              className={`tab-pill rounded-xl shadow-sm ${
+              className={`tab-pill shrink-0 whitespace-nowrap rounded-xl px-3.5 shadow-sm ${
                 activeCategory === category ? 'tab-pill-active' : 'tab-pill-inactive'
               }`}
             >
               {categoryLabel(category, t)}
             </button>
           ))}
-        </div>
+        </ScrollRow>
       </div>
 
       {usingFallbackMenu && (
@@ -481,9 +484,12 @@ export default function MenuManagement() {
                 iconClassName="h-10 w-10"
               />
 
-              {/* flex-1 keeps prices on one baseline when names wrap to two lines */}
-              <h4 className="text-heading mt-3 line-clamp-2 flex-1 text-base font-semibold">{translateMenuName(item.name, i18n.language, t)}</h4>
-              <p className="mt-1 text-lg font-bold tabular-nums text-forest-600 dark:text-forest-400">
+              <TruncatedText
+                text={translateMenuName(item.name, i18n.language, t)}
+                wrapperClassName="mb-3 mt-3 w-full min-w-0 flex-1 justify-center"
+                className="text-heading text-base font-semibold"
+              />
+              <p className="mt-auto text-lg font-bold tabular-nums text-forest-600 dark:text-forest-400">
                 {formatMenuPrice(item)}
               </p>
             </div>
@@ -513,12 +519,7 @@ export default function MenuManagement() {
 
       {showDetailsModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overscroll-contain">
-          <button
-            type="button"
-            aria-label={t('a11y.closeModal')}
-            className="modal-backdrop"
-            onClick={handleCloseDetailsModal}
-          />
+          <div className="modal-backdrop" aria-hidden="true" />
           <div
             ref={detailsPanelRef}
             tabIndex={-1}
@@ -526,18 +527,11 @@ export default function MenuManagement() {
             aria-modal="true"
             className="modal-panel relative z-10 max-h-[90vh] w-full max-w-xl p-6"
           >
-            <div className="flex items-center justify-between">
-              <h3 className="text-heading text-lg">
-                {isEditing ? t('menuAdmin.modifyItem') : t('menuAdmin.addMenuItem')}
-              </h3>
-              <button
-                type="button"
-                onClick={handleCloseDetailsModal}
-                className="rounded-lg p-1.5 text-stone-400 hover:bg-olive-100 dark:hover:bg-olive-900/40"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
+            <ModalHeader
+              icon={isEditing ? SquarePen : Plus}
+              title={isEditing ? t('menuAdmin.modifyItem') : t('menuAdmin.addMenuItem')}
+              onClose={handleCloseDetailsModal}
+            />
 
             <form onSubmit={handleSubmit} className="mt-6 space-y-4">
               <div>

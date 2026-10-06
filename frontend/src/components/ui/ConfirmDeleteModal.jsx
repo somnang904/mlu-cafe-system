@@ -24,12 +24,7 @@ export default function ConfirmDeleteModal({
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
-      <button
-        type="button"
-        aria-label={t('a11y.cancelDeletion')}
-        className="modal-backdrop"
-        onClick={onCancel}
-      />
+      <div className="modal-backdrop" aria-hidden="true" />
       <div
         ref={panelRef}
         tabIndex={-1}
@@ -41,9 +36,7 @@ export default function ConfirmDeleteModal({
       >
         <div className="modal-panel-body p-6">
           <div className="flex gap-4">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-red-100 text-red-600 dark:bg-red-950/50 dark:text-red-400">
-              <AlertTriangle className="h-5 w-5" aria-hidden />
-            </div>
+            <AlertTriangle className="h-6 w-6 shrink-0 text-red-600 dark:text-red-400" aria-hidden />
             <div className="min-w-0 flex-1">
               <h4 id="confirm-delete-title" className="text-heading text-lg font-semibold">
                 {title}

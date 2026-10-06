@@ -21,6 +21,27 @@ const {
 
 const JWT_SECRET = env.jwtSecret
 
+// A database outage must not look like a bad token: the client signs the user out on 401.
+const DB_ERROR_CODES = new Set([
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'ETIMEDOUT',
+  'EPIPE',
+  'EHOSTUNREACH',
+  'ENOTFOUND',
+  'PROTOCOL_CONNECTION_LOST',
+  'PROTOCOL_SEQUENCE_TIMEOUT',
+  'ER_CON_COUNT_ERROR',
+  'ER_LOCK_WAIT_TIMEOUT',
+])
+
+function isDatabaseOutage(error) {
+  if (!error) return false
+  if (DB_ERROR_CODES.has(error.code)) return true
+  // mysql2 wraps pool failures without always keeping the original code.
+  return error.fatal === true || /ECONNREFUSED|connection lost|pool is closed/i.test(error.message || '')
+}
+
 async function loadUserById(userId) {
   await ensureSessionSecuritySchema(db)
   const [rows] = await db.execute(
@@ -110,6 +131,13 @@ async function authenticateToken(req, res, next) {
 
     return next()
   } catch (error) {
+    if (isDatabaseOutage(error)) {
+      console.error('❌ AUTH DATABASE ERROR:', error.code || error.message)
+      return res.status(503).json({
+        message: 'The server is temporarily unavailable. Please try again in a moment.',
+        code: 'DATABASE_UNAVAILABLE',
+      })
+    }
     return res.status(401).json({ message: 'Invalid or expired session token' })
   }
 }

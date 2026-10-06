@@ -1,4 +1,23 @@
+const { columnExists } = require('./ordersSchema')
+
+const PAID_FROM_VALUES = ['drawer', 'bank', 'owner']
+const DEFAULT_PAID_FROM = 'drawer'
+
 let schemaReadyPromise = null
+
+function normalizePaidFrom(value) {
+  if (value === undefined || value === null || String(value).trim() === '') return DEFAULT_PAID_FROM
+  const key = String(value).trim().toLowerCase()
+  if (!PAID_FROM_VALUES.includes(key)) {
+    throw Object.assign(new Error(`paid_from must be one of: ${PAID_FROM_VALUES.join(', ')}`), { status: 400 })
+  }
+  return key
+}
+
+function storedPaidFrom(value) {
+  const key = String(value || '').trim().toLowerCase()
+  return PAID_FROM_VALUES.includes(key) ? key : DEFAULT_PAID_FROM
+}
 
 async function ensureExpensesSchema(db) {
   if (!schemaReadyPromise) {
@@ -17,6 +36,11 @@ async function ensureExpensesSchema(db) {
           INDEX idx_expenses_category (category)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
       `)
+      if (!(await columnExists(db, 'expenses', 'paid_from'))) {
+        await db.execute(
+          "ALTER TABLE expenses ADD COLUMN paid_from ENUM('drawer', 'bank', 'owner') NOT NULL DEFAULT 'drawer' AFTER amount",
+        )
+      }
     })().catch((error) => {
       schemaReadyPromise = null
       throw error
@@ -39,6 +63,7 @@ function serializeExpense(row) {
     category: row.category,
     description: row.description || '',
     amount: Number.parseFloat(row.amount) || 0,
+    paid_from: storedPaidFrom(row.paid_from),
     expense_date: expenseDate,
     created_by: row.created_by,
     created_by_name: row.created_by_name || null,
@@ -53,7 +78,7 @@ async function listExpenses(db, { days = 365 } = {}) {
   const [rows] = await db.execute(
     `
     SELECT
-      id, category, description, amount,
+      id, category, description, amount, paid_from,
       DATE_FORMAT(expense_date, '%Y-%m-%d') AS expense_date,
       created_by, created_by_name, created_at
     FROM expenses
@@ -71,6 +96,7 @@ async function createExpense(db, payload, user) {
   const description = String(payload.description || '').trim()
   const amount = Number(payload.amount)
   const expenseDate = String(payload.expense_date || '').trim() || new Date().toISOString().slice(0, 10)
+  const paidFrom = normalizePaidFrom(payload.paid_from)
 
   if (!category) throw Object.assign(new Error('Expense category is required'), { status: 400 })
   if (!Number.isFinite(amount) || amount <= 0) {
@@ -82,13 +108,14 @@ async function createExpense(db, payload, user) {
 
   const [result] = await db.execute(
     `
-    INSERT INTO expenses (category, description, amount, expense_date, created_by, created_by_name)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO expenses (category, description, amount, paid_from, expense_date, created_by, created_by_name)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
     `,
     [
       category,
       description || null,
       amount,
+      paidFrom,
       expenseDate,
       user?.id || null,
       user?.display_name || user?.username || null,
@@ -125,6 +152,9 @@ async function summarizeExpensesToday(db) {
 }
 
 module.exports = {
+  PAID_FROM_VALUES,
+  DEFAULT_PAID_FROM,
+  normalizePaidFrom,
   ensureExpensesSchema,
   listExpenses,
   createExpense,

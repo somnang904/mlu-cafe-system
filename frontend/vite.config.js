@@ -73,6 +73,9 @@ function omitFullsizeMenuPhotos() {
 export default defineConfig({
   plugins: [react(), menuImageDevMiddleware(), omitFullsizeMenuPhotos()],
   server: {
+    // Fail loudly instead of silently moving to 5174 when a dev server is already running:
+    // a second server on another port is the usual cause of a dev login that will not work.
+    strictPort: true,
     proxy: {
       '/api': {
         target: 'http://localhost:5500',

@@ -86,6 +86,7 @@ export function hydrateFromSnapshot(snapshot) {
 
 export function groupActiveRows(activeOrderRows) {
   if (!activeOrderRows?.length) return {}
+  const linesByKey = new Map()
 
   return activeOrderRows.reduce((acc, row) => {
     const targetKey = row.target_id != null ? String(row.target_id).trim() : 'takeout'
@@ -95,22 +96,23 @@ export function groupActiveRows(activeOrderRows) {
     const qty = parseInt(row.quantity || 0, 10)
     const unitPrice = parseFloat(row.price || 0)
     const lineId = `${row.menu_item_id ?? row.name}::${notes}`
-    const existing = acc[targetKey].find((item) => String(item.id) === lineId)
+    const sameLines = linesByKey.get(`${targetKey}|${lineId}`) || []
+    const existing = sameLines.find((item) => item.unitPrice === unitPrice)
     if (existing) {
       existing.qty += qty
       existing.quantity = existing.qty
       existing.lineTotal = existing.qty * existing.unitPrice
     } else {
-      acc[targetKey].push(
-        normalizeBillItem({
-          id: lineId,
-          menu_item_id: row.menu_item_id,
-          name: row.name,
-          notes,
-          qty,
-          unitPrice,
-        }),
-      )
+      const line = normalizeBillItem({
+        id: sameLines.length ? `${lineId}::${unitPrice.toFixed(2)}` : lineId,
+        menu_item_id: row.menu_item_id,
+        name: row.name,
+        notes,
+        qty,
+        unitPrice,
+      })
+      linesByKey.set(`${targetKey}|${lineId}`, [...sameLines, line])
+      acc[targetKey].push(line)
     }
     return acc
   }, {})

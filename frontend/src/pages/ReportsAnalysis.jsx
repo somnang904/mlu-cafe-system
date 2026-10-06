@@ -3,16 +3,21 @@ import { useTranslation } from 'react-i18next'
 import { expenseCategoryLabel } from '../utils/expenseCategories'
 import {
   BarChart3,
+  CalendarRange,
   FileSpreadsheet,
   FileText,
   Loader2,
+  Pencil,
   Receipt,
+  RotateCcw,
   ShoppingBag,
   TrendingDown,
   TrendingUp,
   Wallet,
 } from 'lucide-react'
 import Modal from '../components/common/Modal'
+import ModalHeader from '../components/ui/ModalHeader'
+import FieldLabel from '../components/ui/FieldLabel'
 import FinanceBarChart from '../components/charts/FinanceBarChart'
 import ExpenseTracker from '../components/finance/ExpenseTracker'
 import { SalesFilterBar } from '../components/ui/SalesFilterBar'
@@ -23,7 +28,6 @@ import {
   DEFAULT_HISTORY_DAYS,
   buildDynamicMonthFilterOptions,
   filterCompletedOrders,
-  filterOrdersByMonth,
   formatMonthLabel,
 } from '../utils/salesHistoryAnalytics'
 import {
@@ -35,7 +39,7 @@ import {
 } from '../utils/profitAnalytics'
 
 const REPORT_EXPORT_SECTIONS = [
-  { id: 'income', labelKey: 'reports.income' },
+  { id: 'income', labelKey: 'reports.salesAndRefunds' },
   { id: 'expenses', labelKey: 'reports.expenses' },
   { id: 'profit', labelKey: 'reports.netProfit' },
   { id: 'orders', labelKey: 'reports.ordersFulfilled' },
@@ -146,10 +150,10 @@ function ReportExportDialog({ kind, selectedMonth, periodLabel, onClose }) {
     <Modal
       title={title}
       titleId="report-export-title"
+      header={<ModalHeader icon={kind === 'excel' ? FileSpreadsheet : FileText} titleId="report-export-title" title={title} />}
       onClose={onClose}
       closeLabel={t('a11y.closeModal')}
-      dismissible={!saving}
-      footer={(
+      dismissible={!saving}      footer={(
         <>
           <button
             type="button"
@@ -163,7 +167,9 @@ function ReportExportDialog({ kind, selectedMonth, periodLabel, onClose }) {
             type="button"
             onClick={confirmExport}
             disabled={!canSave}
-            className="btn-primary inline-flex flex-1 items-center justify-center gap-2 py-2.5 text-sm"
+            className={`btn-primary inline-flex flex-1 items-center justify-center gap-2 py-2.5 text-sm ${
+              canSave ? 'beam-border shadow-[0_4px_14px_rgba(16,185,129,0.35)]' : ''
+            }`}
           >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             {saving ? t('reports.exportPreparing') : t('reports.exportOk')}
@@ -201,16 +207,20 @@ function ReportExportDialog({ kind, selectedMonth, periodLabel, onClose }) {
         {sections.length === 0 ? (
           <p className="text-sm text-rose-700 dark:text-rose-300">{t('reports.exportNeedSection')}</p>
         ) : null}
-        <label className="block text-sm">
-          <span className="font-medium">{t('reports.fileName')}</span>
+        <div>
+          <FieldLabel icon={Pencil} htmlFor="report-export-file-name">
+            {t('reports.fileName')}
+          </FieldLabel>
           <input
+            id="report-export-file-name"
             value={fileName}
             onChange={(event) => setFileName(event.target.value)}
-            className="input-field mt-1 w-full min-w-0 px-3 py-2 text-sm"
+            className="input-field w-full min-w-0 px-3 py-2 text-sm"
             maxLength={120}
           />
-        </label>
-        <p className="text-sm">
+        </div>
+        <p className="flex items-center gap-1.5 text-sm">
+          <CalendarRange className="h-4 w-4 shrink-0 text-forest-600 dark:text-forest-400" aria-hidden />
           <span className="text-muted">{t('reports.exportPeriod')}: </span>
           <span className="break-words font-medium">{periodLabel}</span>
         </p>
@@ -332,19 +342,14 @@ export default function ReportsAnalysis() {
     }
   }, [refreshReportData, expenseTick])
 
-  const monthScopedSales = useMemo(
-    () => filterOrdersByMonth(completedSales, selectedMonth),
-    [completedSales, selectedMonth],
-  )
-
   const monthScopedExpenses = useMemo(
     () => filterExpensesByMonth(expenses, selectedMonth),
     [expenses, selectedMonth],
   )
 
   const profit = useMemo(
-    () => summarizeProfit(monthScopedSales, monthScopedExpenses),
-    [monthScopedSales, monthScopedExpenses],
+    () => summarizeProfit(completedSales, monthScopedExpenses, selectedMonth),
+    [completedSales, monthScopedExpenses, selectedMonth],
   )
 
   const expenseBreakdown = useMemo(
@@ -366,15 +371,29 @@ export default function ReportsAnalysis() {
           month: formatMonthLabel(selectedMonth, t),
         })
 
-  const incomeLabel = t('reports.income')
+  const incomeLabel = t('reports.netSales')
   const spendingLabel = t('reports.spending')
 
   const statCards = [
     {
-      label: incomeLabel,
+      label: t('reports.sales'),
       value: `$${profit.revenue.toFixed(2)}`,
       icon: TrendingUp,
       accent: 'bg-forest-500',
+    },
+    {
+      label: t('reports.refunds'),
+      value: `-$${profit.refunds.toFixed(2)}`,
+      hint: t('reports.refundsHint', { count: profit.refundOrders }),
+      icon: RotateCcw,
+      accent: 'bg-red-600',
+    },
+    {
+      label: t('reports.netSales'),
+      value: `$${profit.net.toFixed(2)}`,
+      hint: t('reports.netSalesHint'),
+      icon: BarChart3,
+      accent: 'bg-forest-600',
     },
     {
       label: t('reports.expenses'),
@@ -427,13 +446,14 @@ export default function ReportsAnalysis() {
         </div>
       ) : null}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {statCards.map(({ label, value, icon: Icon, accent }) => (
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        {statCards.map(({ label, value, hint, icon: Icon, accent }) => (
           <div key={label} className="surface-card p-5">
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-muted text-sm">{label}</p>
                 <p className="text-heading mt-2 text-2xl font-bold tabular-nums">{value}</p>
+                {hint ? <p className="text-muted mt-1 text-xs">{hint}</p> : null}
               </div>
               <div className={`flex h-11 w-11 items-center justify-center rounded-xl ${accent} text-white`}>
                 <Icon className="h-5 w-5" />

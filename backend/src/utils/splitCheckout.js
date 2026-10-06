@@ -21,6 +21,15 @@ function lineMatches(line, request) {
   return wanted === String(line.item_name || '') || wanted === formatOrderLineName(line.item_name, line.notes)
 }
 
+function linesByPrice(lines, request) {
+  const wanted = Number(request.unitPrice ?? request.price)
+  if (request.unitPrice == null && request.price == null) return lines
+  if (!Number.isFinite(wanted)) return lines
+  const cents = Math.round(wanted * 100)
+  const samePrice = (line) => Math.round(Number(line.price) * 100) === cents
+  return [...lines.filter(samePrice), ...lines.filter((line) => !samePrice(line))]
+}
+
 function planSplitCheckout(originalLines, requested) {
   if (!Array.isArray(requested) || requested.length === 0) {
     throw httpError(400, 'Select at least one item to split')
@@ -36,7 +45,7 @@ function planSplitCheckout(originalLines, requested) {
     }
 
     let remaining = qty
-    for (const line of originalLines) {
+    for (const line of linesByPrice(originalLines, request)) {
       if (remaining === 0) break
       if (!lineMatches(line, request)) continue
       const free = available.get(line.id)

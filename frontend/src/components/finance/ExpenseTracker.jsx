@@ -1,11 +1,24 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, Trash2, Wallet } from 'lucide-react'
+import { Calendar, DollarSign, Ellipsis, Package, Plus, ShoppingCart, StickyNote, Tag, Trash2, Truck, Users, Wallet, Zap } from 'lucide-react'
 import { apiFetch } from '../../services/apiClient'
 import { useModalKeyboard } from '../../hooks/useModalKeyboard'
 import { EXPENSE_CATEGORIES, expenseCategoryLabel } from '../../utils/expenseCategories'
+import { PaidFromBadge, PaidFromSelector } from './PaidFrom'
+import FieldLabel from '../ui/FieldLabel'
+import IconSelect from '../ui/IconSelect'
+import ModalHeader from '../ui/ModalHeader'
 
 const PAGE_SIZE = 25
+
+const CATEGORY_ICONS = {
+  'Inventory Restock': Package,
+  Utilities: Zap,
+  Transport: Truck,
+  Supplies: ShoppingCart,
+  Payroll: Users,
+  Others: Ellipsis,
+}
 
 function todayIso() {
   const date = new Date()
@@ -28,6 +41,7 @@ export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChan
     description: '',
     amount: '',
     expense_date: todayIso(),
+    paid_from: 'drawer',
   })
 
   const panelRef = useModalKeyboard({
@@ -88,6 +102,7 @@ export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChan
           description: form.description,
           amount: Number(form.amount),
           expense_date: form.expense_date,
+          paid_from: form.paid_from,
         }),
       })
       const data = await res.json().catch(() => ({}))
@@ -98,6 +113,7 @@ export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChan
         description: '',
         amount: '',
         expense_date: todayIso(),
+        paid_from: 'drawer',
       })
       await loadExpenses()
       onChanged?.()
@@ -145,13 +161,14 @@ export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChan
       )}
 
       <div className="overflow-x-auto rounded-2xl border border-border/60">
-        <table className="w-full min-w-[640px] text-left text-sm">
+        <table className="w-full min-w-[720px] text-left text-sm">
           <thead>
             <tr className="table-head">
               <th className="px-4 py-3">{t('reservations.date')}</th>
               <th className="px-4 py-3">{t('common.category')}</th>
               <th className="px-4 py-3">{t('common.description')}</th>
               <th className="px-4 py-3">{t('common.amount')}</th>
+              <th className="px-4 py-3">{t('expenses.paidFrom')}</th>
               <th className="px-4 py-3">{t('common.by')}</th>
               <th className="px-4 py-3 text-right">{t('common.actions')}</th>
             </tr>
@@ -159,13 +176,13 @@ export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChan
           <tbody className="table-divider">
             {loading ? (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center text-muted">
+                <td colSpan={7} className="px-4 py-10 text-center text-muted">
                   {t('expenses.loading')}
                 </td>
               </tr>
             ) : visibleExpenses.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center text-muted">
+                <td colSpan={7} className="px-4 py-10 text-center text-muted">
                   <Wallet className="mx-auto mb-2 h-8 w-8 opacity-40" />
                   {t('expenses.empty')}
                 </td>
@@ -178,6 +195,9 @@ export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChan
                   <td className="px-4 py-3 text-muted">{row.description || '—'}</td>
                   <td className="px-4 py-3 font-semibold tabular-nums text-heading">
                     ${Number(row.amount).toFixed(2)}
+                  </td>
+                  <td className="px-4 py-3">
+                    <PaidFromBadge value={row.paid_from} />
                   </td>
                   <td className="px-4 py-3 text-muted">{row.created_by_name || '—'}</td>
                   <td className="px-4 py-3 text-right">
@@ -229,42 +249,44 @@ export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChan
 
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <button
-            type="button"
-            aria-label={t('a11y.close')}
-            className="modal-backdrop"
-            onClick={() => setShowForm(false)}
-          />
+          <div className="modal-backdrop" aria-hidden="true" />
           <div
             ref={panelRef}
             tabIndex={-1}
             role="dialog"
             aria-modal="true"
+            aria-labelledby="expense-tracker-title"
             className="modal-panel relative z-10 w-full max-w-md p-6"
           >
-            <h5 className="text-heading text-lg font-semibold">{t('expenses.logExpense')}</h5>
+            <ModalHeader
+              icon={Wallet}
+              titleId="expense-tracker-title"
+              title={t('expenses.logExpense')}
+              onClose={() => setShowForm(false)}
+            />
             <form onSubmit={handleSubmit} className="mt-4 space-y-4">
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-stone-700 dark:text-zinc-300">
+                <FieldLabel icon={Tag} htmlFor="expense-tracker-category">
                   {t('common.category')}
-                </label>
-                <select
+                </FieldLabel>
+                <IconSelect
+                  id="expense-tracker-category"
                   value={form.category}
-                  onChange={(e) => setForm({ ...form, category: e.target.value })}
-                  className="input-field"
-                >
-                  {EXPENSE_CATEGORIES.map((category) => (
-                    <option key={category} value={category}>
-                      {expenseCategoryLabel(category, t)}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(category) => setForm({ ...form, category })}
+                  className="rounded-xl"
+                  options={EXPENSE_CATEGORIES.map((category) => ({
+                    value: category,
+                    label: expenseCategoryLabel(category, t),
+                    icon: CATEGORY_ICONS[category],
+                  }))}
+                />
               </div>
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-stone-700 dark:text-zinc-300">
+                <FieldLabel icon={DollarSign} htmlFor="expense-tracker-amount">
                   {t('expenses.amountLabel')}
-                </label>
+                </FieldLabel>
                 <input
+                  id="expense-tracker-amount"
                   type="number"
                   required
                   min="0.01"
@@ -274,11 +296,17 @@ export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChan
                   className="input-field"
                 />
               </div>
+              <PaidFromSelector
+                idPrefix="expense-tracker"
+                value={form.paid_from}
+                onChange={(paidFrom) => setForm((current) => ({ ...current, paid_from: paidFrom }))}
+              />
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-stone-700 dark:text-zinc-300">
+                <FieldLabel icon={Calendar} htmlFor="expense-tracker-date">
                   {t('reservations.date')}
-                </label>
+                </FieldLabel>
                 <input
+                  id="expense-tracker-date"
                   type="date"
                   required
                   value={form.expense_date}
@@ -287,10 +315,11 @@ export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChan
                 />
               </div>
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-stone-700 dark:text-zinc-300">
+                <FieldLabel icon={StickyNote} htmlFor="expense-tracker-description">
                   {t('common.description')}
-                </label>
+                </FieldLabel>
                 <input
+                  id="expense-tracker-description"
                   type="text"
                   value={form.description}
                   onChange={(e) => setForm({ ...form, description: e.target.value })}
@@ -306,7 +335,7 @@ export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChan
                 >
                   {t('common.cancel')}
                 </button>
-                <button type="submit" disabled={saving} className="btn-primary flex-1 py-2.5 text-sm">
+                <button type="submit" disabled={saving} className={`btn-primary flex-1 py-2.5 text-sm ${saving ? '' : 'beam-border shadow-[0_4px_14px_rgba(16,185,129,0.35)]'}`}>
                   {saving ? t('common.saving') : t('expenses.save')}
                 </button>
               </div>

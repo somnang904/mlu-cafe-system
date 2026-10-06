@@ -15,10 +15,9 @@ jobs:
           host: 152.42.231.224
           username: root
           key: ${{ secrets.SERVER_SSH_KEY }}
+          # Same script the server's cron job runs; it installs dependencies, builds and restarts.
           script: |
-            echo "🚀 Deploying updates to /var/www/mlu-cafe..."
             cd /var/www/mlu-cafe
-            git pull origin main
-            npm run build
-            pm2 restart mlu-backend
-            echo "✅ Deployment completed successfully!"
+            git fetch --quiet origin main
+            git reset --hard --quiet origin/main
+            bash scripts/deploy.sh --force

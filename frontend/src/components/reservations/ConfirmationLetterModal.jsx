@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Check, Download, Mail, X } from 'lucide-react'
+import { Check, Download, Mail, ScrollText } from 'lucide-react'
 import { useModalKeyboard } from '../../hooks/useModalKeyboard'
 import { useNotifications } from '../../context/NotificationContext'
 import { apiFetch } from '../../services/apiClient'
+import FieldLabel from '../ui/FieldLabel'
+import ModalHeader from '../ui/ModalHeader'
 import {
   buildLetterFields,
   LETTER_COLORS,
@@ -70,7 +72,7 @@ export default function ConfirmationLetterModal({ isOpen, reservation, onClose }
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
-      <button type="button" aria-label="Close confirmation letter" className="modal-backdrop" onClick={onClose} />
+      <div className="modal-backdrop" aria-hidden="true" />
       <div
         ref={panelRef}
         tabIndex={-1}
@@ -80,23 +82,14 @@ export default function ConfirmationLetterModal({ isOpen, reservation, onClose }
         aria-labelledby="confirmation-letter-title"
       >
         <div className="modal-panel-body p-5">
-          <div className="mb-4 flex items-start justify-between gap-3">
-            <div>
-              <h4 id="confirmation-letter-title" className="text-heading text-lg font-semibold">
-                Confirmation letter
-              </h4>
-              <p className="text-muted mt-1 text-sm">
-                Optional copy for the guest. Download a PDF or send it by email when they ask.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground hover:bg-olive-50 dark:hover:bg-zinc-800"
-              aria-label="Close"
-            >
-              <X className="h-4 w-4" />
-            </button>
+          <div className="mb-4">
+            <ModalHeader
+              icon={ScrollText}
+              title="Confirmation letter"
+              subtitle="Optional copy for the guest. Download a PDF or send it by email when they ask."
+              titleId="confirmation-letter-title"
+              onClose={onClose}
+            />
           </div>
 
           <div
@@ -177,8 +170,10 @@ export default function ConfirmationLetterModal({ isOpen, reservation, onClose }
             </button>
 
             <form className="space-y-2" onSubmit={handleSend}>
-              <label className="block text-xs font-medium text-stone-600 dark:text-stone-300" htmlFor="letter-email">
-                Send to customer email
+              <div>
+                <FieldLabel icon={Mail} htmlFor="letter-email">
+                  Send to customer email
+                </FieldLabel>
                 <input
                   id="letter-email"
                   name="email"
@@ -187,15 +182,17 @@ export default function ConfirmationLetterModal({ isOpen, reservation, onClose }
                   autoComplete="email"
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
-                  className="input-field mt-1 px-3 py-2 text-sm"
+                  className="input-field px-3 py-2 text-sm"
                   placeholder="guest@email.com"
                 />
-              </label>
+              </div>
               {sendError ? <p className="text-sm text-red-600 dark:text-red-400">{sendError}</p> : null}
               <button
                 type="submit"
                 disabled={sending}
-                className="btn-primary flex w-full items-center justify-center gap-2 px-4 py-2.5 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+                className={`btn-primary flex w-full items-center justify-center gap-2 px-4 py-2.5 text-sm disabled:cursor-not-allowed disabled:opacity-60 ${
+                  sending ? '' : 'beam-border shadow-[0_4px_14px_rgba(16,185,129,0.35)]'
+                }`}
               >
                 <Mail className="h-4 w-4" />
                 {sending ? 'Sending…' : 'Send letter'}

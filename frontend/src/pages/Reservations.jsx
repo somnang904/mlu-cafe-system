@@ -1,15 +1,27 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
+  Armchair,
+  Banknote,
   CalendarDays,
+  CalendarPlus,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  CircleDot,
+  Clock,
+  Crown,
+  Hourglass,
   Pencil,
+  Phone,
   Plus,
   ScrollText,
   Search,
+  StickyNote,
+  Tag,
   Trash2,
+  User,
   UserCheck,
-  X,
+  Users,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import ConfirmationLetterModal from '../components/reservations/ConfirmationLetterModal'
@@ -17,6 +29,9 @@ import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal'
 import OperatingHoursNotice from '../components/common/OperatingHoursNotice'
 import PageContainer from '../components/common/PageContainer'
 import StatusBadge from '../components/common/StatusBadge'
+import FieldLabel from '../components/ui/FieldLabel'
+import IconSelect from '../components/ui/IconSelect'
+import ModalHeader from '../components/ui/ModalHeader'
 import { useModalKeyboard } from '../hooks/useModalKeyboard'
 import { apiFetch } from '../services/apiClient'
 import {
@@ -40,6 +55,12 @@ const SUMMARY_STATUSES = ['Pending', 'Confirmed', 'Paid', 'Seated']
 const WEEKDAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
 const DEFAULT_OPEN_DATE = nextOpenDate()
 const DEFAULT_SLOTS = getTimeSlotsForDate(DEFAULT_OPEN_DATE)
+
+const STATUS_ICONS = {
+  Pending: Hourglass,
+  Confirmed: CheckCircle2,
+  Paid: Banknote,
+}
 
 const EMPTY_FORM = {
   customer_name: '',
@@ -193,6 +214,21 @@ function BookingFormModal({ isOpen, mode, form, tables, error, saving, onChange,
   const tableOptions = tables.length ? tables : fallbackAvailability()
   const closedMonday = isMonday(form.reservation_date)
   const timeSlots = closedMonday ? [] : getTimeSlotsForDate(form.reservation_date)
+  const tableGroups = [
+    {
+      label: t('reservations.standardTables'),
+      icon: Armchair,
+      tables: tableOptions.filter((table) => table.section !== 'vip'),
+    },
+    {
+      label: t('reservations.vipRooms'),
+      icon: Crown,
+      tables: tableOptions.filter((table) => table.section === 'vip'),
+    },
+  ].filter((group) => group.tables.length > 0)
+
+  const statusValues = BOOKING_STATUSES.includes(form.status) ? BOOKING_STATUSES : [...BOOKING_STATUSES, form.status]
+  const submitDisabled = saving || closedMonday || timeSlots.length === 0 || !form.table_id
 
   if (!isOpen) return null
 
@@ -202,7 +238,7 @@ function BookingFormModal({ isOpen, mode, form, tables, error, saving, onChange,
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
-      <button type="button" aria-label={t('a11y.closeBookingForm')} className="modal-backdrop" onClick={onClose} />
+      <div className="modal-backdrop" aria-hidden="true" />
       <div
         ref={panelRef}
         tabIndex={-1}
@@ -212,27 +248,20 @@ function BookingFormModal({ isOpen, mode, form, tables, error, saving, onChange,
         aria-labelledby="booking-form-title"
       >
         <div className="modal-panel-body p-6">
-          <div className="mb-4 flex items-start justify-between gap-3">
-            <div>
-              <h4 id="booking-form-title" className="text-heading text-lg font-semibold">
-                {mode === 'edit' ? t('reservations.editReservation') : t('reservations.newReservation')}
-              </h4>
-              <p className="text-muted mt-1 text-sm">{t('reservations.formDescription')}</p>
-            </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground hover:bg-olive-50 dark:hover:bg-zinc-800"
-              aria-label={t('a11y.close')}
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
+          <ModalHeader
+            icon={mode === 'edit' ? Pencil : CalendarPlus}
+            title={mode === 'edit' ? t('reservations.editReservation') : t('reservations.newReservation')}
+            subtitle={t('reservations.formDescription')}
+            titleId="booking-form-title"
+            onClose={onClose}
+          />
 
-          <form className="space-y-3" onSubmit={onSubmit}>
+          <form className="mt-4 space-y-3" onSubmit={onSubmit}>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <label className="block text-xs font-medium text-stone-600 dark:text-stone-300" htmlFor="booking-customer-name">
-                {t('reservations.customerName')}
+              <div>
+                <FieldLabel icon={User} htmlFor="booking-customer-name">
+                  {t('reservations.customerName')}
+                </FieldLabel>
                 <input
                   id="booking-customer-name"
                   name="customer_name"
@@ -241,12 +270,14 @@ function BookingFormModal({ isOpen, mode, form, tables, error, saving, onChange,
                   required
                   value={form.customer_name}
                   onChange={handleFieldChange('customer_name')}
-                  className="input-field mt-1 px-3 py-2 text-sm"
+                  className="input-field px-3 py-2 text-sm"
                   placeholder={t('reservations.guestNamePlaceholder')}
                 />
-              </label>
-              <label className="block text-xs font-medium text-stone-600 dark:text-stone-300" htmlFor="booking-phone">
-                {t('reservations.phoneNumber')}
+              </div>
+              <div>
+                <FieldLabel icon={Phone} htmlFor="booking-phone">
+                  {t('reservations.phoneNumber')}
+                </FieldLabel>
                 <input
                   id="booking-phone"
                   name="phone"
@@ -255,88 +286,72 @@ function BookingFormModal({ isOpen, mode, form, tables, error, saving, onChange,
                   required
                   value={form.phone}
                   onChange={handleFieldChange('phone')}
-                  className="input-field mt-1 px-3 py-2 text-sm"
+                  className="input-field px-3 py-2 text-sm"
                   placeholder="012 345 678"
                 />
-              </label>
-              <label className="block text-xs font-medium text-stone-600 dark:text-stone-300">
-                {t('reservations.date')}
+              </div>
+              <div>
+                <FieldLabel icon={CalendarDays} htmlFor="booking-date">
+                  {t('reservations.date')}
+                </FieldLabel>
                 <input
+                  id="booking-date"
                   type="date"
                   name="reservation_date"
                   required
                   value={form.reservation_date}
                   onChange={handleFieldChange('reservation_date')}
-                  className="input-field mt-1 px-3 py-2 text-sm"
+                  className="input-field px-3 py-2 text-sm"
                 />
-              </label>
-              <label className="block text-xs font-medium text-stone-600 dark:text-stone-300">
-                {t('reservations.timeSlot')}
-                <select
-                  name="time_slot"
-                  value={closedMonday ? '' : form.time_slot}
-                  onChange={handleFieldChange('time_slot')}
-                  disabled={closedMonday || timeSlots.length === 0}
-                  className="input-field mt-1 bg-white px-3 py-2 text-sm dark:bg-obsidian-900 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {timeSlots.length === 0 ? (
-                    <option value="">{t('reservations.closedMondayValidation')}</option>
-                  ) : (
-                    timeSlots.map((slot) => (
-                      <option key={slot.value} value={slot.value}>
-                        {slot.label}
-                      </option>
-                    ))
-                  )}
-                </select>
-              </label>
-              <label className="block text-xs font-medium text-stone-600 dark:text-stone-300">
-                {t('reservations.assignedTable')}
-                <select
-                  name="table_id"
-                  required
-                  value={form.table_id}
-                  onChange={handleFieldChange('table_id')}
-                  className="input-field mt-1 bg-white px-3 py-2 text-sm dark:bg-obsidian-900"
-                >
-                  <option value="">{t('reservations.selectTable')}</option>
-                  <optgroup label={t('reservations.standardTables')}>
-                    {tableOptions
-                      .filter((table) => table.section !== 'vip')
-                      .map((table) => (
-                        <option
-                          key={table.id}
-                          value={table.id}
-                          disabled={!table.available && String(table.id) !== String(form.table_id)}
-                        >
-                          {floorTableLabel(table, t)}
-                          {!table.available
-                            ? ` ${t('reservations.bookedSuffix')}`
-                            : ` · ${t('reservations.seatCount', { count: table.capacity })}`}
-                        </option>
-                      ))}
-                  </optgroup>
-                  <optgroup label={t('reservations.vipRooms')}>
-                    {tableOptions
-                      .filter((table) => table.section === 'vip')
-                      .map((table) => (
-                        <option
-                          key={table.id}
-                          value={table.id}
-                          disabled={!table.available && String(table.id) !== String(form.table_id)}
-                        >
-                          {floorTableLabel(table, t)}
-                          {!table.available
-                            ? ` ${t('reservations.bookedSuffix')}`
-                            : ` · ${t('reservations.seatCount', { count: table.capacity })}`}
-                        </option>
-                      ))}
-                  </optgroup>
-                </select>
-              </label>
-              <label className="block text-xs font-medium text-stone-600 dark:text-stone-300">
-                {t('reservations.guestCount')}
+              </div>
+              <div>
+                <FieldLabel icon={Clock} htmlFor="booking-time-slot">
+                  {t('reservations.timeSlot')}
+                </FieldLabel>
+                <div className={closedMonday || timeSlots.length === 0 ? 'pointer-events-none opacity-60' : ''}>
+                  <IconSelect
+                    id="booking-time-slot"
+                    value={closedMonday ? '' : String(form.time_slot ?? '')}
+                    onChange={(value) => onChange('time_slot', value)}
+                    placeholder={timeSlots.length === 0 ? t('reservations.closedMondayValidation') : ''}
+                    options={timeSlots.map((slot) => ({ value: slot.value, label: slot.label, icon: Clock }))}
+                    className="rounded-xl"
+                  />
+                </div>
+              </div>
+              <div>
+                <FieldLabel icon={Armchair} htmlFor="booking-table">
+                  {t('reservations.assignedTable')}
+                </FieldLabel>
+                <IconSelect
+                  id="booking-table"
+                  value={String(form.table_id ?? '')}
+                  onChange={(value) => {
+                    const picked = tableOptions.find((table) => String(table.id) === value)
+                    if (picked && !picked.available && value !== String(form.table_id)) return
+                    onChange('table_id', value)
+                  }}
+                  placeholder={t('reservations.selectTable')}
+                  options={tableGroups.flatMap((group) => [
+                    { header: true, label: group.label },
+                    ...group.tables.map((table) => ({
+                      value: String(table.id),
+                      label: floorTableLabel(table, t),
+                      hint: !table.available
+                        ? t('reservations.bookedSuffix')
+                        : t('reservations.seatCount', { count: table.capacity }),
+                      icon: group.icon,
+                    })),
+                  ])}
+                  className="rounded-xl"
+                />
+              </div>
+              <div>
+                <FieldLabel icon={Users} htmlFor="booking-guest-count">
+                  {t('reservations.guestCount')}
+                </FieldLabel>
                 <input
+                  id="booking-guest-count"
                   type="number"
                   name="guest_count"
                   min="1"
@@ -344,45 +359,45 @@ function BookingFormModal({ isOpen, mode, form, tables, error, saving, onChange,
                   required
                   value={form.guest_count}
                   onChange={handleFieldChange('guest_count')}
-                  className="input-field mt-1 px-3 py-2 text-sm"
+                  className="input-field px-3 py-2 text-sm"
                 />
-              </label>
+              </div>
             </div>
 
-            <label className="block text-xs font-medium text-stone-600 dark:text-stone-300">
-              {t('common.status')}
-              <select
-                name="status"
-                value={form.status}
-                onChange={handleFieldChange('status')}
-                className="input-field mt-1 bg-white px-3 py-2 text-sm dark:bg-obsidian-900"
-              >
-                {(BOOKING_STATUSES.includes(form.status)
-                  ? BOOKING_STATUSES
-                  : [...BOOKING_STATUSES, form.status]
-                ).map((status) => {
+            <div>
+              <FieldLabel icon={Tag} htmlFor="booking-status">
+                {t('common.status')}
+              </FieldLabel>
+              <IconSelect
+                id="booking-status"
+                value={String(form.status ?? '')}
+                onChange={(value) => onChange('status', value)}
+                options={statusValues.map((status) => {
                   const meta = RESERVATION_STATUS_META[status]
-                  return (
-                    <option key={status} value={status}>
-                      {meta?.labelKey ? t(meta.labelKey) : status}
-                    </option>
-                  )
+                  return {
+                    value: status,
+                    label: meta?.labelKey ? t(meta.labelKey) : status,
+                    icon: STATUS_ICONS[status] || CircleDot,
+                  }
                 })}
-              </select>
-            </label>
+                className="rounded-xl"
+              />
+            </div>
 
-            <label className="block text-xs font-medium text-stone-600 dark:text-stone-300">
-              {t('reservations.specialRequests')}
+            <div>
+              <FieldLabel icon={StickyNote} htmlFor="booking-notes">
+                {t('reservations.specialRequests')}
+              </FieldLabel>
               <textarea
                 id="booking-notes"
                 name="notes"
                 value={form.notes}
                 onChange={handleFieldChange('notes')}
                 rows={3}
-                className="input-field mt-1 px-3 py-2 text-sm"
+                className="input-field px-3 py-2 text-sm"
                 placeholder={t('reservations.notesPlaceholder')}
               />
-            </label>
+            </div>
 
             {closedMonday ? (
               <p className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-800 dark:border-rose-800/60 dark:bg-rose-950/40 dark:text-rose-200">
@@ -400,8 +415,10 @@ function BookingFormModal({ isOpen, mode, form, tables, error, saving, onChange,
               </button>
               <button
                 type="submit"
-                disabled={saving || closedMonday || timeSlots.length === 0}
-                className="btn-primary flex-1 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={submitDisabled}
+                className={`btn-primary flex-1 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60 ${
+                  submitDisabled ? '' : 'beam-border shadow-[0_4px_14px_rgba(16,185,129,0.35)]'
+                }`}
               >
                 {saving
                   ? t('common.saving')

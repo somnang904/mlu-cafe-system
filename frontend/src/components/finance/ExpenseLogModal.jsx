@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { CalendarDays, Loader2 } from 'lucide-react'
+import { CalendarDays, DollarSign, Loader2, StickyNote, Tag, Wallet } from 'lucide-react'
 import Modal from '../common/Modal'
 import { useNotifications } from '../../context/NotificationContext'
 import { apiFetch } from '../../services/apiClient'
 import { formatOrderDate } from '../../utils/dateTimeFormat'
 import { EXPENSE_CATEGORIES, expenseCategoryLabel } from '../../utils/expenseCategories'
 import { CategoryMoreMenu } from '../inventory/CategoryChips'
+import { PaidFromSelector } from './PaidFrom'
+import FieldLabel from '../ui/FieldLabel'
+import ModalHeader from '../ui/ModalHeader'
 
 const QUICK_AMOUNTS = [5, 10, 20, 50]
 
@@ -61,6 +64,7 @@ export default function ExpenseLogModal({
     description: '',
     amount: '',
     expense_date: todayIso(),
+    paid_from: 'drawer',
   })
 
   const dateRef = useRef(null)
@@ -111,6 +115,7 @@ export default function ExpenseLogModal({
           description: form.description,
           amount: Number(form.amount),
           expense_date: form.expense_date,
+          paid_from: form.paid_from,
         }),
       })
       const data = await res.json().catch(() => ({}))
@@ -130,15 +135,14 @@ export default function ExpenseLogModal({
       titleId="expense-log-title"
       closeLabel={t('a11y.close')}
       onClose={onClose}
-      dismissible={!saving}
-      maxWidth="max-w-md"
+      dismissible={!saving}      maxWidth="max-w-md"
       header={(
-        <div>
-          <h3 id="expense-log-title" className="text-heading text-lg font-semibold">
-            {t('expenses.logExpense')}
-          </h3>
-          <p className="text-muted mt-0.5 truncate text-sm">{t('inventory.expenseHint')}</p>
-        </div>
+        <ModalHeader
+          icon={Wallet}
+          titleId="expense-log-title"
+          title={t('expenses.logExpense')}
+          subtitle={t('inventory.expenseHint')}
+        />
       )}
       footer={(
         <>
@@ -151,7 +155,7 @@ export default function ExpenseLogModal({
             form="expense-log-form"
             disabled={saving}
             aria-busy={saving}
-            className="btn-primary flex-[1.5] text-[15px] font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+            className={`btn-primary flex-[1.5] text-[15px] font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${saving ? '' : 'beam-border shadow-[0_4px_14px_rgba(16,185,129,0.35)]'}`}
           >
             {saving ? (
               <span className="inline-flex items-center justify-center gap-2">
@@ -171,9 +175,9 @@ export default function ExpenseLogModal({
         ) : null}
 
         <div className="rounded-2xl bg-slate-100/80 px-4 pb-4 pt-3 text-center dark:bg-zinc-800/60">
-          <label htmlFor="expense-amount" className="block text-xs font-medium text-slate-500 dark:text-zinc-400">
+          <FieldLabel icon={DollarSign} htmlFor="expense-amount" className="justify-center">
             {t('common.amount')}
-          </label>
+          </FieldLabel>
           <div className="mt-1 flex items-center justify-center gap-1">
             <span aria-hidden="true" className="text-[34px] font-medium leading-none text-slate-400 dark:text-zinc-500">$</span>
             <input
@@ -220,7 +224,8 @@ export default function ExpenseLogModal({
         </div>
 
         <div>
-          <p id="expense-category-label" className="mb-1.5 block text-sm font-medium text-stone-700 dark:text-zinc-300">
+          <p id="expense-category-label" className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-zinc-400">
+            <Tag className="h-4 w-4 shrink-0 text-forest-600 dark:text-forest-400" aria-hidden />
             {t('common.category')}
           </p>
           <div role="group" aria-labelledby="expense-category-label" className="flex flex-wrap gap-2">
@@ -247,8 +252,15 @@ export default function ExpenseLogModal({
           </div>
         </div>
 
+        <PaidFromSelector
+          idPrefix="expense-log"
+          value={form.paid_from}
+          onChange={(paidFrom) => setForm((current) => ({ ...current, paid_from: paidFrom }))}
+        />
+
         <div>
-          <p id="expense-date-label" className="mb-1.5 block text-sm font-medium text-stone-700 dark:text-zinc-300">
+          <p id="expense-date-label" className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-zinc-400">
+            <CalendarDays className="h-4 w-4 shrink-0 text-forest-600 dark:text-forest-400" aria-hidden />
             {t('reservations.date')}
           </p>
           <div role="group" aria-labelledby="expense-date-label" className="flex flex-wrap items-center gap-2">
@@ -296,9 +308,9 @@ export default function ExpenseLogModal({
         </div>
 
         <div>
-          <label htmlFor="expense-description" className="mb-1.5 block text-sm font-medium text-stone-700 dark:text-zinc-300">
+          <FieldLabel icon={StickyNote} htmlFor="expense-description">
             {t('expenses.noteOptional')}
-          </label>
+          </FieldLabel>
           <input
             id="expense-description"
             type="text"

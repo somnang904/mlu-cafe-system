@@ -23,12 +23,7 @@ function ModalShell({ onClose, printLabel, documentContent }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 print:relative print:inset-auto print:block print:bg-transparent print:p-0">
-      <button
-        type="button"
-        aria-label={t('a11y.close')}
-        className="modal-backdrop print:hidden"
-        onClick={onClose}
-      />
+      <div className="modal-backdrop print:hidden" aria-hidden="true" />
 
       <div
         ref={panelRef}
@@ -54,14 +49,14 @@ function ModalShell({ onClose, printLabel, documentContent }) {
           <button
             type="button"
             onClick={onClose}
-            className="flex-1 rounded-2xl border border-slate-200 bg-white py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-100"
+            className="btn-secondary flex-1 text-sm"
           >
             {t('common.done')}
           </button>
           <button
             type="button"
             onClick={() => window.print()}
-            className="flex flex-[2] items-center justify-center gap-2 rounded-2xl bg-[#10b981] py-2.5 text-sm font-semibold text-white transition hover:bg-[#0d9668]"
+            className="beam-border flex flex-[2] items-center justify-center gap-2 rounded-2xl bg-[#10b981] py-2.5 text-sm font-semibold text-white shadow-[0_4px_14px_rgba(16,185,129,0.35)] transition hover:bg-[#0d9668]"
           >
             <Printer className="h-4 w-4" />
             {printLabel}

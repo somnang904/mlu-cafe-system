@@ -23,6 +23,8 @@ const {
     formatOrderLineName,
     pickLinePrices,
     billMatchesBase,
+    combineDuplicateLines,
+    readOrderLines,
     pendingOrderLockName,
     tableLockName,
 } = require('./src/utils/orderTargets');
@@ -55,6 +57,7 @@ const multer = require('multer');
 const { exportBusinessDataFile } = require('./src/utils/backupExport');
 const { createSalesPdf } = require('./src/utils/salesPdf');
 const { createReportExport } = require('./src/utils/reportExport');
+const { refundDateSql, refundedStatusSql, saleStatusSql } = require('./src/utils/salesTotals');
 const { createDownloadDump, pipeDownload, restoreDatabaseFromFile } = require('./src/utils/backupSql');
 const { ensureApplicationSchema } = require('./src/utils/ensureAppSchema');
 const { applyStocktake, stocktakeNote, buildStocktakeWorkbook } = require('./src/utils/stocktake');
@@ -80,6 +83,7 @@ const {
     withTransaction,
 } = require('./src/utils/stockLedger');
 const { planSplitCheckout } = require('./src/utils/splitCheckout');
+const { loadMenuStock } = require('./src/utils/menuStock');
 const {
     assertRefundable,
     createApprovalLimiter,
@@ -186,11 +190,16 @@ app.use(helmet({
 }));
 
 const allowedOrigins = env.security.allowedOrigins;
+// Outside production, Vite may pick 5174 or another port when 5173 is taken; blocking it
+// only looks like "username or password is incorrect" at the login screen.
+const LOCALHOST_DEV_ORIGIN = /^http:\/\/(localhost|127\.0\.0\.1):\d+$/;
 app.use(cors({
     origin(origin, callback) {
         // Same-origin and server-to-server calls arrive without an Origin header.
         if (!origin) return callback(null, true);
-        if (allowedOrigins.includes(origin.replace(/\/$/, ''))) return callback(null, true);
+        const normalized = origin.replace(/\/$/, '');
+        if (allowedOrigins.includes(normalized)) return callback(null, true);
+        if (!env.isProduction && LOCALHOST_DEV_ORIGIN.test(normalized)) return callback(null, true);
         logSecurity('cors_blocked', { origin });
         return callback(null, false);
     },
@@ -767,7 +776,12 @@ app.get('/api/menu', async (req, res) => {
              FROM menu_items
              ORDER BY ${menuCategoryFieldSql()}, id`,
         );
-        res.status(200).json(items.map(serializeMenuItem));
+        const stock = await loadMenuStock(db);
+        res.status(200).json(items.map((item) => ({
+            ...serializeMenuItem(item),
+            stock_left: stock.get(Number(item.id))?.stock_left ?? null,
+            stock_status: stock.get(Number(item.id))?.stock_status ?? null,
+        })));
     } catch (error) {
         console.error("Error fetching menu items:", error);
         res.status(500).json({ message: "Failed to load menu items" });
@@ -935,6 +949,7 @@ app.get('/api/orders/active', requirePosFloorAccess, async (req, res) => {
             JOIN order_items oi ON o.id = oi.order_id
             LEFT JOIN menu_items m ON oi.menu_item_id = m.id
             WHERE o.status = 'Pending'
+            ORDER BY oi.id ASC
         `;
         const [results] = await db.execute(query);
         res.status(200).json(results.map((row) => ({
@@ -954,6 +969,7 @@ app.get('/api/orders/active', requirePosFloorAccess, async (req, res) => {
                     JOIN order_items oi ON o.id = oi.order_id
                     LEFT JOIN menu_items m ON oi.menu_item_id = m.id
                     WHERE o.status = 'Pending'
+                    ORDER BY oi.id ASC
                 `;
                 const [results] = await db.execute(fallbackQuery);
                 res.status(200).json(results.map((row) => ({
@@ -1031,7 +1047,7 @@ app.post('/api/orders', requireOrderWriteAccess, async (req, res) => {
     }
 
     try {
-        const orderId = await withTransaction(db, async (conn) => {
+        const { orderId, savedLines } = await withTransaction(db, async (conn) => {
             let id = await findPendingOrderId(conn, target);
             if (!id) {
                 await assertTableNotMerged(conn, target);
@@ -1040,12 +1056,13 @@ app.post('/api/orders', requireOrderWriteAccess, async (req, res) => {
             for (const item of items) {
                 await insertOrderItem(conn, id, item);
             }
+            await combineDuplicateLines(conn, id);
             const [lines] = await conn.execute(
                 'SELECT menu_item_id, quantity FROM order_items WHERE order_id = ?',
                 [id],
             );
             await reconcileOrderStock(conn, id, lines, req.user?.id ?? null);
-            return id;
+            return { orderId: id, savedLines: await readOrderLines(conn, id, target.key) };
         }, { locks: [pendingOrderLockName(target)] });
 
         res.status(201).json({
@@ -1053,6 +1070,7 @@ app.post('/api/orders', requireOrderWriteAccess, async (req, res) => {
             orderId,
             target_key: target.key,
             source_type: target.sourceType,
+            lines: savedLines,
         });
 
         await auditFromRequest(db, req, {
@@ -1152,6 +1170,7 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
                 0,
             );
             const finalTotal = Math.round(computed * 100) / 100;
+            const savedLines = await readOrderLines(conn, orderId, target.key);
             const stockOutcome = await reconcileOrderStock(conn, orderId, lines, req.user?.id ?? null);
 
             const invoiceId = await allocateNextInvoiceId(conn);
@@ -1214,6 +1233,7 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
             return {
                 orderId,
                 finalTotal,
+                savedLines,
                 invoiceId,
                 tableStatus: clear_table === false ? 'Paid' : 'Empty',
                 lowStockItems: stockOutcome?.lowStockWarnings || [],
@@ -1235,6 +1255,10 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
         res.status(200).json({
             message: 'Transaction completed and locked successfully.',
             invoice_id: outcome.invoiceId,
+            subtotal: outcome.finalTotal,
+            tax: 0,
+            total: outcome.finalTotal,
+            lines: outcome.savedLines,
             low_stock_items: outcome.lowStockItems || [],
             received_usd: outcome.received_usd,
             received_khr: outcome.received_khr,
@@ -1398,6 +1422,7 @@ app.post('/api/orders/split-checkout', requirePermission('payment'), async (req,
                 splitOrderId,
                 invoiceId,
                 splitTotal,
+                splitLines: await readOrderLines(conn, splitOrderId, target.key),
                 remainingCount: remainingLines.length,
                 tableStatus,
                 lowStockItems: stockOutcome?.lowStockWarnings || [],
@@ -1414,6 +1439,7 @@ app.post('/api/orders/split-checkout', requirePermission('payment'), async (req,
             message: 'Split payment completed successfully.',
             invoice_id: outcome.invoiceId,
             split_total: outcome.splitTotal,
+            lines: outcome.splitLines,
             remaining_count: outcome.remainingCount,
             table_status: outcome.tableStatus,
             low_stock_items: outcome.lowStockItems,
@@ -1517,28 +1543,35 @@ app.post('/api/orders/bill-requested', requirePosFloorAccess, async (req, res) =
         return res.status(400).json({ message: validationError.message });
     }
 
+    const { sql, params } = pendingOrderWhereClause(target);
+    const markBillRequested = async () => {
+        const [result] = await db.execute(`UPDATE orders SET bill_requested = 1 WHERE ${sql}`, params);
+        return Number(result?.affectedRows) || 0;
+    };
+
+    let updated;
     try {
-        const { sql, params } = pendingOrderWhereClause(target);
-        await db.execute(`UPDATE orders SET bill_requested = 1 WHERE ${sql}`, params);
-        res.status(200).json({ message: "Bill requested flag set." });
+        updated = await markBillRequested();
     } catch (error) {
-        if (error.message && error.message.includes('bill_requested')) {
-            try {
-                await db.execute(
-                    'ALTER TABLE orders ADD COLUMN bill_requested TINYINT(1) NOT NULL DEFAULT 0'
-                );
-                const { sql, params } = pendingOrderWhereClause(target);
-                await db.execute(`UPDATE orders SET bill_requested = 1 WHERE ${sql}`, params);
-                res.status(200).json({ message: "Bill requested flag set." });
-                return;
-            } catch (alterError) {
-                logOrderError('Error setting bill_requested (alter)', alterError, { target_id });
-            }
-        } else {
+        if (!(error.message && error.message.includes('bill_requested'))) {
             logOrderError('Error setting bill_requested', error, { target_id });
+            return res.status(500).json({ message: 'Failed to request the bill', errorId: logError(error, { route: `${req.method} ${req.originalUrl}` }) });
         }
-        res.status(200).json({ message: "Bill request noted (local state only)." });
+        try {
+            await db.execute(
+                'ALTER TABLE orders ADD COLUMN bill_requested TINYINT(1) NOT NULL DEFAULT 0'
+            );
+            updated = await markBillRequested();
+        } catch (alterError) {
+            logOrderError('Error setting bill_requested (alter)', alterError, { target_id });
+            return res.status(500).json({ message: 'Failed to request the bill', errorId: logError(alterError, { route: `${req.method} ${req.originalUrl}` }) });
+        }
     }
+
+    if (updated === 0) {
+        return res.status(404).json({ message: 'No pending order found to request the bill for' });
+    }
+    res.status(200).json({ message: "Bill requested flag set." });
 });
 
 // 5. SYNC UPDATED BILL LINE ITEMS BEFORE CHECKOUT
@@ -1570,7 +1603,7 @@ app.put('/api/orders/items', requireOrderWriteAccess, async (req, res) => {
     const baseItems = Array.isArray(req.body?.base_items) ? req.body.base_items : null;
 
     try {
-        const orderId = await withTransaction(db, async (conn) => {
+        const { orderId, savedLines } = await withTransaction(db, async (conn) => {
             let id = await findPendingOrderId(conn, target);
 
             if (baseItems) {
@@ -1591,7 +1624,7 @@ app.put('/api/orders/items', requireOrderWriteAccess, async (req, res) => {
             }
 
             if (!id) {
-                if (items.length === 0) return null;
+                if (items.length === 0) return { orderId: null, savedLines: [] };
                 await assertTableNotMerged(conn, target);
                 id = await createPendingOrder(conn, target, table_id);
             }
@@ -1601,6 +1634,7 @@ app.put('/api/orders/items', requireOrderWriteAccess, async (req, res) => {
             for (const [index, item] of items.entries()) {
                 await insertOrderItem(conn, id, item, { price: prices[index] });
             }
+            await combineDuplicateLines(conn, id);
 
             if (items.length === 0) {
                 await conn.execute(
@@ -1611,12 +1645,12 @@ app.put('/api/orders/items', requireOrderWriteAccess, async (req, res) => {
                     await conn.execute('UPDATE tables SET status = "Empty" WHERE id = ?', [target.tableId]);
                     await releaseMergedTables(conn, target.tableId);
                 }
-                return null;
+                return { orderId: null, savedLines: [] };
             }
-            return id;
+            return { orderId: id, savedLines: await readOrderLines(conn, id, target.key) };
         }, { locks: [pendingOrderLockName(target)] });
 
-        res.status(200).json({ message: "Bill items updated.", orderId });
+        res.status(200).json({ message: "Bill items updated.", orderId, lines: savedLines });
     } catch (error) {
         if ([400, 403, 404, 409].includes(error.status)) {
             return res.status(error.status).json({ message: error.message, code: error.code });
@@ -1631,10 +1665,13 @@ app.put('/api/orders/items', requireOrderWriteAccess, async (req, res) => {
 });
 
 // 6. FETCH COMPLETED SALES HISTORY LOGS
+const SALE_STATUS_SQL = saleStatusSql();
+const REFUNDED_STATUS_SQL = refundedStatusSql();
+const REFUND_DATE_SQL = refundDateSql();
 app.get('/api/orders/history', requireSalesHistoryAccess, async (req, res) => {
     const monthParam = typeof req.query.month === 'string' ? req.query.month.trim() : '';
     const monthMatch = /^(\d{4})-(\d{2})$/.exec(monthParam);
-    let dateFilterSql = 'AND updated_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)';
+    let rangeSql = (column) => `${column} >= DATE_SUB(CURDATE(), INTERVAL ? DAY)`;
     let dateFilterParams = [730];
 
     if (monthMatch) {
@@ -1645,7 +1682,7 @@ app.get('/api/orders/history', requireSalesHistoryAccess, async (req, res) => {
             const nextMonth = month === 12 ? 1 : month + 1;
             const nextYear = month === 12 ? year + 1 : year;
             const endDate = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
-            dateFilterSql = 'AND updated_at >= ? AND updated_at < ?';
+            rangeSql = (column) => `${column} >= ? AND ${column} < ?`;
             dateFilterParams = [startDate, endDate];
         }
     } else {
@@ -1675,15 +1712,19 @@ app.get('/api/orders/history', requireSalesHistoryAccess, async (req, res) => {
                 exchange_rate,
                 void_reason,
                 DATE_FORMAT(voided_at, '%Y-%m-%d %h:%i %p') AS voided_at,
+                CASE
+                    WHEN ${REFUNDED_STATUS_SQL} THEN DATE_FORMAT(${REFUND_DATE_SQL}, '%Y-%m-%d')
+                    ELSE NULL
+                END AS refund_date,
                 DATE_FORMAT(updated_at, '%Y-%m-%d') AS date,
                 DATE_FORMAT(updated_at, '%h:%i %p') AS time,
                 DATE_FORMAT(updated_at, '%Y-%m') AS month_key
-            FROM orders 
-            WHERE UPPER(status) IN ('COMPLETED', 'PAID', 'REFUNDED')
-              ${dateFilterSql}
+            FROM orders
+            WHERE (${SALE_STATUS_SQL} AND ${rangeSql('updated_at')})
+               OR (${REFUNDED_STATUS_SQL} AND ${rangeSql(REFUND_DATE_SQL)})
             ORDER BY updated_at DESC
         `;
-        const [historyRows] = await db.execute(query, dateFilterParams);
+        const [historyRows] = await db.execute(query, [...dateFilterParams, ...dateFilterParams]);
 
         if (historyRows.length === 0) {
             return res.status(200).json([]);
@@ -1737,6 +1778,7 @@ app.get('/api/orders/history', requireSalesHistoryAccess, async (req, res) => {
                 exchange_rate: row.exchange_rate != null ? parseFloat(row.exchange_rate) : null,
                 void_reason: row.void_reason || null,
                 voided_at: row.voided_at || null,
+                refund_date: row.refund_date || null,
                 summary: items.length
                     ? items.map((item) => `${item.qty}× ${item.name}`).join(', ')
                     : 'Items logged',
@@ -2411,7 +2453,7 @@ app.post('/api/expenses', requireExpenseWriteAccess, async (req, res) => {
         await auditFromRequest(db, req, {
             action: 'expense_create',
             module: 'Expenses',
-            description: `Logged $${Number(expense.amount).toFixed(2)} (${expense.category})`,
+            description: `Logged $${Number(expense.amount).toFixed(2)} (${expense.category}, paid from ${expense.paid_from})`,
         });
         // Staff/cashier till withdrawals notify admins only (not when admin logs it themselves).
         if (!isAdminRole(req.user?.role)) {
@@ -2717,6 +2759,7 @@ app.post('/api/tables/merge', requirePosFloorAccess, async (req, res) => {
                     'UPDATE order_items SET order_id = ? WHERE order_id = ?',
                     [destOrderId, sourceOrderId],
                 );
+                await combineDuplicateLines(conn, destOrderId);
                 const [mergedLines] = await conn.execute(
                     'SELECT menu_item_id, quantity FROM order_items WHERE order_id = ?',
                     [destOrderId],

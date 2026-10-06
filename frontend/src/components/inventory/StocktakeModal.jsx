@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AlertTriangle, Check, CircleCheck, Search } from 'lucide-react'
+import { AlertTriangle, Check, CircleCheck, ClipboardCheck, Search } from 'lucide-react'
 import Modal from '../common/Modal'
+import ModalHeader from '../ui/ModalHeader'
 import CategoryChips, { groupCategories, inventoryCategoryLabel } from './CategoryChips'
 import { apiFetch, saveBlobAsDownload } from '../../services/apiClient'
 
@@ -414,7 +415,7 @@ export default function StocktakeModal({ items, onClose, onApplied }) {
       headerAlign="center"
       header={step === 'edit' ? (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
-          <h3 id="modal-title" className="text-heading shrink-0 text-lg">{t('inventory.stocktakeTitle')}</h3>
+          <ModalHeader icon={ClipboardCheck} titleId="modal-title" title={t('inventory.stocktakeTitle')} />
           <div className="relative min-w-[12rem] flex-1">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
             <input
@@ -436,11 +437,16 @@ export default function StocktakeModal({ items, onClose, onApplied }) {
             {t('inventory.editMax')}
           </label>
         </div>
-      ) : undefined}
+      ) : (
+        <ModalHeader
+          icon={ClipboardCheck}
+          titleId="modal-title"
+          title={step === 'done' ? t('inventory.stocktakeComplete') : t('inventory.stocktakeTitle')}
+        />
+      )}
       onClose={onClose}
       closeLabel={t('a11y.close')}
-      dismissible={!saving}
-      maxWidth="max-w-4xl"
+      dismissible={!saving}      maxWidth="max-w-4xl"
       footer={step === 'edit' ? (
         <div className="flex w-full flex-wrap items-center justify-between gap-x-6 gap-y-3 border-t border-border pt-4">
           {/* Two levels: the chosen category (bold, green 8px bar), then all categories (small, grey 4px bar).
@@ -475,7 +481,7 @@ export default function StocktakeModal({ items, onClose, onApplied }) {
                 type="button"
                 onClick={requestApply}
                 aria-describedby={visibleApplyHint ? 'stocktake-apply-hint' : undefined}
-                className="btn-primary px-4 py-2.5 text-sm"
+                className={`btn-primary px-4 py-2.5 text-sm ${saving ? '' : 'beam-border shadow-[0_4px_14px_rgba(16,185,129,0.35)]'}`}
               >
                 {review.changes.length > 0
                   ? t('inventory.applyWithChanges', { count: review.changes.length })
@@ -492,14 +498,14 @@ export default function StocktakeModal({ items, onClose, onApplied }) {
       ) : step === 'summary' ? (
         <>
           <button type="button" onClick={() => setStep('edit')} disabled={saving} className="btn-secondary px-4 py-2.5 text-sm">{t('inventory.backToCounts')}</button>
-          <button type="button" onClick={apply} disabled={saving} className="btn-primary px-4 py-2.5 text-sm">
+          <button type="button" onClick={apply} disabled={saving} className={`btn-primary px-4 py-2.5 text-sm ${saving ? '' : 'beam-border shadow-[0_4px_14px_rgba(16,185,129,0.35)]'}`}>
             {review.large.length || outcome.major.length ? t('inventory.confirmLarge') : t('inventory.applyStocktake')}
           </button>
         </>
       ) : (
         <>
           <button type="button" onClick={download} className="btn-secondary px-4 py-2.5 text-sm">{t('inventory.downloadStocktake')}</button>
-          <button type="button" onClick={onClose} className="btn-primary px-4 py-2.5 text-sm">{t('inventory.closeStocktake')}</button>
+          <button type="button" onClick={onClose} className="btn-primary beam-border shadow-[0_4px_14px_rgba(16,185,129,0.35)] px-4 py-2.5 text-sm">{t('inventory.closeStocktake')}</button>
         </>
       )}
     >
