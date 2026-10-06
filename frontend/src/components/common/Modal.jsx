@@ -2,6 +2,10 @@ import { useEffect, useLayoutEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 
+// Open panels, oldest first. Only the last (topmost) one reacts to Escape and Tab,
+// so a confirm dialog stacked on another modal doesn't close or trap focus for both.
+const openPanels = []
+
 export default function Modal({
   title,
   titleId = 'modal-title',
@@ -37,6 +41,7 @@ export default function Modal({
     panel?.focus({ preventScroll: true })
 
     const onKeyDown = (event) => {
+      if (openPanels[openPanels.length - 1] !== panel) return
       if (event.key === 'Escape') {
         if (!dismissibleRef.current) return
         event.preventDefault()
@@ -63,8 +68,10 @@ export default function Modal({
       }
     }
 
+    openPanels.push(panel)
     document.addEventListener('keydown', onKeyDown)
     return () => {
+      openPanels.splice(openPanels.indexOf(panel), 1)
       document.removeEventListener('keydown', onKeyDown)
       locked.forEach((node, index) => {
         node.style.overflow = previousOverflow[index]

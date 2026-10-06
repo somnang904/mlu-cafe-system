@@ -1,4 +1,5 @@
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import {
   ArrowDown,
@@ -15,6 +16,7 @@ import {
   Link2,
   Milk,
   Package,
+  Pencil,
   PackagePlus,
   Plus,
   Ruler,
@@ -132,7 +134,7 @@ function formatListAmount(value) {
   return String(Math.round(num * 100) / 100)
 }
 
-// Short labels so the badge fits the 90px Status column.
+// Short labels so the badge fits the 92px Status column.
 const STATUS_SHORT_KEYS = {
   'In Stock': 'inventory.statusShort.inStock',
   'Low Stock': 'inventory.statusShort.low',
@@ -145,7 +147,7 @@ function StockLevel({ item }) {
   const fill = getFillPercent(item)
 
   return (
-    <div className="min-w-0 max-w-[200px]">
+    <div className="min-w-0 max-w-[190px]">
       <p className="truncate text-sm tabular-nums">
         <span className="text-heading font-semibold">{formatListAmount(item.stock_quantity)}</span>
         <span className="text-slate-500 dark:text-zinc-400"> / {formatListAmount(item.max_stock)} {item.unit_label}</span>
@@ -199,106 +201,181 @@ function RecipeBadge({ links }) {
   )
 }
 
+const ROW_MENU_GAP = 6
+const ROW_MENU_EDGE = 8
+
+// Only one row menu may be open; opening another closes the previous one.
+let closeOpenRowMenu = null
+
 function RowActionsMenu({ item, actions }) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
-  const wrapperRef = useRef(null)
+  const [position, setPosition] = useState(null)
+  // The one highlighted item, shared by hover and keyboard (-1 = none).
+  const [activeIndex, setActiveIndex] = useState(-1)
   const triggerRef = useRef(null)
+  const panelRef = useRef(null)
+  const menuRef = useRef(null)
   const itemRefs = useRef([])
+  const closerRef = useRef(null)
 
   const close = useCallback((restoreFocus) => {
     setOpen(false)
+    setPosition(null)
+    setActiveIndex(-1)
     if (restoreFocus) triggerRef.current?.focus()
   }, [])
 
+  // Keyboard opens with the first item highlighted; a mouse click opens with none.
+  const openMenu = (fromKeyboard) => {
+    if (closeOpenRowMenu !== closerRef.current) closeOpenRowMenu?.()
+    closerRef.current = () => close(false)
+    closeOpenRowMenu = closerRef.current
+    setActiveIndex(fromKeyboard ? 0 : -1)
+    setOpen(true)
+  }
+
   useEffect(() => {
     if (!open) return undefined
-    itemRefs.current[0]?.focus()
     const handlePointer = (event) => {
-      if (!wrapperRef.current?.contains(event.target)) close(false)
+      if (triggerRef.current?.contains(event.target) || panelRef.current?.contains(event.target)) return
+      close(false)
     }
     const handleKey = (event) => {
       if (event.key === 'Escape') close(true)
     }
+    const handleScrollOrResize = () => close(false)
     document.addEventListener('pointerdown', handlePointer)
     document.addEventListener('keydown', handleKey)
+    window.addEventListener('scroll', handleScrollOrResize, true)
+    window.addEventListener('resize', handleScrollOrResize)
     return () => {
       document.removeEventListener('pointerdown', handlePointer)
       document.removeEventListener('keydown', handleKey)
+      window.removeEventListener('scroll', handleScrollOrResize, true)
+      window.removeEventListener('resize', handleScrollOrResize)
+      if (closeOpenRowMenu === closerRef.current) closeOpenRowMenu = null
     }
   }, [open, close])
 
+  // Measure the rendered panel, then pin its right edge to the trigger's; flip up when it won't fit below.
+  useLayoutEffect(() => {
+    if (!open) return
+    const rect = triggerRef.current?.getBoundingClientRect()
+    const height = panelRef.current?.offsetHeight ?? 0
+    if (!rect) return
+    const spaceBelow = window.innerHeight - rect.bottom - ROW_MENU_GAP - ROW_MENU_EDGE
+    const spaceAbove = rect.top - ROW_MENU_GAP - ROW_MENU_EDGE
+    const below = height <= spaceBelow || spaceBelow >= spaceAbove
+    setPosition({
+      ...(below
+        ? { top: rect.bottom + ROW_MENU_GAP }
+        : { bottom: window.innerHeight - rect.top + ROW_MENU_GAP }),
+      right: Math.max(ROW_MENU_EDGE, window.innerWidth - rect.right),
+    })
+  }, [open])
+
+  // Keep DOM focus on the highlighted item, or on the menu itself when nothing is highlighted.
+  const placed = position != null
+  useEffect(() => {
+    if (!open || !placed) return
+    const target = activeIndex >= 0 ? itemRefs.current[activeIndex] : menuRef.current
+    target?.focus({ preventScroll: true })
+  }, [open, placed, activeIndex])
+
   const handleMenuKeyDown = (event) => {
-    const focusables = itemRefs.current.filter(Boolean)
-    const index = focusables.indexOf(document.activeElement)
-    if (event.key === 'Escape') {
+    const count = actions.length
+    let next = null
+    if (event.key === 'ArrowDown') next = activeIndex < 0 ? 0 : (activeIndex + 1) % count
+    else if (event.key === 'ArrowUp') next = activeIndex < 0 ? count - 1 : (activeIndex - 1 + count) % count
+    else if (event.key === 'Home') next = 0
+    else if (event.key === 'End') next = count - 1
+    else if (event.key === 'Escape') {
       event.preventDefault()
       event.stopPropagation()
       close(true)
-    } else if (event.key === 'ArrowDown') {
-      event.preventDefault()
-      focusables[(index + 1) % focusables.length]?.focus()
-    } else if (event.key === 'ArrowUp') {
-      event.preventDefault()
-      focusables[(index - 1 + focusables.length) % focusables.length]?.focus()
-    } else if (event.key === 'Home') {
-      event.preventDefault()
-      focusables[0]?.focus()
-    } else if (event.key === 'End') {
-      event.preventDefault()
-      focusables[focusables.length - 1]?.focus()
+      return
     } else if (event.key === 'Tab') {
       close(false)
+      return
     }
+    if (next == null) return
+    event.preventDefault()
+    setActiveIndex(next)
   }
 
+  const menuLabel = `${t('common.actions')}: ${item.item_name}`
+
   return (
-    <div ref={wrapperRef} className="relative">
+    <>
       <button
         ref={triggerRef}
         type="button"
-        onClick={() => setOpen((prev) => !prev)}
+        // detail === 0 means the click came from Enter/Space rather than a pointer.
+        onClick={(event) => (open ? close(false) : openMenu(event.detail === 0))}
         onKeyDown={(event) => {
           if (event.key === 'ArrowDown' && !open) {
             event.preventDefault()
-            setOpen(true)
+            openMenu(true)
           }
         }}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={t('inventory.moreActions', { item: item.item_name })}
         title={t('inventory.moreActions', { item: item.item_name })}
-        className="flex h-[34px] w-[34px] items-center justify-center rounded-full text-slate-600 ring-1 ring-slate-300/80 transition-colors hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500/50 dark:text-zinc-300 dark:ring-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+        className="flex h-8 w-8 items-center justify-center rounded-full text-slate-600 ring-1 ring-slate-300/80 transition-colors hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500/50 dark:text-zinc-300 dark:ring-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
       >
         <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
       </button>
-      {open ? (
+      {open ? createPortal(
+        // Portalled to <body> so the card's overflow can't clip it; hidden until measured and placed.
         <div
-          role="menu"
-          aria-label={item.item_name}
-          onKeyDown={handleMenuKeyDown}
-          className="absolute right-0 top-full z-30 mt-2 min-w-44 rounded-2xl border border-border bg-white p-1.5 shadow-lg dark:bg-card"
+          ref={panelRef}
+          style={position ?? { top: 0, right: 0, visibility: 'hidden' }}
+          className="fixed z-[60] w-56 rounded-2xl border border-border bg-white p-1.5 shadow-xl ring-1 ring-black/5 dark:bg-card"
         >
-          {actions.map((action, index) => (
-            <button
-              key={action.key}
-              ref={(node) => {
-                itemRefs.current[index] = node
-              }}
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                close(false)
-                action.onSelect()
-              }}
-              className="flex w-full items-center rounded-xl px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 focus:bg-slate-100 focus:outline-none dark:text-zinc-300 dark:hover:bg-zinc-800 dark:focus:bg-zinc-800"
-            >
-              {action.label}
-            </button>
-          ))}
-        </div>
+          <div aria-hidden="true" className="border-b border-slate-200 px-3 pb-2 pt-1.5 dark:border-zinc-700/70">
+            <p className="text-[11px] font-medium uppercase tracking-[0.4px] text-slate-500 dark:text-zinc-400">{t('common.actions')}</p>
+            <p className="text-heading truncate text-sm font-semibold" title={item.item_name}>{item.item_name}</p>
+          </div>
+          <div
+            ref={menuRef}
+            role="menu"
+            tabIndex={-1}
+            aria-label={menuLabel}
+            onKeyDown={handleMenuKeyDown}
+            onMouseLeave={() => setActiveIndex(-1)}
+            className="mt-1.5 focus:outline-none"
+          >
+            {actions.map((action, index) => {
+              const Icon = action.icon
+              return (
+                <button
+                  key={action.key}
+                  ref={(node) => {
+                    itemRefs.current[index] = node
+                  }}
+                  type="button"
+                  role="menuitem"
+                  tabIndex={-1}
+                  data-active={index === activeIndex || undefined}
+                  onMouseEnter={() => setActiveIndex(index)}
+                  onClick={() => {
+                    close(false)
+                    action.onSelect()
+                  }}
+                  className="flex min-h-11 w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm md:min-h-0 text-slate-700 focus:outline-none data-[active]:bg-slate-100 data-[active]:text-slate-900 dark:text-zinc-300 dark:data-[active]:bg-zinc-800 dark:data-[active]:text-zinc-100"
+                >
+                  {Icon ? <Icon className="h-4 w-4 shrink-0 text-slate-500 dark:text-zinc-400" aria-hidden="true" /> : null}
+                  <span className="truncate">{action.label}</span>
+                </button>
+              )
+            })}
+          </div>
+        </div>,
+        document.body,
       ) : null}
-    </div>
+    </>
   )
 }
 
@@ -360,9 +437,10 @@ function ListPagination({ page, pageCount, total, onPageChange }) {
   )
 }
 
-// From md (768px) up: Name | Quantity | Status | actions, shared by the header and every row.
+// From md (768px) up: Name | Quantity | Status | Action, shared by the header and every row.
+// Status and Action sit side by side; the Action buttons are centred under their header.
 // Below md the header is hidden and each row stacks name + status over quantity, with buttons on the right.
-const LIST_COLUMNS = 'md:grid-cols-[minmax(0,1.6fr)_minmax(0,1.2fr)_90px_76px] md:gap-x-[14px]'
+const LIST_COLUMNS = 'md:grid-cols-[minmax(0,1.5fr)_minmax(0,1.1fr)_92px_84px] md:gap-x-[14px]'
 
 function compareNames(a, b) {
   return String(a.item_name || '').localeCompare(String(b.item_name || ''), undefined, { numeric: true, sensitivity: 'base' })
@@ -372,6 +450,8 @@ function compareNames(a, b) {
 const LIST_SORTERS = {
   name: compareNames,
   quantity: (a, b) => getFillPercent(a) - getFillPercent(b) || compareNames(a, b),
+  // Ascending is most urgent first (Out, Very low, Low, In stock), the same as the default order.
+  status: compareStockUrgency,
 }
 
 /** First click ascending, second descending, third back to the default urgency order. */
@@ -390,7 +470,7 @@ function SortHeaderButton({ label, sortKey, sort, onSort, className = '' }) {
     <button
       type="button"
       onClick={() => onSort(nextSort(sort, sortKey))}
-      className={`inline-flex items-center gap-1 rounded-md text-left uppercase tracking-wide transition-colors hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500/50 dark:hover:text-zinc-200 ${
+      className={`inline-flex items-center gap-1 rounded-md text-left uppercase tracking-[0.4px] transition-colors hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500/50 dark:hover:text-zinc-200 ${
         active ? 'text-forest-700 dark:text-forest-400' : ''
       } ${className}`}
     >
@@ -405,11 +485,11 @@ function InventoryListHeader({ sort, onSort }) {
   const { t } = useTranslation()
 
   return (
-    <div role="row" className={`sticky top-0 z-20 hidden items-center rounded-t-2xl border-b border-slate-300/80 bg-slate-100 px-5 py-2.5 text-xs font-medium text-slate-500 md:grid dark:border-zinc-700/70 dark:bg-zinc-800 dark:text-zinc-400 ${LIST_COLUMNS}`}>
+    <div role="row" className={`sticky top-0 z-20 hidden items-center rounded-t-2xl border-b border-slate-300/80 bg-slate-50 px-5 py-2 text-[11px] font-medium leading-4 text-slate-500 md:grid dark:border-zinc-700/70 dark:bg-zinc-800 dark:text-zinc-400 ${LIST_COLUMNS}`}>
       <SortHeaderButton label={t('inventory.colName')} sortKey="name" sort={sort} onSort={onSort} />
       <SortHeaderButton label={t('inventory.colQuantity')} sortKey="quantity" sort={sort} onSort={onSort} />
-      <span role="columnheader" className="uppercase tracking-wide">{t('common.status')}</span>
-      <span role="columnheader"><span className="sr-only">{t('common.action')}</span></span>
+      <SortHeaderButton label={t('common.status')} sortKey="status" sort={sort} onSort={onSort} />
+      <span role="columnheader" className="text-center uppercase tracking-[0.4px]">{t('common.action')}</span>
     </div>
   )
 }
@@ -442,16 +522,16 @@ function InventoryList({ items, onRestock, onHistory, onAdjust, onEdit, onLink, 
       {items.map((item) => {
         const status = getStatus(item)
         const actions = [
-          { key: 'history', label: t('inventory.history'), onSelect: () => onHistory(item) },
-          canManageItems && { key: 'edit', label: t('inventory.editItem'), onSelect: () => onEdit(item) },
-          canAdjustStock && { key: 'adjust', label: t('inventory.adjustStock'), onSelect: () => onAdjust(item) },
-          canManageItems && { key: 'link', label: t('inventory.linkRecipe'), onSelect: () => onLink(item) },
+          { key: 'history', icon: History, label: t('inventory.history'), onSelect: () => onHistory(item) },
+          canManageItems && { key: 'edit', icon: Pencil, label: t('inventory.editItem'), onSelect: () => onEdit(item) },
+          canAdjustStock && { key: 'adjust', icon: SlidersHorizontal, label: t('inventory.adjustStock'), onSelect: () => onAdjust(item) },
+          canManageItems && { key: 'link', icon: Link2, label: t('inventory.linkRecipe'), onSelect: () => onLink(item) },
         ].filter(Boolean)
 
         return (
           <li key={item.id} role="row" className={`grid min-h-[60px] grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 px-4 py-2.5 transition-colors first:rounded-t-2xl hover:bg-slate-50 md:first:rounded-none md:px-5 dark:hover:bg-zinc-800/40 ${LIST_COLUMNS}`}>
             <div role="cell" className="col-start-1 row-start-1 flex min-w-0 items-center gap-2 md:col-auto md:row-auto">
-              <span className="text-heading truncate text-sm font-semibold" title={item.item_name}>{item.item_name}</span>
+              <span className="text-heading min-w-0 truncate text-[15px] font-semibold" title={item.item_name}>{item.item_name}</span>
               {item.menu_links?.length ? <span className="shrink-0"><RecipeBadge links={item.menu_links} /></span> : null}
               {/* Small screens: status rides on the name line; md+ gives it its own column. */}
               <span className="shrink-0 md:hidden">
@@ -468,13 +548,13 @@ function InventoryList({ items, onRestock, onHistory, onAdjust, onEdit, onLink, 
                 {t(STATUS_SHORT_KEYS[status])}
               </StatusBadge>
             </div>
-            <div role="cell" className="col-start-2 row-span-2 row-start-1 flex items-center gap-2 justify-self-end md:col-auto md:row-auto md:row-span-1">
+            <div role="cell" className="col-start-2 row-span-2 row-start-1 flex items-center gap-2 justify-self-end md:col-auto md:row-auto md:row-span-1 md:justify-self-center">
               <button
                 type="button"
                 onClick={() => onRestock(item)}
                 aria-label={`${t('inventory.addStock')}: ${item.item_name}`}
                 title={t('inventory.addStock')}
-                className="flex h-[34px] w-[34px] items-center justify-center rounded-full bg-forest-500 text-white shadow-sm transition-colors hover:bg-forest-600 active:bg-forest-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-forest-500 text-white shadow-sm transition-colors hover:bg-forest-600 active:bg-forest-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
               >
                 <Plus className="h-4 w-4" />
               </button>
