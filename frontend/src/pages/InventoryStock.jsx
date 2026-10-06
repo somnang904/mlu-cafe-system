@@ -1,11 +1,43 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowDown, ArrowUp, ChevronDown, Link2, Plus, Search, X } from 'lucide-react'
+import {
+  ArrowDown,
+  ArrowUp,
+  Box,
+  Boxes,
+  ChefHat,
+  ChevronDown,
+  CupSoda,
+  Egg,
+  Hash,
+  History,
+  Layers,
+  Link2,
+  Milk,
+  Package,
+  PackagePlus,
+  Plus,
+  Ruler,
+  Scale,
+  Search,
+  ShoppingBag,
+  SlidersHorizontal,
+  StickyNote,
+  Tag,
+  Trash2,
+  TriangleAlert,
+  Utensils,
+  Wine,
+  Wrench,
+} from 'lucide-react'
 import Modal from '../components/common/Modal'
 import StocktakeModal from '../components/inventory/StocktakeModal'
 import CategoryChips, { groupCategories, inventoryCategoryLabel } from '../components/inventory/CategoryChips'
 import ExpenseLogModal from '../components/finance/ExpenseLogModal'
 import StatusBadge from '../components/common/StatusBadge'
+import FieldLabel from '../components/ui/FieldLabel'
+import IconSelect from '../components/ui/IconSelect'
+import ModalHeader from '../components/ui/ModalHeader'
 import { useAuth } from '../context/AuthContext'
 import { userHasPermission } from '../utils/permissions'
 import { apiFetch } from '../services/apiClient'
@@ -498,19 +530,16 @@ function RestockModal({ item, onClose, onSave }) {
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
+        aria-labelledby="stock-restock-title"
         className="modal-panel relative z-10 w-full max-w-md p-6"
       >
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h3 className="text-heading text-lg">{t('inventory.addStock')}</h3>
-            <p className="text-muted mt-1 text-sm">
-              {t('inventory.addStockFor', { item: item.item_name })}
-            </p>
-          </div>
-          <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-stone-400">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
+        <ModalHeader
+          icon={PackagePlus}
+          titleId="stock-restock-title"
+          title={t('inventory.addStock')}
+          subtitle={t('inventory.addStockFor', { item: item.item_name })}
+          onClose={onClose}
+        />
 
         <div className="surface-inset mt-5 space-y-3 px-4 py-4">
           <div className="flex items-center justify-between gap-4">
@@ -527,9 +556,9 @@ function RestockModal({ item, onClose, onSave }) {
 
         <form onSubmit={handleSubmit} className="mt-6 space-y-4">
           <div>
-            <label htmlFor="quantity-to-add" className="mb-1.5 block text-sm font-medium">
+            <FieldLabel icon={Hash} htmlFor="quantity-to-add">
               {t('inventory.receivedQuantity', { units })}
-            </label>
+            </FieldLabel>
             <div className="flex items-center gap-2">
               <input
                 id="quantity-to-add"
@@ -563,7 +592,7 @@ function RestockModal({ item, onClose, onSave }) {
 
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary flex-1 py-2.5 text-sm">{t('common.cancel')}</button>
-            <button type="submit" className="btn-primary flex-1 py-2.5 text-sm">{t('inventory.addStock')}</button>
+            <button type="submit" className="btn-primary beam-border shadow-[0_4px_14px_rgba(16,185,129,0.35)] flex-1 py-2.5 text-sm">{t('inventory.addStock')}</button>
           </div>
         </form>
       </div>
@@ -595,6 +624,8 @@ function HistoryModal({ item, onClose }) {
   return (
     <Modal
       title={t('inventory.historyFor', { item: item.item_name })}
+      header={<ModalHeader icon={History} titleId="stock-history-title" title={t('inventory.historyFor', { item: item.item_name })} />}
+      titleId="stock-history-title"
       onClose={onClose}
       closeLabel={t('a11y.close')}
       maxWidth="max-w-lg"
@@ -671,52 +702,63 @@ function AdjustModal({ item, onClose, onSaved }) {
   return (
     <Modal
       title={t('inventory.adjustStock')}
+      header={<ModalHeader icon={SlidersHorizontal} iconClassName="text-amber-600 dark:text-amber-400" titleId="stock-adjust-title" title={t('inventory.adjustStock')} subtitle={item.item_name} />}
+      titleId="stock-adjust-title"
       onClose={onClose}      closeLabel={t('a11y.close')}
       maxWidth="max-w-md"
       footer={(
         <>
           <button type="button" onClick={onClose} className="btn-secondary flex-1 py-2.5 text-sm">{t('common.cancel')}</button>
-          <button type="submit" form="adjust-stock-form" disabled={saving} className="btn-primary flex-1 py-2.5 text-sm">
+          <button type="submit" form="adjust-stock-form" disabled={saving} className={`btn-primary flex-1 py-2.5 text-sm ${saving ? '' : 'beam-border shadow-[0_4px_14px_rgba(16,185,129,0.35)]'}`}>
             {t('inventory.saveAdjustment')}
           </button>
         </>
       )}
     >
       <form id="adjust-stock-form" onSubmit={handleSubmit} className="space-y-4">
-        <p className="text-muted text-sm">{item.item_name}</p>
-        <label className="block text-sm font-medium">
-          {t('inventory.exactCount', { units: item.unit_label })}
+        <div>
+          <FieldLabel icon={Hash} htmlFor="adjust-count">
+            {t('inventory.exactCount', { units: item.unit_label })}
+          </FieldLabel>
           <input
+            id="adjust-count"
             type="number"
             step={step}
             value={count}
             onChange={(event) => setCount(event.target.value)}
-            className="input-field mt-1.5"
+            className="input-field"
             required
           />
-        </label>
-        <label className="block text-sm font-medium">
-          {t('inventory.reason')}
-          <select
+        </div>
+        <div>
+          <FieldLabel icon={Layers} htmlFor="adjust-reason">
+            {t('inventory.reason')}
+          </FieldLabel>
+          <IconSelect
+            id="adjust-reason"
             value={reason}
-            onChange={(event) => setReason(event.target.value)}
-            className="input-field mt-1.5"
-          >
-            <option value="waste">{t('inventory.reasonWaste')}</option>
-            <option value="correction">{t('inventory.reasonCorrection')}</option>
-          </select>
-        </label>
-        <label className="block text-sm font-medium">
-          {t('inventory.note')}
+            onChange={setReason}
+            className="rounded-xl"
+            options={[
+              { value: 'waste', label: t('inventory.reasonWaste'), icon: Trash2 },
+              { value: 'correction', label: t('inventory.reasonCorrection'), icon: Wrench },
+            ]}
+          />
+        </div>
+        <div>
+          <FieldLabel icon={StickyNote} htmlFor="adjust-note">
+            {t('inventory.note')}
+          </FieldLabel>
           <input
+            id="adjust-note"
             type="text"
             value={note}
             maxLength={255}
             onChange={(event) => setNote(event.target.value)}
-            className="input-field mt-1.5"
+            className="input-field"
             required
           />
-        </label>
+        </div>
         {error ? <p className="text-sm text-red-600">{error}</p> : null}
       </form>
     </Modal>
@@ -735,6 +777,18 @@ const STOCK_UNITS = [
   { id: 'tea bags', section: 'countable' },
 ]
 
+const UNIT_ICONS = {
+  kg: Scale,
+  bags: ShoppingBag,
+  bottles: Wine,
+  packs: Package,
+  boxes: Box,
+  eggs: Egg,
+  coconuts: Milk,
+  cans: CupSoda,
+  'tea bags': Tag,
+}
+
 function unitsFor(section) {
   return STOCK_UNITS.filter((unit) => unit.section === section)
 }
@@ -748,7 +802,7 @@ function defaultThresholds(max) {
   }
 }
 
-function SearchField({ label, placeholder, query, onQuery, options, onSelect, emptyAction }) {
+function SearchField({ id, icon, label, placeholder, query, onQuery, options, onSelect, emptyAction }) {
   const [open, setOpen] = useState(false)
   const shown = options.filter((option) =>
     option.label.toLowerCase().includes(query.trim().toLowerCase()),
@@ -756,21 +810,22 @@ function SearchField({ label, placeholder, query, onQuery, options, onSelect, em
 
   return (
     <div>
-      <label className="block text-sm font-medium">
+      <FieldLabel icon={icon} htmlFor={id}>
         {label}
-        <input
-          type="text"
-          value={query}
-          placeholder={placeholder}
-          onChange={(event) => {
-            onQuery(event.target.value)
-            setOpen(true)
-          }}
-          onFocus={() => setOpen(true)}
-          className="input-field mt-1.5 w-full"
-          autoComplete="off"
-        />
-      </label>
+      </FieldLabel>
+      <input
+        id={id}
+        type="text"
+        value={query}
+        placeholder={placeholder}
+        onChange={(event) => {
+          onQuery(event.target.value)
+          setOpen(true)
+        }}
+        onFocus={() => setOpen(true)}
+        className="input-field w-full"
+        autoComplete="off"
+      />
       {open ? (
         <ul className="mt-1 max-h-40 overflow-y-auto rounded-xl border border-border bg-card">
           {shown.map((option) => (
@@ -905,6 +960,13 @@ function ItemFormModal({ mode, item, prefillName, stacked, onClose, onSaved, onU
   return (
     <Modal
       title={editing ? t('inventory.editItemFor', { item: item.item_name }) : t('inventory.addItem')}
+      header={(
+        <ModalHeader
+          icon={editing ? Wrench : Plus}
+          titleId="stock-item-form-title"
+          title={editing ? t('inventory.editItemFor', { item: item.item_name }) : t('inventory.addItem')}
+        />
+      )}
       titleId="stock-item-form-title"
       onClose={onClose}      closeLabel={t('a11y.close')}
       stacked={stacked}
@@ -912,55 +974,63 @@ function ItemFormModal({ mode, item, prefillName, stacked, onClose, onSaved, onU
       footer={(
         <>
           <button type="button" onClick={onClose} className="btn-secondary min-w-[8rem] flex-1 py-2.5 text-sm">{t('common.cancel')}</button>
-          <button type="submit" form="stock-item-form" disabled={saving} className="btn-primary min-w-[8rem] flex-1 py-2.5 text-sm">
+          <button type="submit" form="stock-item-form" disabled={saving} className={`btn-primary min-w-[8rem] flex-1 py-2.5 text-sm ${saving ? '' : 'beam-border shadow-[0_4px_14px_rgba(16,185,129,0.35)]'}`}>
             {confirmUnit ? t('inventory.changeUnit') : t('inventory.saveItem')}
           </button>
         </>
       )}
     >
       <form id="stock-item-form" onSubmit={handleSubmit} className="space-y-3">
-        <label className="block text-sm font-medium">
-          {t('inventory.itemName')}
-          <input value={name} onChange={(event) => setName(event.target.value)} className="input-field mt-1.5 w-full" required />
-        </label>
-        <label className="block text-sm font-medium">
-          {t('common.category')}
-          <input value={category} onChange={(event) => setCategory(event.target.value)} className="input-field mt-1.5 w-full" required />
-        </label>
-        <label className="block text-sm font-medium">
-          {t('inventory.tableType')}
-          <select value={section} onChange={(event) => changeSection(event.target.value)} className="input-field mt-1.5 w-full">
-            <option value="uncountable">{t('inventory.kitchenKg')}</option>
-            <option value="countable">{t('inventory.barUnit')}</option>
-          </select>
-        </label>
-        <label className="block text-sm font-medium">
-          {t('inventory.unit')}
-          <select value={unit} onChange={(event) => setUnit(event.target.value)} className="input-field mt-1.5 w-full">
-            {unitsFor(section).map((entry) => (
-              <option key={entry.id} value={entry.id}>{entry.id}</option>
-            ))}
-          </select>
-        </label>
+        <div>
+          <FieldLabel icon={Package} htmlFor="stock-item-name">{t('inventory.itemName')}</FieldLabel>
+          <input id="stock-item-name" value={name} onChange={(event) => setName(event.target.value)} className="input-field w-full" required />
+        </div>
+        <div>
+          <FieldLabel icon={Tag} htmlFor="stock-item-category">{t('common.category')}</FieldLabel>
+          <input id="stock-item-category" value={category} onChange={(event) => setCategory(event.target.value)} className="input-field w-full" required />
+        </div>
+        <div>
+          <FieldLabel icon={Layers} htmlFor="stock-item-section">{t('inventory.tableType')}</FieldLabel>
+          <IconSelect
+            id="stock-item-section"
+            value={section}
+            onChange={changeSection}
+            className="rounded-xl"
+            options={[
+              { value: 'uncountable', label: t('inventory.kitchenKg'), icon: ChefHat },
+              { value: 'countable', label: t('inventory.barUnit'), icon: Utensils },
+            ]}
+          />
+        </div>
+        <div>
+          <FieldLabel icon={Ruler} htmlFor="stock-item-unit">{t('inventory.unit')}</FieldLabel>
+          <IconSelect
+            id="stock-item-unit"
+            value={unit}
+            onChange={setUnit}
+            className="rounded-xl"
+            options={unitsFor(section).map((entry) => ({ value: entry.id, label: entry.id, icon: UNIT_ICONS[entry.id] }))}
+          />
+        </div>
         {editing ? null : (
-          <label className="block text-sm font-medium">
-            {t('inventory.currentCount')}
-            <input type="number" min="0" step={section === 'uncountable' ? '0.001' : '1'} value={stock} onChange={(event) => setStock(event.target.value)} className="input-field mt-1.5 w-full" required />
-          </label>
+          <div>
+            <FieldLabel icon={Hash} htmlFor="stock-item-count">{t('inventory.currentCount')}</FieldLabel>
+            <input id="stock-item-count" type="number" min="0" step={section === 'uncountable' ? '0.001' : '1'} value={stock} onChange={(event) => setStock(event.target.value)} className="input-field w-full" required />
+          </div>
         )}
-        <label className="block text-sm font-medium">
-          {t('inventory.maximum')}
-          <input type="number" min="0" step={section === 'uncountable' ? '0.001' : '1'} value={max} onChange={(event) => changeMax(event.target.value)} className="input-field mt-1.5 w-full" required />
-        </label>
+        <div>
+          <FieldLabel icon={Boxes} htmlFor="stock-item-max">{t('inventory.maximum')}</FieldLabel>
+          <input id="stock-item-max" type="number" min="0" step={section === 'uncountable' ? '0.001' : '1'} value={max} onChange={(event) => changeMax(event.target.value)} className="input-field w-full" required />
+        </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <label className="block text-sm font-medium">
-            {t('inventory.lowThreshold')}
-            <input type="number" min="0" step="0.001" value={low} onChange={(event) => { setThresholdsTouched(true); setLow(event.target.value) }} className="input-field mt-1.5 w-full" required />
-          </label>
-          <label className="block text-sm font-medium">
-            {t('inventory.veryLowThreshold')}
-            <input type="number" min="0" step="0.001" value={critical} onChange={(event) => { setThresholdsTouched(true); setCritical(event.target.value) }} className="input-field mt-1.5 w-full" required={!editing} />
-          </label>
+          <div>
+            <FieldLabel icon={ArrowDown} htmlFor="stock-item-low">{t('inventory.lowThreshold')}</FieldLabel>
+            <input id="stock-item-low" type="number" min="0" step="0.001" value={low} onChange={(event) => { setThresholdsTouched(true); setLow(event.target.value) }} className="input-field w-full" required />
+          </div>
+          <div>
+            <FieldLabel icon={TriangleAlert} htmlFor="stock-item-critical">{t('inventory.veryLowThreshold')}</FieldLabel>
+            <input id="stock-item-critical" type="number" min="0" step="0.001" value={critical} onChange={(event) => { setThresholdsTouched(true); setCritical(event.target.value) }} className="input-field w-full" required={!editing} />
+          </div>
         </div>
         {existing ? (
           <div className="space-y-2">
@@ -1051,6 +1121,7 @@ function LinkModal({ item, stockItems, pickedStock, onRequestCreate, onClose, on
   return (
     <Modal
       title={t('inventory.linkRecipe')}
+      header={<ModalHeader icon={Link2} titleId="stock-link-title" title={t('inventory.linkRecipe')} />}
       titleId="stock-link-title"
       onClose={onClose}      closeLabel={t('a11y.close')}
       dismissible={dismissible}
@@ -1058,7 +1129,7 @@ function LinkModal({ item, stockItems, pickedStock, onRequestCreate, onClose, on
       footer={(
         <>
           <button type="button" onClick={onClose} className="btn-secondary flex-1 py-2.5 text-sm">{t('common.cancel')}</button>
-          <button type="submit" form="stock-link-form" disabled={saving} className="btn-primary flex-1 py-2.5 text-sm">
+          <button type="submit" form="stock-link-form" disabled={saving} className={`btn-primary flex-1 py-2.5 text-sm ${saving ? '' : 'beam-border shadow-[0_4px_14px_rgba(16,185,129,0.35)]'}`}>
             {t('inventory.saveLink')}
           </button>
         </>
@@ -1080,6 +1151,8 @@ function LinkModal({ item, stockItems, pickedStock, onRequestCreate, onClose, on
           <p className="text-muted text-sm">{t('inventory.notLinked')}</p>
         )}
         <SearchField
+          id="stock-link-menu"
+          icon={Utensils}
           label={t('inventory.chooseMenuItem')}
           placeholder={t('inventory.chooseMenuItem')}
           query={menuQuery}
@@ -1091,6 +1164,8 @@ function LinkModal({ item, stockItems, pickedStock, onRequestCreate, onClose, on
           }}
         />
         <SearchField
+          id="stock-link-ingredient"
+          icon={Package}
           label={t('inventory.chooseIngredient')}
           placeholder={t('inventory.searchIngredients')}
           query={stockQuery}
@@ -1112,18 +1187,21 @@ function LinkModal({ item, stockItems, pickedStock, onRequestCreate, onClose, on
             <span className="text-muted text-sm">{t('inventory.noMatches')}</span>
           )}
         />
-        <label className="block text-sm font-medium">
-          {t('inventory.perSale')}
+        <div>
+          <FieldLabel icon={Scale} htmlFor="stock-link-per-sale">
+            {t('inventory.perSale')}
+          </FieldLabel>
           <input
+            id="stock-link-per-sale"
             type="number"
             min="0.01"
             step="0.001"
             value={perSale}
             onChange={(event) => setPerSale(event.target.value)}
-            className="input-field mt-1.5"
+            className="input-field"
             required
           />
-        </label>
+        </div>
         {error ? <p className="text-sm text-red-600">{error}</p> : null}
       </form>
     </Modal>

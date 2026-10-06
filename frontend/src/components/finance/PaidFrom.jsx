@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { Banknote, Landmark, UserRound } from 'lucide-react'
+import { Banknote, Landmark, UserRound, Wallet } from 'lucide-react'
 
 const SOURCES = [
   { id: 'drawer', icon: Banknote },
@@ -27,7 +27,8 @@ export function PaidFromSelector({ value, onChange, idPrefix = 'expense' }) {
 
   return (
     <div>
-      <p id={labelId} className="mb-1.5 block text-sm font-medium text-stone-700 dark:text-zinc-300">
+      <p id={labelId} className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-zinc-400">
+        <Wallet className="h-4 w-4 shrink-0 text-forest-600 dark:text-forest-400" aria-hidden />
         {t('expenses.paidFrom')}
       </p>
       <div
