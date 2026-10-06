@@ -491,7 +491,7 @@ function RestockModal({ item, onClose, onSave }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <button type="button" className="modal-backdrop" onClick={onClose} />
+      <div className="modal-backdrop" aria-hidden="true" />
 
       <div
         ref={panelRef}
@@ -671,8 +671,7 @@ function AdjustModal({ item, onClose, onSaved }) {
   return (
     <Modal
       title={t('inventory.adjustStock')}
-      onClose={onClose}
-      closeLabel={t('a11y.close')}
+      onClose={onClose}      closeLabel={t('a11y.close')}
       maxWidth="max-w-md"
       footer={(
         <>
@@ -907,8 +906,7 @@ function ItemFormModal({ mode, item, prefillName, stacked, onClose, onSaved, onU
     <Modal
       title={editing ? t('inventory.editItemFor', { item: item.item_name }) : t('inventory.addItem')}
       titleId="stock-item-form-title"
-      onClose={onClose}
-      closeLabel={t('a11y.close')}
+      onClose={onClose}      closeLabel={t('a11y.close')}
       stacked={stacked}
       maxWidth="max-w-md"
       footer={(
@@ -1054,8 +1052,7 @@ function LinkModal({ item, stockItems, pickedStock, onRequestCreate, onClose, on
     <Modal
       title={t('inventory.linkRecipe')}
       titleId="stock-link-title"
-      onClose={onClose}
-      closeLabel={t('a11y.close')}
+      onClose={onClose}      closeLabel={t('a11y.close')}
       dismissible={dismissible}
       maxWidth="max-w-md"
       footer={(

@@ -85,7 +85,7 @@ export default function SplitBillModal({ isOpen, onClose, bill, onPaySplit }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <button type="button" aria-label={t('a11y.close')} className="modal-backdrop" onClick={onClose} />
+      <div className="modal-backdrop" aria-hidden="true" />
 
       <div
         ref={panelRef}

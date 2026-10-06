@@ -163,7 +163,7 @@ function UserFormModal({ mode, user, onClose, onSave }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <button type="button" className="modal-backdrop" onClick={onClose} />
+      <div className="modal-backdrop" aria-hidden="true" />
 
       <div className="modal-panel relative z-10 max-h-[90vh] w-full max-w-md overflow-y-auto p-6">
         <div className="flex items-start justify-between">

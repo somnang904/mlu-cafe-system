@@ -24,12 +24,7 @@ export default function ConfirmDeleteModal({
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
-      <button
-        type="button"
-        aria-label={t('a11y.cancelDeletion')}
-        className="modal-backdrop"
-        onClick={onCancel}
-      />
+      <div className="modal-backdrop" aria-hidden="true" />
       <div
         ref={panelRef}
         tabIndex={-1}

@@ -23,12 +23,7 @@ function ModalShell({ onClose, printLabel, documentContent }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 print:relative print:inset-auto print:block print:bg-transparent print:p-0">
-      <button
-        type="button"
-        aria-label={t('a11y.close')}
-        className="modal-backdrop print:hidden"
-        onClick={onClose}
-      />
+      <div className="modal-backdrop print:hidden" aria-hidden="true" />
 
       <div
         ref={panelRef}

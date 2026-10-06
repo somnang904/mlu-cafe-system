@@ -70,7 +70,7 @@ export default function ConfirmationLetterModal({ isOpen, reservation, onClose }
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
-      <button type="button" aria-label="Close confirmation letter" className="modal-backdrop" onClick={onClose} />
+      <div className="modal-backdrop" aria-hidden="true" />
       <div
         ref={panelRef}
         tabIndex={-1}

@@ -148,8 +148,7 @@ function ReportExportDialog({ kind, selectedMonth, periodLabel, onClose }) {
       titleId="report-export-title"
       onClose={onClose}
       closeLabel={t('a11y.closeModal')}
-      dismissible={!saving}
-      footer={(
+      dismissible={!saving}      footer={(
         <>
           <button
             type="button"

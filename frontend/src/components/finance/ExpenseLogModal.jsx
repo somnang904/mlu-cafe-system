@@ -133,8 +133,7 @@ export default function ExpenseLogModal({
       titleId="expense-log-title"
       closeLabel={t('a11y.close')}
       onClose={onClose}
-      dismissible={!saving}
-      maxWidth="max-w-md"
+      dismissible={!saving}      maxWidth="max-w-md"
       header={(
         <div>
           <h3 id="expense-log-title" className="text-heading text-lg font-semibold">

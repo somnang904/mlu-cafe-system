@@ -385,8 +385,7 @@ export default function StocktakeModal({ items, onClose, onApplied }) {
       ) : undefined}
       onClose={onClose}
       closeLabel={t('a11y.close')}
-      dismissible={!saving}
-      maxWidth="max-w-4xl"
+      dismissible={!saving}      maxWidth="max-w-4xl"
       footer={step === 'edit' ? (
         <div className="flex w-full flex-wrap items-center justify-between gap-x-6 gap-y-3 border-t border-border pt-4">
           <div className="min-w-[10rem] flex-1 sm:max-w-xs">

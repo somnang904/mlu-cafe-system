@@ -513,12 +513,7 @@ export default function MenuManagement() {
 
       {showDetailsModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overscroll-contain">
-          <button
-            type="button"
-            aria-label={t('a11y.closeModal')}
-            className="modal-backdrop"
-            onClick={handleCloseDetailsModal}
-          />
+          <div className="modal-backdrop" aria-hidden="true" />
           <div
             ref={detailsPanelRef}
             tabIndex={-1}
