@@ -11,7 +11,6 @@ const VALID_PAGES = new Set([
   'sales_history',
   'inventory',
   'reports_analysis',
-  'settings',
   'backup_recovery',
 ])
 
