@@ -1,4 +1,11 @@
-const { TIME_SLOTS, getTimeSlotsForDate, isMonday, formatTimeRange12Hour } = require('../config/siteData')
+const {
+  TIME_SLOTS,
+  STORE_SCHEDULE,
+  getTimeSlotsForDate,
+  isHighSeasonMonth,
+  isMonday,
+  formatTimeRange12Hour,
+} = require('../config/siteData')
 const { dismissReservationAlerts } = require('./adminNotifications')
 
 const ACTIVE_STATUSES = ['Pending', 'Confirmed', 'Paid', 'Reserved']
@@ -22,6 +29,11 @@ const FLOOR_TABLES = [
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/
+
+// Hand-typed times are free-form, so they only have to stay sane and inside
+// the opening hours for the date. Preset slots skip these bounds.
+const MIN_DURATION_MINUTES = 30
+const MAX_DURATION_MINUTES = 12 * 60
 
 let schemaReadyPromise = null
 
@@ -163,6 +175,20 @@ function addMinutesHHmm(hhmm, minutes) {
   return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
 }
 
+function minutesFromHHmm(hhmm) {
+  const [hour, minute] = formatTimeSlot(hhmm).split(':').map(Number)
+  if (!Number.isInteger(hour) || !Number.isInteger(minute)) return 0
+  return hour * 60 + minute
+}
+
+function seasonForDate(reservationDate) {
+  return isHighSeasonMonth(reservationDate) ? STORE_SCHEDULE.highSeason : STORE_SCHEDULE.lowSeason
+}
+
+function overlaps(startA, endA, startB, endB) {
+  return startA < endB && startB < endA
+}
+
 function slotMeta(timeSlot) {
   const normalized = formatTimeSlot(timeSlot)
   const found = TIME_SLOTS.find((slot) => slot.value === normalized)
@@ -217,6 +243,27 @@ function httpError(status, message) {
   return Object.assign(new Error(message), { status })
 }
 
+function assertWithinOperatingHours(reservationDate, timeSlot, durationMinutes) {
+  if (durationMinutes < MIN_DURATION_MINUTES || durationMinutes > MAX_DURATION_MINUTES) {
+    throw httpError(
+      400,
+      `A booking must last between ${MIN_DURATION_MINUTES} minutes and ${MAX_DURATION_MINUTES / 60} hours`,
+    )
+  }
+
+  const season = seasonForDate(reservationDate)
+  const opensAt = `${String(season.openHour).padStart(2, '0')}:00`
+  const closesAt = `${String(season.closeHour).padStart(2, '0')}:00`
+  const start = minutesFromHHmm(timeSlot)
+
+  if (start < season.openHour * 60 || start + durationMinutes > season.closeHour * 60) {
+    throw httpError(
+      400,
+      `Bookings on that date must stay between ${formatTimeRange12Hour(opensAt, closesAt)}`,
+    )
+  }
+}
+
 function parsePayload(payload = {}) {
   const customerName = String(payload.customer_name || '').trim()
   const phone = String(payload.phone || '').trim()
@@ -254,15 +301,18 @@ function parsePayload(payload = {}) {
 
   const bookable = isMonday(reservationDate) ? [] : getTimeSlotsForDate(reservationDate)
   const matchedSlot = bookable.find((slot) => slot.value === timeSlot)
-  if (isActive && !matchedSlot) {
-    throw httpError(400, 'That time slot is outside operating hours for the selected date')
-  }
 
   const parsedDuration = Number.parseInt(payload.duration_minutes, 10)
   const durationMinutes =
     (Number.isInteger(parsedDuration) && parsedDuration > 0 ? parsedDuration : null) ||
     matchedSlot?.durationMinutes ||
     slotMeta(timeSlot).durationMinutes
+
+  // Preset slots are generated from the opening hours already; a hand-typed
+  // time only has to land inside them.
+  if (isActive && !matchedSlot) {
+    assertWithinOperatingHours(reservationDate, timeSlot, durationMinutes)
+  }
 
   return {
     customerName,
@@ -303,22 +353,37 @@ async function findTable(db, tableId) {
   return rows[0] || null
 }
 
-async function findConflict(db, { tableId, reservationDate, timeSlot, excludeId = null }) {
-  const params = [tableId, reservationDate, timeSlot, ...HOLD_STATUSES]
+async function findConflict(db, {
+  tableId,
+  reservationDate,
+  timeSlot,
+  durationMinutes = 120,
+  excludeId = null,
+}) {
+  const params = [tableId, reservationDate, ...HOLD_STATUSES]
   let sql = `
-    SELECT id FROM reservations
+    SELECT id, time_slot, duration_minutes FROM reservations
     WHERE table_id = ?
       AND reservation_date = ?
-      AND time_slot = ?
       AND status IN (${HOLD_STATUSES.map(() => '?').join(', ')})
   `
   if (excludeId) {
     sql += ' AND id <> ?'
     params.push(excludeId)
   }
-  sql += ' LIMIT 1'
+
+  // Hand-typed times rarely line up with an existing start, so compare the
+  // whole window instead of matching the start time exactly.
   const [rows] = await db.execute(sql, params)
-  return rows[0] || null
+  const start = minutesFromHHmm(timeSlot)
+  const end = start + (Number(durationMinutes) || 120)
+
+  return (
+    rows.find((row) => {
+      const rowStart = minutesFromHHmm(row.time_slot)
+      return overlaps(start, end, rowStart, rowStart + (Number(row.duration_minutes) || 120))
+    }) || null
+  )
 }
 
 async function listReservations(db, query = {}) {
@@ -388,9 +453,10 @@ async function createReservation(db, payload, user) {
       tableId: data.tableId,
       reservationDate: data.reservationDate,
       timeSlot: data.timeSlot,
+      durationMinutes: data.durationMinutes,
     })
     if (conflict) {
-      throw httpError(409, `${table.table_name} is already booked for that date and time slot`)
+      throw httpError(409, `${table.table_name} is already booked during that time`)
     }
   }
 
@@ -430,10 +496,11 @@ async function updateReservation(db, id, payload) {
       tableId: data.tableId,
       reservationDate: data.reservationDate,
       timeSlot: data.timeSlot,
+      durationMinutes: data.durationMinutes,
       excludeId: existing.id,
     })
     if (conflict) {
-      throw httpError(409, `${table.table_name} is already booked for that date and time slot`)
+      throw httpError(409, `${table.table_name} is already booked during that time`)
     }
   }
 
@@ -495,7 +562,7 @@ async function deleteReservation(db, id) {
   return existing
 }
 
-async function getAvailableTables(db, { date, timeSlot, excludeId = null } = {}) {
+async function getAvailableTables(db, { date, timeSlot, durationMinutes, excludeId = null } = {}) {
   await ensureReservationsSchema(db)
   const reservationDate = formatDate(firstQueryValue(date))
   const slot = formatTimeSlot(firstQueryValue(timeSlot))
@@ -506,12 +573,17 @@ async function getAvailableTables(db, { date, timeSlot, excludeId = null } = {})
     throw httpError(400, 'The cafe is closed on Mondays. Please choose another date.')
   }
 
+  const parsedDuration = Number.parseInt(firstQueryValue(durationMinutes), 10)
+  const slotDuration =
+    Number.isInteger(parsedDuration) && parsedDuration > 0
+      ? parsedDuration
+      : slotMeta(slot).durationMinutes
+
   const tables = await listFloorTables(db)
-  const params = [reservationDate, slot, ...HOLD_STATUSES]
+  const params = [reservationDate, ...HOLD_STATUSES]
   let sql = `
-    SELECT table_id FROM reservations
+    SELECT table_id, time_slot, duration_minutes FROM reservations
     WHERE reservation_date = ?
-      AND time_slot = ?
       AND status IN (${HOLD_STATUSES.map(() => '?').join(', ')})
   `
   const exclude = Number.parseInt(excludeId, 10)
@@ -521,12 +593,22 @@ async function getAvailableTables(db, { date, timeSlot, excludeId = null } = {})
   }
 
   const [busyRows] = await db.execute(sql, params)
-  const busyIds = new Set(busyRows.map((row) => row.table_id))
+  const start = minutesFromHHmm(slot)
+  const end = start + slotDuration
+  const busyIds = new Set(
+    busyRows
+      .filter((row) => {
+        const rowStart = minutesFromHHmm(row.time_slot)
+        return overlaps(start, end, rowStart, rowStart + (Number(row.duration_minutes) || 120))
+      })
+      .map((row) => row.table_id),
+  )
 
   return {
     date: reservationDate,
     time_slot: slot,
-    time_slot_label: slotMeta(slot).label,
+    duration_minutes: slotDuration,
+    time_slot_label: formatTimeRange12Hour(slot, addMinutesHHmm(slot, slotDuration)),
     tables: tables.map((table) => ({
       ...table,
       available: !busyIds.has(table.id),

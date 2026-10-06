@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ShieldAlert } from 'lucide-react'
 import { apiFetch } from '../services/apiClient'
+import { useActionBanner } from '../hooks/useActionBanner'
 import AuditLogPanel from '../components/security/AuditLogPanel'
 import Modal from '../components/common/Modal'
 import ModalHeader from '../components/ui/ModalHeader'
@@ -28,6 +29,7 @@ function statusClass(status) {
 
 function LoginAlertsTab() {
   const { t, i18n } = useTranslation()
+  const { notifySaved, notifyFailed } = useActionBanner()
   const [status, setStatus] = useState('ALL')
   const [alerts, setAlerts] = useState([])
   const [isLoading, setIsLoading] = useState(true)
@@ -65,9 +67,11 @@ function LoginAlertsTab() {
       if (!response.ok) {
         throw new Error(data.message || t('securityAlerts.actionFailed'))
       }
+      notifySaved(t(`securityAlerts.${action}`, { defaultValue: action }))
       await loadAlerts(status)
     } catch (err) {
       setError(err.message || t('securityAlerts.actionFailed'))
+      notifyFailed(err)
     } finally {
       setPendingId(null)
     }
@@ -182,6 +186,7 @@ function LoginAlertsTab() {
 
 function ActiveSessionsTab() {
   const { t, i18n } = useTranslation()
+  const { notifySaved, notifyFailed } = useActionBanner()
   const [sessions, setSessions] = useState([])
   const [currentJti, setCurrentJti] = useState(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -228,9 +233,11 @@ function ActiveSessionsTab() {
       if (data.isCurrentSession) {
         // Next authenticated call will 401 and clear the local session.
       }
+      notifySaved(t('securityAlerts.terminate'))
       await loadSessions()
     } catch (err) {
       setError(err.message || t('securityAlerts.terminateFailed'))
+      notifyFailed(err)
     } finally {
       setPending(null)
     }

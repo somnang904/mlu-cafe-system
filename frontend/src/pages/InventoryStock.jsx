@@ -27,7 +27,6 @@ import {
   StickyNote,
   Tag,
   Trash2,
-  TriangleAlert,
   Utensils,
   Wine,
   Wrench,
@@ -43,6 +42,7 @@ import ModalHeader from '../components/ui/ModalHeader'
 import { useAuth } from '../context/AuthContext'
 import { userHasPermission } from '../utils/permissions'
 import { apiFetch } from '../services/apiClient'
+import { useActionBanner } from '../hooks/useActionBanner'
 import { cacheInventoryItems, getInventoryFallback } from '../utils/offlineFallbacks'
 import { useModalKeyboard } from '../hooks/useModalKeyboard'
 
@@ -743,6 +743,7 @@ function HistoryModal({ item, onClose }) {
 
 function AdjustModal({ item, onClose, onSaved }) {
   const { t } = useTranslation()
+  const { notifySaved, notifyFailed } = useActionBanner()
   const [count, setCount] = useState(String(formatAmount(item.stock_quantity, item.is_weight)))
   const [reason, setReason] = useState('correction')
   const [note, setNote] = useState('')
@@ -770,10 +771,12 @@ function AdjustModal({ item, onClose, onSaved }) {
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(data.message || t('inventory.invalidAmount'))
+      notifySaved(item.item_name)
       onSaved()
       onClose()
     } catch (err) {
       setError(err.message)
+      notifyFailed(err)
     } finally {
       setSaving(false)
     }
@@ -784,7 +787,8 @@ function AdjustModal({ item, onClose, onSaved }) {
       title={t('inventory.adjustStock')}
       header={<ModalHeader icon={SlidersHorizontal} iconClassName="text-amber-600 dark:text-amber-400" titleId="stock-adjust-title" title={t('inventory.adjustStock')} subtitle={item.item_name} />}
       titleId="stock-adjust-title"
-      onClose={onClose}      closeLabel={t('a11y.close')}
+      onClose={onClose}
+      closeLabel={t('a11y.close')}
       maxWidth="max-w-md"
       footer={(
         <>
@@ -931,6 +935,7 @@ function SearchField({ id, icon, label, placeholder, query, onQuery, options, on
 
 function ItemFormModal({ mode, item, prefillName, stacked, onClose, onSaved, onUseExisting }) {
   const { t } = useTranslation()
+  const { notifyCreated, notifySaved, notifyFailed } = useActionBanner()
   const editing = mode === 'edit'
   const [name, setName] = useState(editing ? item.item_name : (prefillName || ''))
   const [category, setCategory] = useState(editing ? item.category : '')
@@ -975,20 +980,17 @@ function ItemFormModal({ mode, item, prefillName, stacked, onClose, onSaved, onU
       setError(t('inventory.categoryRequired'))
       return
     }
-    const numbers = editing ? [max, low] : [stock, max, low, critical]
-    if (!editing && critical === '') {
-      setError(t('inventory.numberMin'))
-      return
-    }
+    const criticalValue = critical === '' ? defaultThresholds(max).critical : critical
+    const numbers = editing ? [max, low] : [stock, max, low]
     if (numbers.some((value) => value === '' || Number(value) < 0 || !Number.isFinite(Number(value)))) {
       setError(t('inventory.numberMin'))
       return
     }
-    if (critical !== '' && (Number(critical) < 0 || !Number.isFinite(Number(critical)))) {
+    if (criticalValue !== '' && (Number(criticalValue) < 0 || !Number.isFinite(Number(criticalValue)))) {
       setError(t('inventory.numberMin'))
       return
     }
-    if (Number(max) < Number(low) || (critical !== '' && Number(max) < Number(critical))) {
+    if (Number(max) < Number(low) || (criticalValue !== '' && Number(max) < Number(criticalValue))) {
       setError(t('inventory.maxBelowThreshold'))
       return
     }
@@ -1000,7 +1002,7 @@ function ItemFormModal({ mode, item, prefillName, stacked, onClose, onSaved, onU
       unit_label: unit,
       max_stock: Number(max),
       low_threshold: Number(low),
-      critical_threshold: critical === '' ? null : Number(critical),
+      critical_threshold: criticalValue === '' ? null : Number(criticalValue),
     }
     if (!editing) payload.stock_quantity = Number(stock)
     if (confirmUnit) payload.confirm_unit_change = true
@@ -1027,9 +1029,12 @@ function ItemFormModal({ mode, item, prefillName, stacked, onClose, onSaved, onU
         return
       }
       if (!response.ok) throw new Error(data.message || t('inventory.invalidAmount'))
+      if (editing) notifySaved(payload.item_name)
+      else notifyCreated(payload.item_name)
       onSaved(data.item)
     } catch (err) {
       setError(err.message)
+      notifyFailed(err)
     } finally {
       setSaving(false)
     }
@@ -1048,7 +1053,8 @@ function ItemFormModal({ mode, item, prefillName, stacked, onClose, onSaved, onU
         />
       )}
       titleId="stock-item-form-title"
-      onClose={onClose}      closeLabel={t('a11y.close')}
+      onClose={onClose}
+      closeLabel={t('a11y.close')}
       stacked={stacked}
       maxWidth="max-w-md"
       footer={(
@@ -1102,15 +1108,9 @@ function ItemFormModal({ mode, item, prefillName, stacked, onClose, onSaved, onU
           <FieldLabel icon={Boxes} htmlFor="stock-item-max">{t('inventory.maximum')}</FieldLabel>
           <input id="stock-item-max" type="number" min="0" step={section === 'uncountable' ? '0.001' : '1'} value={max} onChange={(event) => changeMax(event.target.value)} className="input-field w-full" required />
         </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div>
-            <FieldLabel icon={ArrowDown} htmlFor="stock-item-low">{t('inventory.lowThreshold')}</FieldLabel>
-            <input id="stock-item-low" type="number" min="0" step="0.001" value={low} onChange={(event) => { setThresholdsTouched(true); setLow(event.target.value) }} className="input-field w-full" required />
-          </div>
-          <div>
-            <FieldLabel icon={TriangleAlert} htmlFor="stock-item-critical">{t('inventory.veryLowThreshold')}</FieldLabel>
-            <input id="stock-item-critical" type="number" min="0" step="0.001" value={critical} onChange={(event) => { setThresholdsTouched(true); setCritical(event.target.value) }} className="input-field w-full" required={!editing} />
-          </div>
+        <div>
+          <FieldLabel icon={ArrowDown} htmlFor="stock-item-low">{t('inventory.lowThreshold')}</FieldLabel>
+          <input id="stock-item-low" type="number" min="0" step="0.001" value={low} onChange={(event) => { setThresholdsTouched(true); setLow(event.target.value) }} className="input-field w-full" required />
         </div>
         {existing ? (
           <div className="space-y-2">
@@ -1130,6 +1130,7 @@ function ItemFormModal({ mode, item, prefillName, stacked, onClose, onSaved, onU
 
 function LinkModal({ item, stockItems, pickedStock, onRequestCreate, onClose, onSaved, dismissible = true }) {
   const { t } = useTranslation()
+  const { notifySaved, notifyDeleted, notifyFailed } = useActionBanner()
   const [menuItems, setMenuItems] = useState([])
   const [menuQuery, setMenuQuery] = useState('')
   const [menuItemId, setMenuItemId] = useState('')
@@ -1177,10 +1178,12 @@ function LinkModal({ item, stockItems, pickedStock, onRequestCreate, onClose, on
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(data.message || t('inventory.invalidAmount'))
+      notifySaved(t('inventory.linkRecipe'))
       onSaved()
       onClose()
     } catch (err) {
       setError(err.message)
+      notifyFailed(err)
     } finally {
       setSaving(false)
     }
@@ -1188,14 +1191,17 @@ function LinkModal({ item, stockItems, pickedStock, onRequestCreate, onClose, on
 
   const removeLink = async (linkId) => {
     setError('')
-    const response = await apiFetch(`/inventory/links/${linkId}`, { method: 'DELETE' })
-    const data = await response.json().catch(() => ({}))
-    if (!response.ok) {
-      setError(data.message || t('inventory.invalidAmount'))
-      return
+    try {
+      const response = await apiFetch(`/inventory/links/${linkId}`, { method: 'DELETE' })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.message || t('inventory.invalidAmount'))
+      notifyDeleted(t('inventory.linkRecipe'))
+      onSaved()
+      onClose()
+    } catch (err) {
+      setError(err.message)
+      notifyFailed(err, 'delete')
     }
-    onSaved()
-    onClose()
   }
 
   return (
@@ -1203,7 +1209,8 @@ function LinkModal({ item, stockItems, pickedStock, onRequestCreate, onClose, on
       title={t('inventory.linkRecipe')}
       header={<ModalHeader icon={Link2} titleId="stock-link-title" title={t('inventory.linkRecipe')} />}
       titleId="stock-link-title"
-      onClose={onClose}      closeLabel={t('a11y.close')}
+      onClose={onClose}
+      closeLabel={t('a11y.close')}
       dismissible={dismissible}
       maxWidth="max-w-md"
       footer={(
@@ -1291,6 +1298,7 @@ function LinkModal({ item, stockItems, pickedStock, onRequestCreate, onClose, on
 export default function InventoryStock({ view = 'items', onNavigate }) {
   const { t } = useTranslation()
   const { user } = useAuth()
+  const { notifySaved, notifyFailed } = useActionBanner()
   const canManageItems = userHasPermission(user, 'inventory_stock')
   const canAdjustStock = canManageItems
   const [items, setItems] = useState([])
@@ -1345,9 +1353,13 @@ export default function InventoryStock({ view = 'items', onNavigate }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ quantity_received: newStock })
       })
-      if (response.ok) fetchInventory()
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.message || t('inventory.invalidAmount'))
+      notifySaved(items.find((entry) => entry.id === id)?.item_name)
+      fetchInventory()
     } catch (error) {
       console.error("Error submitting stock update:", error)
+      notifyFailed(error)
     }
   }
 

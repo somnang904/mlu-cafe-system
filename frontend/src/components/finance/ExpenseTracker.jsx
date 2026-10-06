@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Calendar, DollarSign, Ellipsis, Package, Plus, ShoppingCart, StickyNote, Tag, Trash2, Truck, Users, Wallet, Zap } from 'lucide-react'
 import { apiFetch } from '../../services/apiClient'
 import { useModalKeyboard } from '../../hooks/useModalKeyboard'
+import { useActionBanner } from '../../hooks/useActionBanner'
 import { EXPENSE_CATEGORIES, expenseCategoryLabel } from '../../utils/expenseCategories'
 import { PaidFromBadge, PaidFromSelector } from './PaidFrom'
 import FieldLabel from '../ui/FieldLabel'
@@ -29,6 +30,7 @@ function todayIso() {
 }
 
 export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChanged }) {
+  const { notifyCreated, notifyDeleted, notifyFailed } = useActionBanner()
   const { t } = useTranslation()
   const [expenses, setExpenses] = useState([])
   const [loading, setLoading] = useState(true)
@@ -115,10 +117,12 @@ export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChan
         expense_date: todayIso(),
         paid_from: 'drawer',
       })
+      notifyCreated(expenseCategoryLabel(form.category, t))
       await loadExpenses()
       onChanged?.()
     } catch (err) {
       setError(err.message || t('expenses.errors.save'))
+      notifyFailed(err)
     } finally {
       setSaving(false)
     }
@@ -128,10 +132,13 @@ export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChan
     try {
       const res = await apiFetch(`/expenses/${id}`, { method: 'DELETE' })
       if (!res.ok) throw new Error(t('expenses.errors.delete'))
+      const removed = expenses.find((row) => row.id === id)
       setExpenses((prev) => prev.filter((row) => row.id !== id))
+      notifyDeleted(removed ? expenseCategoryLabel(removed.category, t) : undefined)
       onChanged?.()
     } catch (err) {
       setError(err.message || t('expenses.errors.delete'))
+      notifyFailed(err, 'delete')
     }
   }
 

@@ -6,6 +6,13 @@ import { formatTimeRange12Hour } from '../utils/dateTimeFormat'
 
 export const CLOSED_WEEKDAY = 1 // Monday (Date#getDay)
 
+/** Sentinel the time picker uses to switch from preset slots to typed times. */
+export const CUSTOM_SLOT_VALUE = '__custom__'
+
+/** Bounds for a hand-typed booking window; presets are exempt. */
+export const MIN_DURATION_MINUTES = 30
+export const MAX_DURATION_MINUTES = 12 * 60
+
 /** Nov–Mar tourist peak in Siem Reap. */
 export const HIGH_SEASON_MONTHS = [11, 12, 1, 2, 3]
 
@@ -117,4 +124,42 @@ export function isValidReservationSlot(dateInput, timeSlot, seasonMode = 'auto')
   if (isMonday(dateInput)) return false
   const start = String(timeSlot || '').slice(0, 5)
   return getTimeSlotsForDate(dateInput, seasonMode).some((slot) => slot.value === start)
+}
+
+export function minutesFromHHmm(value) {
+  const match = String(value || '').match(/^(\d{1,2}):(\d{2})/)
+  if (!match) return null
+  const hour = Number.parseInt(match[1], 10)
+  const minute = Number.parseInt(match[2], 10)
+  if (hour > 23 || minute > 59) return null
+  return hour * 60 + minute
+}
+
+export function hhmmFromMinutes(total) {
+  const safe = Math.max(0, Math.round(Number(total) || 0))
+  return toHHmm(Math.floor(safe / 60) % 24, safe % 60)
+}
+
+/**
+ * Validates a hand-typed window. Returns null when it is bookable, otherwise an
+ * i18n key describing what is wrong.
+ */
+export function checkCustomTimeRange(dateInput, startHHmm, endHHmm, seasonMode = 'auto') {
+  if (isMonday(dateInput)) return 'reservations.closedMondayValidation'
+
+  const start = minutesFromHHmm(startHHmm)
+  const end = minutesFromHHmm(endHHmm)
+  if (start == null || end == null) return 'reservations.customTimeInvalid'
+
+  const duration = end - start
+  if (duration < MIN_DURATION_MINUTES || duration > MAX_DURATION_MINUTES) {
+    return 'reservations.customTimeInvalid'
+  }
+
+  const season = getSeasonForDate(dateInput, seasonMode)
+  if (start < season.openHour * 60 || end > season.closeHour * 60) {
+    return 'reservations.customTimeOutsideHours'
+  }
+
+  return null
 }
