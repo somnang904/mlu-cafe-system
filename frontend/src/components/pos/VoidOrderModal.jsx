@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { RotateCcw, X, AlertTriangle, Lock } from 'lucide-react'
+import { RotateCcw, AlertTriangle, Lock, MessageSquareText, User, KeyRound } from 'lucide-react'
 import { useModalKeyboard } from '../../hooks/useModalKeyboard'
 import { useAuth } from '../../context/AuthContext'
 import { isAdminRole } from '../../utils/permissions'
 import { formatUsd } from '../../utils/currency'
+import ModalHeader from '../ui/ModalHeader'
+import FieldLabel from '../ui/FieldLabel'
 
 const PRESET_REASONS = [
   'Customer Cancellation',
@@ -73,27 +75,14 @@ export default function VoidOrderModal({ isOpen, onClose, order, onConfirmVoid }
         className="modal-panel relative z-10 w-full max-w-md overflow-hidden"
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-border p-5">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-rose-500/10 text-rose-700 dark:text-rose-300">
-              <RotateCcw className="h-5 w-5" />
-            </div>
-            <div>
-              <h3 className="text-heading text-lg font-bold">
-                {t('sales.voidOrderTitle', { defaultValue: 'Void & Refund Order' })}
-              </h3>
-              <p className="text-muted text-xs">
-                {order.id || order.invoice_id} · {formatUsd(order.total)}
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-zinc-800"
-          >
-            <X className="h-5 w-5" />
-          </button>
+        <div className="border-b border-border p-5">
+          <ModalHeader
+            icon={RotateCcw}
+            iconClassName="text-rose-600 dark:text-rose-400"
+            title={t('sales.voidOrderTitle', { defaultValue: 'Void & Refund Order' })}
+            subtitle={`${order.id || order.invoice_id} · ${formatUsd(order.total)}`}
+            onClose={onClose}
+          />
         </div>
 
         {/* Form Body */}
@@ -119,9 +108,9 @@ export default function VoidOrderModal({ isOpen, onClose, order, onConfirmVoid }
 
           {/* Reason Selection */}
           <div>
-            <label className="text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-zinc-400">
+            <FieldLabel icon={MessageSquareText} htmlFor="void-reason">
               {t('sales.refundReason', { defaultValue: 'Reason for Void / Refund *' })}
-            </label>
+            </FieldLabel>
             <div className="mt-1.5 flex flex-wrap gap-1.5 mb-2">
               {PRESET_REASONS.map((p) => (
                 <button
@@ -139,6 +128,7 @@ export default function VoidOrderModal({ isOpen, onClose, order, onConfirmVoid }
               ))}
             </div>
             <input
+              id="void-reason"
               type="text"
               required
               value={reason}
@@ -157,10 +147,11 @@ export default function VoidOrderModal({ isOpen, onClose, order, onConfirmVoid }
               </div>
 
               <div>
-                <label className="text-2xs font-medium text-slate-500 dark:text-zinc-400">
+                <FieldLabel icon={User} htmlFor="void-manager-username">
                   {t('users.adminUsername', { defaultValue: 'Manager Username' })}
-                </label>
+                </FieldLabel>
                 <input
+                  id="void-manager-username"
                   type="text"
                   required
                   value={managerUsername}
@@ -171,10 +162,11 @@ export default function VoidOrderModal({ isOpen, onClose, order, onConfirmVoid }
               </div>
 
               <div>
-                <label className="text-2xs font-medium text-slate-500 dark:text-zinc-400">
+                <FieldLabel icon={KeyRound} htmlFor="void-manager-password">
                   {t('users.password', { defaultValue: 'Manager Password' })}
-                </label>
+                </FieldLabel>
                 <input
+                  id="void-manager-password"
                   type="password"
                   required
                   value={managerPassword}
@@ -191,7 +183,7 @@ export default function VoidOrderModal({ isOpen, onClose, order, onConfirmVoid }
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 rounded-xl border border-slate-200 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              className="btn-secondary flex-1 text-sm"
             >
               {t('common.cancel')}
             </button>
