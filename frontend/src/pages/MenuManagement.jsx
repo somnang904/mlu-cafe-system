@@ -13,6 +13,7 @@ import {
   Leaf,
   Link,
   Loader2,
+  Plus,
   Salad,
   Sandwich,
   Search,
@@ -24,12 +25,12 @@ import {
   Trash2,
   Upload,
   UtensilsCrossed,
-  X,
 } from 'lucide-react'
 import { apiFetch } from '../services/apiClient'
 import { cacheMenuItems, getMenuFallback } from '../utils/offlineFallbacks'
 import MenuItemImage from '../components/menu/MenuItemImage'
 import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal'
+import ModalHeader from '../components/ui/ModalHeader'
 import IconSelect from '../components/ui/IconSelect'
 import Tooltip from '../components/ui/Tooltip'
 import { useModalKeyboard } from '../hooks/useModalKeyboard'
@@ -513,12 +514,7 @@ export default function MenuManagement() {
 
       {showDetailsModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overscroll-contain">
-          <button
-            type="button"
-            aria-label={t('a11y.closeModal')}
-            className="modal-backdrop"
-            onClick={handleCloseDetailsModal}
-          />
+          <div className="modal-backdrop" aria-hidden="true" />
           <div
             ref={detailsPanelRef}
             tabIndex={-1}
@@ -526,18 +522,11 @@ export default function MenuManagement() {
             aria-modal="true"
             className="modal-panel relative z-10 max-h-[90vh] w-full max-w-xl p-6"
           >
-            <div className="flex items-center justify-between">
-              <h3 className="text-heading text-lg">
-                {isEditing ? t('menuAdmin.modifyItem') : t('menuAdmin.addMenuItem')}
-              </h3>
-              <button
-                type="button"
-                onClick={handleCloseDetailsModal}
-                className="rounded-lg p-1.5 text-stone-400 hover:bg-olive-100 dark:hover:bg-olive-900/40"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
+            <ModalHeader
+              icon={isEditing ? SquarePen : Plus}
+              title={isEditing ? t('menuAdmin.modifyItem') : t('menuAdmin.addMenuItem')}
+              onClose={handleCloseDetailsModal}
+            />
 
             <form onSubmit={handleSubmit} className="mt-6 space-y-4">
               <div>

@@ -1,21 +1,26 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ArrowLeftRight,
+  ArrowRightToLine,
   Armchair,
   BaggageClaim,
+  CalendarClock,
   Check,
   CreditCard,
   Crown,
   GitMerge,
+  Clock,
   LayoutGrid,
+  NotebookPen,
   Phone,
   Plus,
   ReceiptText,
   Sparkles,
+  Tag,
+  User,
   UserCheck,
   Users,
   UtensilsCrossed,
-  X,
   XCircle,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -31,6 +36,9 @@ import { useModalKeyboard } from '../hooks/useModalKeyboard'
 import MergeTableModal from '../components/pos/MergeTableModal'
 import OrderItemsModal from '../components/pos/OrderItemsModal'
 import Tooltip from '../components/ui/Tooltip'
+import IconSelect from '../components/ui/IconSelect'
+import ModalHeader from '../components/ui/ModalHeader'
+import FieldLabel from '../components/ui/FieldLabel'
 
 // Shared shape for the floor toolbar so buttons and counters line up at one height.
 const TOOLBAR_ITEM =
@@ -80,7 +88,7 @@ function ReservationPreview({
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
-      <button type="button" aria-label={t('a11y.closeReservationPreview')} className="modal-backdrop" onClick={onClose} />
+      <div className="modal-backdrop" aria-hidden="true" />
       <div
         ref={panelRef}
         tabIndex={-1}
@@ -90,63 +98,66 @@ function ReservationPreview({
         aria-labelledby="reserved-table-title"
       >
         <div className="p-5">
-          <div className="mb-3 flex items-start justify-between gap-3">
-            <div>
-              <p className={`text-xs font-semibold uppercase tracking-wide ${
-                isSeated ? 'text-emerald-700 dark:text-emerald-300' : 'text-violet-700 dark:text-violet-300'
-              }`}>
-                {t(statusMeta.labelKey)}
-              </p>
-              <h4 id="reserved-table-title" className="text-heading mt-1 text-lg font-semibold">
-                {floorTableDisplayName(
-                  {
-                    id: reservation.table_id,
-                    name: reservation.table_name,
-                    section: String(reservation.table_name || '').startsWith('VIP') ? 'vip' : 'standard',
-                  },
-                  t,
-                )}
-              </h4>
-            </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground hover:bg-olive-50 dark:hover:bg-zinc-800"
-              aria-label={t('a11y.close')}
-            >
-              <X className="h-4 w-4" />
-            </button>
+          <div className="mb-4">
+            <ModalHeader
+              icon={CalendarClock}
+              iconClassName={
+                isSeated ? 'text-emerald-600 dark:text-emerald-400' : 'text-violet-600 dark:text-violet-400'
+              }
+              titleId="reserved-table-title"
+              title={floorTableDisplayName(
+                {
+                  id: reservation.table_id,
+                  name: reservation.table_name,
+                  section: String(reservation.table_name || '').startsWith('VIP') ? 'vip' : 'standard',
+                },
+                t,
+              )}
+              subtitle={t(statusMeta.labelKey)}
+              onClose={onClose}
+            />
           </div>
           <dl className="space-y-3 text-sm">
             <div>
-              <dt className="text-muted text-xs uppercase tracking-wide">{t('tables.customerName')}</dt>
+              <dt className="text-muted flex items-center gap-1.5 text-xs uppercase tracking-wide">
+                <User className="h-4 w-4 shrink-0 text-forest-600 dark:text-forest-400" aria-hidden />
+                {t('tables.customerName')}
+              </dt>
               <dd className="mt-0.5 font-medium">{reservation.customer_name}</dd>
             </div>
             <div>
-              <dt className="text-muted text-xs uppercase tracking-wide">{t('tables.time')}</dt>
+              <dt className="text-muted flex items-center gap-1.5 text-xs uppercase tracking-wide">
+                <Clock className="h-4 w-4 shrink-0 text-forest-600 dark:text-forest-400" aria-hidden />
+                {t('tables.time')}
+              </dt>
               <dd className="mt-0.5 font-medium">
                 {slotLabel(reservation.time_slot, reservation.time_slot_label, reservation.duration_minutes)}
               </dd>
             </div>
             <div>
-              <dt className="text-muted text-xs uppercase tracking-wide">{t('tables.phone')}</dt>
-              <dd className="mt-0.5 flex items-center gap-1.5 font-medium">
-                <Phone className="h-3.5 w-3.5 text-muted-foreground" />
+              <dt className="text-muted flex items-center gap-1.5 text-xs uppercase tracking-wide">
+                <Phone className="h-4 w-4 shrink-0 text-forest-600 dark:text-forest-400" aria-hidden />
+                {t('tables.phone')}
+              </dt>
+              <dd className="mt-0.5 font-medium">
                 <a href={`tel:${reservation.phone}`} className="text-forest-700 underline hover:text-forest-800 dark:text-forest-300">
                   {reservation.phone}
                 </a>
               </dd>
             </div>
             <div>
-              <dt className="text-muted text-xs uppercase tracking-wide">{t('tables.guests')}</dt>
-              <dd className="mt-0.5 flex items-center gap-1.5 font-medium">
-                <Users className="h-3.5 w-3.5 text-muted-foreground" />
-                {reservation.guest_count}
-              </dd>
+              <dt className="text-muted flex items-center gap-1.5 text-xs uppercase tracking-wide">
+                <Users className="h-4 w-4 shrink-0 text-forest-600 dark:text-forest-400" aria-hidden />
+                {t('tables.guests')}
+              </dt>
+              <dd className="mt-0.5 font-medium">{reservation.guest_count}</dd>
             </div>
             {reservation.notes && (
               <div>
-                <dt className="text-muted text-xs uppercase tracking-wide">{t('tables.notes')}</dt>
+                <dt className="text-muted flex items-center gap-1.5 text-xs uppercase tracking-wide">
+                  <NotebookPen className="h-4 w-4 shrink-0 text-forest-600 dark:text-forest-400" aria-hidden />
+                  {t('tables.notes')}
+                </dt>
                 <dd className="mt-0.5 text-muted-foreground">{reservation.notes}</dd>
               </div>
             )}
@@ -164,7 +175,9 @@ function ReservationPreview({
                 type="button"
                 disabled={busy}
                 onClick={onCheckIn}
-                className="btn-primary flex w-full items-center justify-center gap-2 py-2.5 text-sm"
+                className={`btn-primary flex w-full items-center justify-center gap-2 py-2.5 text-sm ${
+                  busy ? '' : 'beam-border shadow-[0_4px_14px_rgba(16,185,129,0.35)]'
+                }`}
               >
                 <UserCheck className="h-4 w-4" />
                 {t('tables.checkInGuest')}
@@ -272,7 +285,7 @@ function AddTableModal({ isOpen, onClose, onAddTable }) {
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
-      <button type="button" aria-label={t('a11y.close')} className="modal-backdrop" onClick={onClose} />
+      <div className="modal-backdrop" aria-hidden="true" />
       <div
         ref={panelRef}
         tabIndex={-1}
@@ -280,16 +293,8 @@ function AddTableModal({ isOpen, onClose, onAddTable }) {
         role="dialog"
         aria-modal="true"
       >
-        <div className="mb-4 flex items-center justify-between">
-          <h4 className="text-heading text-lg font-bold">{t('tables.addTable')}</h4>
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground hover:bg-olive-50 dark:hover:bg-zinc-800"
-            aria-label={t('a11y.close')}
-          >
-            <X className="h-4 w-4" />
-          </button>
+        <div className="mb-4">
+          <ModalHeader icon={Plus} title={t('tables.addTable')} onClose={onClose} />
         </div>
 
         {error && (
@@ -300,10 +305,11 @@ function AddTableModal({ isOpen, onClose, onAddTable }) {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="text-muted mb-1 block text-xs font-semibold uppercase tracking-wider">
+            <FieldLabel icon={Tag} htmlFor="add-table-name">
               {t('tables.tableName')}
-            </label>
+            </FieldLabel>
             <input
+              id="add-table-name"
               type="text"
               required
               autoFocus
@@ -315,40 +321,41 @@ function AddTableModal({ isOpen, onClose, onAddTable }) {
           </div>
 
           <div>
-            <label className="text-muted mb-1 block text-xs font-semibold uppercase tracking-wider">
-              {t('tables.section')}
-            </label>
+            <FieldLabel icon={LayoutGrid}>{t('tables.section')}</FieldLabel>
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
                 onClick={() => handleSectionChange('standard')}
-                className={`rounded-xl border py-2.5 text-sm font-semibold transition ${
+                className={`inline-flex items-center justify-center gap-2 rounded-xl border py-2.5 text-sm font-semibold transition ${
                   section === 'standard'
                     ? 'border-forest-600 bg-forest-50 text-forest-800 dark:border-forest-400 dark:bg-forest-950/40 dark:text-forest-200'
                     : 'border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-obsidian-850 dark:text-zinc-300'
                 }`}
               >
+                <Armchair className="h-4 w-4" aria-hidden />
                 {t('tables.standard')}
               </button>
               <button
                 type="button"
                 onClick={() => handleSectionChange('vip')}
-                className={`rounded-xl border py-2.5 text-sm font-semibold transition ${
+                className={`inline-flex items-center justify-center gap-2 rounded-xl border py-2.5 text-sm font-semibold transition ${
                   section === 'vip'
                     ? 'border-violet-600 bg-violet-50 text-violet-800 dark:border-violet-400 dark:bg-violet-950/40 dark:text-violet-200'
                     : 'border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-obsidian-850 dark:text-zinc-300'
                 }`}
               >
+                <Crown className="h-4 w-4" aria-hidden />
                 {t('tables.vip')}
               </button>
             </div>
           </div>
 
           <div>
-            <label className="text-muted mb-1 block text-xs font-semibold uppercase tracking-wider">
+            <FieldLabel icon={Users} htmlFor="add-table-capacity">
               {t('tables.capacity')}
-            </label>
+            </FieldLabel>
             <input
+              id="add-table-capacity"
               type="number"
               min="1"
               max="50"
@@ -372,7 +379,9 @@ function AddTableModal({ isOpen, onClose, onAddTable }) {
             <button
               type="submit"
               disabled={busy}
-              className="btn-primary inline-flex items-center gap-2 px-5 py-2 text-sm font-semibold"
+              className={`btn-primary inline-flex items-center gap-2 px-5 py-2 text-sm font-semibold ${
+                busy ? '' : 'beam-border shadow-[0_4px_14px_rgba(16,185,129,0.35)]'
+              }`}
             >
               {busy ? <span className="spinner h-4 w-4" /> : null}
               {t('tables.addTable')}
@@ -424,12 +433,37 @@ function TransferTableModal({ isOpen, onClose, sourceBill, emptyTables, onTransf
     }
   }
 
-  const standardEmpty = emptyTables.filter((t) => t.section !== 'vip')
-  const vipEmpty = emptyTables.filter((t) => t.section === 'vip')
+  const standardEmpty = emptyTables.filter((table) => table.section !== 'vip')
+  const vipEmpty = emptyTables.filter((table) => table.section === 'vip')
+  const seatsLabel = (table) => t('tables.seatsCount', { count: table.capacity })
+  const transferOptions = [
+    ...(standardEmpty.length > 0
+      ? [
+          { header: true, label: t('tables.standardTables') },
+          ...standardEmpty.map((table) => ({
+            value: String(table.id),
+            label: table.name,
+            hint: seatsLabel(table),
+            icon: Armchair,
+          })),
+        ]
+      : []),
+    ...(vipEmpty.length > 0
+      ? [
+          { header: true, label: t('tables.vipRooms') },
+          ...vipEmpty.map((table) => ({
+            value: String(table.id),
+            label: table.name,
+            hint: seatsLabel(table),
+            icon: Crown,
+          })),
+        ]
+      : []),
+  ]
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
-      <button type="button" aria-label={t('a11y.close')} className="modal-backdrop" onClick={onClose} />
+      <div className="modal-backdrop" aria-hidden="true" />
       <div
         ref={panelRef}
         tabIndex={-1}
@@ -437,24 +471,14 @@ function TransferTableModal({ isOpen, onClose, sourceBill, emptyTables, onTransf
         role="dialog"
         aria-modal="true"
       >
-        <div className="mb-4 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
-              <ArrowLeftRight className="h-5 w-5" />
-            </div>
-            <div>
-              <h4 className="text-heading text-lg font-bold">{t('tables.changeTable')}</h4>
-              <p className="text-muted text-xs">{sourceName}</p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground hover:bg-olive-50 dark:hover:bg-zinc-800"
-            aria-label={t('a11y.close')}
-          >
-            <X className="h-4 w-4" />
-          </button>
+        <div className="mb-4">
+          <ModalHeader
+            icon={ArrowLeftRight}
+            iconClassName="text-amber-600 dark:text-amber-400"
+            title={t('tables.changeTable')}
+            subtitle={sourceName}
+            onClose={onClose}
+          />
         </div>
 
         {error && (
@@ -480,34 +504,16 @@ function TransferTableModal({ isOpen, onClose, sourceBill, emptyTables, onTransf
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="text-muted mb-1 block text-xs font-semibold uppercase tracking-wider">
+              <FieldLabel icon={ArrowRightToLine} htmlFor="transfer-destination">
                 {t('tables.selectDestinationTable')}
-              </label>
-              <select
+              </FieldLabel>
+              <IconSelect
+                id="transfer-destination"
                 value={destTableId}
-                onChange={(e) => setDestTableId(e.target.value)}
-                className="input-field w-full"
-                required
-              >
-                {standardEmpty.length > 0 && (
-                  <optgroup label={t('tables.standardTables')}>
-                    {standardEmpty.map((table) => (
-                      <option key={table.id} value={table.id}>
-                        {table.name} ({table.capacity} seats)
-                      </option>
-                    ))}
-                  </optgroup>
-                )}
-                {vipEmpty.length > 0 && (
-                  <optgroup label={t('tables.vipRooms')}>
-                    {vipEmpty.map((table) => (
-                      <option key={table.id} value={table.id}>
-                        {table.name} ({table.capacity} seats)
-                      </option>
-                    ))}
-                  </optgroup>
-                )}
-              </select>
+                onChange={setDestTableId}
+                options={transferOptions}
+                className="rounded-xl"
+              />
             </div>
 
             <div className="mt-6 flex justify-end gap-3 pt-2">
@@ -522,7 +528,9 @@ function TransferTableModal({ isOpen, onClose, sourceBill, emptyTables, onTransf
               <button
                 type="submit"
                 disabled={busy || !destTableId}
-                className="btn-primary inline-flex items-center gap-2 px-5 py-2 text-sm font-semibold"
+                className={`btn-primary inline-flex items-center gap-2 px-5 py-2 text-sm font-semibold ${
+                  busy || !destTableId ? '' : 'beam-border shadow-[0_4px_14px_rgba(16,185,129,0.35)]'
+                }`}
               >
                 {busy ? <span className="spinner h-4 w-4" /> : null}
                 {t('tables.confirmTransfer')}
@@ -570,7 +578,7 @@ function ClearTableModal({ isOpen, onClose, bill, onClear }) {
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
-      <button type="button" aria-label={t('a11y.close')} className="modal-backdrop" onClick={onClose} />
+      <div className="modal-backdrop" aria-hidden="true" />
       <div
         ref={panelRef}
         tabIndex={-1}
@@ -579,15 +587,11 @@ function ClearTableModal({ isOpen, onClose, bill, onClear }) {
         aria-modal="true"
       >
         <div className="mb-4 flex items-start gap-3">
-          <div
-            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl ${
-              isPaid
-                ? 'bg-sky-100 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300'
-                : 'bg-red-100 text-red-600 dark:bg-red-950/50 dark:text-red-300'
-            }`}
-          >
-            {isPaid ? <Sparkles className="h-5 w-5" /> : <XCircle className="h-5 w-5" />}
-          </div>
+          {isPaid ? (
+            <Sparkles className="h-6 w-6 shrink-0 text-sky-600 dark:text-sky-400" aria-hidden />
+          ) : (
+            <XCircle className="h-6 w-6 shrink-0 text-red-600 dark:text-red-400" aria-hidden />
+          )}
           <div className="flex-1">
             <h4 className="text-heading text-lg font-bold">
               {isPaid

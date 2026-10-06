@@ -8,12 +8,13 @@ export default function OrderItemsModal({ title, items = [], onClose }) {
   const lines = items.map((item) => {
     const quantity = Number(item.qty ?? item.quantity ?? 1)
     const unitPrice = Number(item.unitPrice ?? item.price ?? 0)
+    const name = translateMenuName(item.originalName || item.name, i18n.language, t)
+    const notes = item.notes ? translateDrinkNotes(item.notes, t) : ''
     return {
       key: item.id ?? `${item.menu_item_id}-${item.notes}`,
-      name: translateMenuName(item.originalName || item.name, i18n.language, t),
-      notes: item.notes ? translateDrinkNotes(item.notes, t) : '',
+      name,
+      extraNotes: notes && !name.includes(`(${notes})`) && !name.includes(notes) ? notes : '',
       quantity,
-      unitPrice,
       lineTotal: quantity * unitPrice,
     }
   })
@@ -28,9 +29,7 @@ export default function OrderItemsModal({ title, items = [], onClose }) {
       maxWidth="max-w-md"
       header={
         <div className="flex items-center gap-3">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300">
-            <ReceiptText className="h-5 w-5" aria-hidden />
-          </span>
+          <ReceiptText className="h-6 w-6 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
           <div className="min-w-0">
             <h3 id="order-items-title" className="text-heading truncate text-lg font-semibold">
               {title}
@@ -58,10 +57,9 @@ export default function OrderItemsModal({ title, items = [], onClose }) {
             </span>
             <div className="min-w-0 flex-1">
               <p className="text-sm font-semibold text-slate-900 dark:text-zinc-100">{line.name}</p>
-              {line.notes ? <p className="mt-0.5 text-xs text-slate-500 dark:text-zinc-400">{line.notes}</p> : null}
-              <p className="mt-0.5 text-xs tabular-nums text-slate-500 dark:text-zinc-400">
-                {t('order.each', { price: `$${line.unitPrice.toFixed(2)}` })}
-              </p>
+              {line.extraNotes ? (
+                <p className="mt-0.5 text-xs text-slate-500 dark:text-zinc-400">{line.extraNotes}</p>
+              ) : null}
             </div>
             <span className="shrink-0 text-sm font-bold tabular-nums text-slate-900 dark:text-zinc-100">
               ${line.lineTotal.toFixed(2)}

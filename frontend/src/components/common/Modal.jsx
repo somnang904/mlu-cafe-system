@@ -80,13 +80,7 @@ export default function Modal({
 
   return createPortal(
     <div className={`fixed inset-0 ${stacked ? 'z-[120]' : 'z-[100]'} flex items-center justify-center p-4 overscroll-contain`}>
-      <button
-        type="button"
-        className="modal-backdrop fixed inset-0 bg-black/70 backdrop-blur-md"
-        tabIndex={-1}
-        aria-label={closeLabel}
-        onClick={requestClose}
-      />
+      <div className="modal-backdrop fixed inset-0 bg-black/70 backdrop-blur-md" aria-hidden="true" />
       <div
         ref={panelRef}
         tabIndex={-1}

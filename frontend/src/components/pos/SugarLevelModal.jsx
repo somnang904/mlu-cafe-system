@@ -92,9 +92,7 @@ export default function SugarLevelModal({ item, presetServing = null, onConfirm,
       maxWidth="max-w-md"
       header={(
         <div className="flex min-w-0 items-start gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-forest-500/10 text-forest-600 dark:text-forest-400">
-            <Coffee className="h-5 w-5" aria-hidden />
-          </div>
+          <Coffee className="h-6 w-6 shrink-0 text-forest-600 dark:text-forest-400" aria-hidden />
           <div className="min-w-0">
             <h3 id="sugar-level-title" className="text-heading text-lg font-semibold">
               {quickTeaFlavorAdd
@@ -134,7 +132,9 @@ export default function SugarLevelModal({ item, presetServing = null, onConfirm,
               type="submit"
               form="sugar-level-form"
               disabled={!canSubmit}
-              className="btn-primary flex-1 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+              className={`btn-primary flex-1 text-sm disabled:cursor-not-allowed disabled:opacity-50 ${
+                canSubmit ? 'beam-border shadow-[0_4px_14px_rgba(16,185,129,0.35)]' : ''
+              }`}
             >
               {t('order.sugar.addToOrder')} · ${selectedPrice.toFixed(2)}
             </button>

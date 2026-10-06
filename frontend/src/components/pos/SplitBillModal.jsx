@@ -1,10 +1,11 @@
 import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Scissors, X, Minus, Plus } from 'lucide-react'
+import { Scissors, Minus, Plus } from 'lucide-react'
 import { useModalKeyboard } from '../../hooks/useModalKeyboard'
 import { translateMenuName, translateDrinkNotes } from '../../utils/menuNameTranslations'
 import { formatUsd, formatKhr, usdToKhr, DEFAULT_EXCHANGE_RATE } from '../../utils/currency'
 import PaymentModule from './PaymentModule'
+import ModalHeader from '../ui/ModalHeader'
 
 const NO_ITEMS = []
 
@@ -85,7 +86,7 @@ export default function SplitBillModal({ isOpen, onClose, bill, onPaySplit }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <button type="button" aria-label={t('a11y.close')} className="modal-backdrop" onClick={onClose} />
+      <div className="modal-backdrop" aria-hidden="true" />
 
       <div
         ref={panelRef}
@@ -95,27 +96,13 @@ export default function SplitBillModal({ isOpen, onClose, bill, onPaySplit }) {
         className="modal-panel relative z-10 flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden"
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-border p-5">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-500/10 text-emerald-800 dark:text-emerald-300">
-              <Scissors className="h-5 w-5" />
-            </div>
-            <div>
-              <h3 className="text-heading text-lg font-bold">
-                {t('payment.splitBill', { defaultValue: 'Split Bill' })}
-              </h3>
-              <p className="text-muted text-xs">
-                {bill.name} · {t('payment.splitSubtitle', { defaultValue: 'Select items to pay separately' })}
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-zinc-800"
-          >
-            <X className="h-5 w-5" />
-          </button>
+        <div className="border-b border-border p-5">
+          <ModalHeader
+            icon={Scissors}
+            title={t('payment.splitBill', { defaultValue: 'Split Bill' })}
+            subtitle={`${bill.name} · ${t('payment.splitSubtitle', { defaultValue: 'Select items to pay separately' })}`}
+            onClose={onClose}
+          />
         </div>
 
         {/* Content */}
@@ -268,7 +255,9 @@ export default function SplitBillModal({ isOpen, onClose, bill, onPaySplit }) {
               type="button"
               disabled={splitTotal <= 0}
               onClick={() => setShowCheckout(true)}
-              className="btn-primary w-full py-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-40"
+              className={`btn-primary w-full py-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${
+                splitTotal <= 0 ? '' : 'beam-border shadow-[0_4px_14px_rgba(16,185,129,0.35)]'
+              }`}
             >
               {t('payment.proceedToPaySplit', { defaultValue: 'Proceed to Pay Split' })} ({formatUsd(splitTotal)})
             </button>
