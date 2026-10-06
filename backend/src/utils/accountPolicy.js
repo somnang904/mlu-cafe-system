@@ -1,6 +1,6 @@
 const ALLOWED_ROLES = ['Admin', 'Cashier', 'Staff']
 /** Roles that may be assigned when creating or editing users through the API/UI. */
-const ASSIGNABLE_ROLES = ['Cashier', 'Staff']
+const ASSIGNABLE_ROLES = ['Cashier']
 
 function normalizeAllowedRole(role) {
   const value = String(role || '').trim().toLowerCase()
@@ -19,14 +19,14 @@ function isAssignableRole(role) {
 function assignableRoleError(role) {
   const raw = String(role || '').trim().toLowerCase()
   if (raw === 'supervisor') {
-    return 'Role must be Cashier or Staff.'
+    return 'Role must be Cashier.'
   }
   const normalized = normalizeAllowedRole(role)
-  if (!normalized) {
-    return 'Role must be Cashier or Staff.'
+  if (!normalized || !ASSIGNABLE_ROLES.includes(normalized)) {
+    return 'Role must be Cashier.'
   }
   if (normalized === 'Admin') {
-    return 'This system has exactly one Admin account. New users must be Cashier or Staff.'
+    return 'This system has exactly one Admin account. New users must be Cashier.'
   }
   return null
 }

@@ -358,11 +358,11 @@ app.post('/api/users', requireAdmin, async (req, res) => {
         return res.status(400).json({ message: policyError });
     }
 
-    const allowedRole = normalizeAllowedRole(role || 'Staff');
+    const allowedRole = normalizeAllowedRole(role || 'Cashier');
     if (!allowedRole || allowedRole === 'Admin') {
-        return res.status(400).json({ message: assignableRoleError(role || 'Admin') || 'Role must be Cashier or Staff.' });
+        return res.status(400).json({ message: assignableRoleError(role || 'Admin') || 'Role must be Cashier.' });
     }
-    const assignError = assignableRoleError(role);
+    const assignError = assignableRoleError(allowedRole);
     if (assignError) {
         return res.status(400).json({ message: assignError });
     }

@@ -94,7 +94,13 @@ async function updateUserPasswordHash(db, userId, passwordHash) {
   await db.execute('UPDATE users SET password_hash = ? WHERE id = ?', [passwordHash, userId])
 }
 
+async function migrateStaffUsersToCashier(db) {
+  const [result] = await db.execute("UPDATE users SET role = 'Cashier' WHERE LOWER(role) = 'staff'")
+  return result.affectedRows
+}
+
 module.exports = {
+  migrateStaffUsersToCashier,
   ensureUsersEmailColumn,
   isAdminAccount,
   generateTemporaryPassword,

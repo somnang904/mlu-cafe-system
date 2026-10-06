@@ -52,11 +52,17 @@ describe('account roles', () => {
     assert.equal(normalizeAllowedRole('Cashier'), 'Cashier')
   })
 
-  it('rejects Admin and Supervisor for assignable create', () => {
+  it('only Cashier can be assigned to a new or edited user', () => {
     assert.ok(assignableRoleError('Admin'))
     assert.ok(assignableRoleError('Supervisor'))
+    assert.ok(assignableRoleError('Staff'))
+    assert.ok(assignableRoleError('Owner'))
     assert.equal(assignableRoleError('Cashier'), null)
-    assert.equal(assignableRoleError('Staff'), null)
-    assert.deepEqual(ASSIGNABLE_ROLES, ['Cashier', 'Staff'])
+    assert.deepEqual(ASSIGNABLE_ROLES, ['Cashier'])
+  })
+
+  it('an existing Staff role is still read correctly, so old accounts and old backups keep working', () => {
+    assert.equal(normalizeAllowedRole('Staff'), 'Staff')
+    assert.equal(normalizeAllowedRole('staff'), 'Staff')
   })
 })
