@@ -1,6 +1,13 @@
 import { formatOrderDate, formatTime12Hour } from './dateTimeFormat'
 import { lineIdentity } from './sugarLevel'
 
+export function parseMenuItemId(value) {
+  if (typeof value === 'number') return Number.isSafeInteger(value) && value > 0 ? value : null
+  if (typeof value !== 'string' || !/^\d+$/.test(value)) return null
+  const parsed = Number(value)
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null
+}
+
 export function calculateTotals(items) {
   const subtotal = items.reduce((sum, item) => sum + item.lineTotal, 0)
   const tax = 0
@@ -19,9 +26,7 @@ export function mergeCartIntoItems(existingItems, cartItems) {
     const addQty = cartItem.qty ?? cartItem.quantity ?? 1
     const unitPrice = cartItem.unitPrice ?? cartItem.price ?? 0
     const notes = cartItem.notes != null ? String(cartItem.notes) : ''
-    const parsedMenuId = Number.parseInt(cartItem.menu_item_id ?? cartItem.id, 10)
-    const menuItemId =
-      Number.isFinite(parsedMenuId) && parsedMenuId > 0 ? parsedMenuId : (cartItem.menu_item_id ?? null)
+    const menuItemId = parseMenuItemId(cartItem.menu_item_id ?? cartItem.id)
     const incomingKey = lineIdentity({
       id: cartItem.id,
       menu_item_id: menuItemId,
@@ -55,9 +60,7 @@ export function normalizeBillItem(item) {
   const unitPrice = parseFloat(item.unitPrice ?? item.price ?? 0)
   const qty = parseInt(item.qty ?? item.quantity ?? 1, 10)
   const notes = item.notes != null ? String(item.notes) : ''
-  const parsedMenuId = Number.parseInt(item.menu_item_id ?? item.id, 10)
-  const menuItemId =
-    Number.isFinite(parsedMenuId) && parsedMenuId > 0 ? parsedMenuId : (item.menu_item_id ?? null)
+  const menuItemId = parseMenuItemId(item.menu_item_id ?? item.id)
   const id = item.id != null && String(item.id).includes('::')
     ? item.id
     : lineIdentity({ menu_item_id: menuItemId ?? item.id, notes })

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ArrowLeftRight,
+  Armchair,
   BaggageClaim,
   Check,
   CreditCard,
@@ -9,6 +10,7 @@ import {
   LayoutGrid,
   Phone,
   Plus,
+  ReceiptText,
   Sparkles,
   UserCheck,
   Users,
@@ -27,6 +29,8 @@ import { translateMenuSummary } from '../utils/menuNameTranslations'
 import { apiFetch, getAuthToken } from '../services/apiClient'
 import { useModalKeyboard } from '../hooks/useModalKeyboard'
 import MergeTableModal from '../components/pos/MergeTableModal'
+import OrderItemsModal from '../components/pos/OrderItemsModal'
+import Tooltip from '../components/ui/Tooltip'
 
 // Shared shape for the floor toolbar so buttons and counters line up at one height.
 const TOOLBAR_ITEM =
@@ -637,6 +641,13 @@ function ClearTableModal({ isOpen, onClose, bill, onClear }) {
   )
 }
 
+const TABLE_ICON_COLOR = {
+  empty: 'text-emerald-600 dark:text-emerald-400',
+  occupied: 'text-amber-600 dark:text-amber-400',
+  reserved: 'text-violet-600 dark:text-violet-300',
+  paid: 'text-sky-600 dark:text-sky-400',
+}
+
 function TableCard({
   bill,
   reservation,
@@ -647,7 +658,7 @@ function TableCard({
   onOpenOrder,
   mergedNames = [],
 }) {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const { isAdmin } = useAuth()
   const floorStatus = getFloorStatus(bill, reservation)
   const meta = TABLE_STATUS_META[floorStatus] || TABLE_STATUS_META.empty
@@ -659,6 +670,8 @@ function TableCard({
   const isActive = floorStatus === 'occupied'
   const isVip = bill.section === 'vip' || String(bill.name).startsWith('VIP')
   const canOpenPreview = Boolean(reservation) && (isReserved || (isActive && !hasItems))
+  const [showItems, setShowItems] = useState(false)
+  const itemCount = hasItems ? bill.items.reduce((sum, item) => sum + Number(item.qty ?? item.quantity ?? 1), 0) : 0
 
   return (
     <div
@@ -679,34 +692,38 @@ function TableCard({
       tabIndex={canOpenPreview ? 0 : undefined}
     >
       <div className="flex items-start justify-between gap-2">
-        <div>
-          <p className={`flex items-center gap-1.5 text-lg font-bold ${isEmpty ? 'text-emerald-700 dark:text-emerald-400' : 'text-heading'}`}>
-            {isVip ? <Crown className="h-4 w-4 text-violet-600 dark:text-violet-300" /> : null}
-            {floorTableDisplayName(bill, t)}
-            {mergedNames.length > 0 ? (
-              <span className="text-base font-semibold text-muted-foreground">+ {mergedNames.join(' + ')}</span>
-            ) : null}
-          </p>
-          {!isEmpty && !isReserved && !isPaid && bill.orderSummary && hasItems && (
-            <p className="text-muted mt-1 line-clamp-2 text-xs">
-              {translateMenuSummary(bill.orderSummary, i18n.language, t)}
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="min-w-0">
+            <p className={`flex items-center gap-1.5 text-lg font-bold ${isEmpty ? 'text-emerald-700 dark:text-emerald-400' : 'text-heading'}`}>
+              {isVip ? (
+                <Crown className="h-4 w-4 shrink-0 text-violet-600 dark:text-violet-300" aria-hidden />
+              ) : (
+                <Armchair
+                  className={`h-5 w-5 shrink-0 ${TABLE_ICON_COLOR[floorStatus] || TABLE_ICON_COLOR.empty}`}
+                  aria-hidden
+                />
+              )}
+              {floorTableDisplayName(bill, t)}
+              {mergedNames.length > 0 ? (
+                <span className="text-base font-semibold text-muted-foreground">+ {mergedNames.join(' + ')}</span>
+              ) : null}
             </p>
-          )}
-          {isPaid && (
-            <p className="mt-1 line-clamp-2 text-xs font-medium text-sky-700 dark:text-sky-300">
-              {t('payment.tableMarkedPaid')}
-            </p>
-          )}
-          {isReserved && (
-            <p className="mt-1 line-clamp-2 text-xs text-violet-700 dark:text-violet-300">
-              {reservation.customer_name} · {slotLabel(reservation.time_slot, reservation.time_slot_label, reservation.duration_minutes)}
-            </p>
-          )}
-          {isActive && reservation && !hasItems && (
-            <p className="mt-1 line-clamp-2 text-xs text-amber-800 dark:text-amber-200">
-              {reservation.customer_name} · {t('statuses.seated')}
-            </p>
-          )}
+            {isPaid && (
+              <p className="mt-1 line-clamp-2 text-xs font-medium text-sky-700 dark:text-sky-300">
+                {t('payment.tableMarkedPaid')}
+              </p>
+            )}
+            {isReserved && (
+              <p className="mt-1 line-clamp-2 text-xs text-violet-700 dark:text-violet-300">
+                {reservation.customer_name} · {slotLabel(reservation.time_slot, reservation.time_slot_label, reservation.duration_minutes)}
+              </p>
+            )}
+            {isActive && reservation && !hasItems && (
+              <p className="mt-1 line-clamp-2 text-xs text-amber-800 dark:text-amber-200">
+                {reservation.customer_name} · {t('statuses.seated')}
+              </p>
+            )}
+          </div>
         </div>
         <span className={`shrink-0 cursor-default select-none rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${meta.badge}`}>
           {t(meta.labelKey)}
@@ -715,9 +732,25 @@ function TableCard({
 
       <div className="mt-4 flex flex-1 flex-col justify-end">
         {isActive && hasItems && (
-          <p className="text-2xl font-bold tabular-nums text-forest-700 dark:text-forest-400">
-            ${total.toFixed(2)}
-          </p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-2xl font-bold tabular-nums text-forest-700 dark:text-forest-400">${total.toFixed(2)}</p>
+            <Tooltip label={t('tables.viewOrder')}>
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  setShowItems(true)
+                }}
+                aria-label={t('tables.viewOrder')}
+                className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-amber-300/80 bg-white text-amber-700 shadow-sm transition hover:bg-amber-50 active:scale-95 dark:border-amber-700/60 dark:bg-zinc-900 dark:text-amber-300 dark:hover:bg-amber-950/40"
+              >
+                <ReceiptText className="h-5 w-5" aria-hidden />
+                <span className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1 text-2xs font-bold text-white ring-2 ring-white dark:ring-zinc-900">
+                  {itemCount}
+                </span>
+              </button>
+            </Tooltip>
+          </div>
         )}
         {isEmpty && (
           <div className="space-y-2">
@@ -782,7 +815,7 @@ function TableCard({
                 event.stopPropagation()
                 onSendToCheckout(bill)
               }}
-              className="inline-flex w-full cursor-pointer select-none items-center justify-center gap-2 rounded-xl bg-[#10b981] py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-600 active:scale-[0.99]"
+              className="beam-border inline-flex w-full cursor-pointer select-none items-center justify-center gap-2 rounded-full bg-forest-500 py-3 text-sm font-semibold text-white shadow-[0_4px_14px_rgba(16,185,129,0.35)] transition hover:bg-forest-600 active:scale-[0.99]"
             >
               <CreditCard className="h-4 w-4" />
               {t('tables.goToPayment')}
@@ -818,6 +851,9 @@ function TableCard({
           </div>
         )}
       </div>
+      {showItems ? (
+        <OrderItemsModal title={floorTableDisplayName(bill, t)} items={bill.items} onClose={() => setShowItems(false)} />
+      ) : null}
     </div>
   )
 }
@@ -875,7 +911,7 @@ function TakeOutCard({ bill, onSendToCheckout, onClearTable }) {
               <button
                 type="button"
                 onClick={() => onSendToCheckout(bill)}
-                className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-[#10b981] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-600 active:scale-[0.99]"
+                className="beam-border inline-flex shrink-0 items-center gap-2 rounded-full bg-forest-500 px-6 py-2.5 text-sm font-semibold text-white shadow-[0_4px_14px_rgba(16,185,129,0.35)] transition hover:bg-forest-600 active:scale-[0.99]"
               >
                 <CreditCard className="h-4 w-4" />
                 {t('tables.goToPayment')}
