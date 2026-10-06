@@ -29,7 +29,7 @@ const {
     tableLockName,
 } = require('./src/utils/orderTargets');
 const { normalizeAllowedRole, passwordPolicyError, assignableRoleError } = require('./src/utils/accountPolicy');
-const { generateTemporaryPassword, hashPassword } = require('./src/utils/userAccounts');
+const { hashPassword } = require('./src/utils/userAccounts');
 const { saveMenuImage } = require('./src/utils/menuImage');
 const { downloadRemoteImage } = require('./src/utils/remoteImage');
 const {
@@ -116,7 +116,7 @@ const {
 } = require('./src/utils/auditLog');
 const helmet = require('helmet');
 const { sanitizeRequest } = require('./src/middleware/sanitize');
-const { apiLimiter, createPasswordResetLimiter, sensitiveOperationLimiter } = require('./src/middleware/rateLimit');
+const { apiLimiter, sensitiveOperationLimiter } = require('./src/middleware/rateLimit');
 const { errorHandler, notFoundHandler } = require('./src/middleware/errorHandler');
 const { logError, logSecurity } = require('./src/utils/logger');
 const { publicAuthRouter, privateAuthRouter, rejectPublicSignup } = require('./src/routes/auth');
@@ -577,75 +577,6 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
     } catch (error) {
         console.error('❌ UPDATE USER ERROR:', error.message);
         res.status(500).json({ message: 'Failed to update user permissions' });
-    }
-});
-
-app.post('/api/users/:id/reset-password', createPasswordResetLimiter(), requireAdmin, async (req, res) => {
-    const userId = Number.parseInt(req.params.id, 10);
-    if (!Number.isInteger(userId) || userId <= 0) {
-        return res.status(400).json({ message: 'Invalid user id' });
-    }
-
-    try {
-        const [existingRows] = await db.execute(
-            'SELECT id, display_name, username, role, permissions FROM users WHERE id = ? LIMIT 1',
-            [userId],
-        );
-        if (!existingRows.length) {
-            return res.status(404).json({ message: 'User not found' });
-        }
-
-        const temporaryPassword = generateTemporaryPassword();
-        const passwordHash = await hashPassword(temporaryPassword);
-        await invalidateUserTokens(db, userId);
-        await db.execute(
-            'UPDATE users SET password_hash = ?, must_change_password = 1 WHERE id = ?',
-            [passwordHash, userId],
-        );
-
-        const account = existingRows[0];
-        await auditFromRequest(db, req, {
-            action: 'password_reset',
-            module: 'Users',
-            description: `Administrator ${req.user?.username || 'admin'} reset the password for ${account.username} (id ${account.id}). They must change it at next login.`,
-        });
-
-        const response = {
-            message: 'Temporary password created. It is shown once and is not stored.',
-            temporaryPassword,
-            user: {
-                id: account.id,
-                username: account.username,
-                must_change_password: true,
-            },
-        };
-
-        if (req.user?.id === userId) {
-            const issued = await signSessionToken(db, {
-                ...account,
-                permissions: isAdminRole(account.role)
-                    ? [...VALID_PERMISSIONS]
-                    : normalizePermissions(account.permissions),
-                must_change_password: true,
-            });
-            await createUserSession(db, { jti: issued.jti, userId, req });
-            response.token = issued.token;
-            response.user = {
-                id: account.id,
-                display_name: account.display_name,
-                username: account.username,
-                role: account.role,
-                permissions: isAdminRole(account.role)
-                    ? [...VALID_PERMISSIONS]
-                    : normalizePermissions(account.permissions),
-                must_change_password: true,
-            };
-        }
-
-        res.status(200).json(response);
-    } catch (error) {
-        console.error('❌ RESET PASSWORD ERROR:', error.message);
-        res.status(500).json({ message: 'Failed to reset password' });
     }
 });
 
