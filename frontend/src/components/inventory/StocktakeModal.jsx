@@ -135,15 +135,15 @@ function UnitNumberInput({ unit, item, tone = 'empty', hint, warning = false, ma
 
 /**
  * One labelled progress row: name on the left, "X / Y" on the right, bar below.
- * Primary = 8px green bar with bold X; `secondary` = small grey text with a 4px grey bar.
+ * 8px green bar with a bold X.
  * Widths come straight from the counts, so a new count moves the bar on the same render.
  */
-function ProgressLevel({ id, label, count, total, valueText, done, doneLabel, secondary = false }) {
+function ProgressLevel({ id, label, count, total, valueText, done, doneLabel }) {
   const percent = total ? (count / total) * 100 : 0
   return (
     <div>
-      <div className={`flex items-baseline justify-between gap-3 ${secondary ? 'text-xs text-slate-500 dark:text-zinc-400' : 'text-sm'}`}>
-        <span id={id} className={`min-w-0 truncate ${secondary ? '' : 'font-medium text-slate-700 dark:text-zinc-300'}`}>
+      <div className="flex items-baseline justify-between gap-3 text-sm">
+        <span id={id} className="min-w-0 truncate font-medium text-slate-700 dark:text-zinc-300">
           {label}
         </span>
         <span className="inline-flex shrink-0 items-center gap-1 tabular-nums">
@@ -153,8 +153,8 @@ function ProgressLevel({ id, label, count, total, valueText, done, doneLabel, se
               <span className="sr-only">{doneLabel}: </span>
             </>
           ) : null}
-          <span className={secondary ? '' : 'font-semibold text-slate-900 dark:text-zinc-100'}>{count}</span>
-          <span className={secondary ? '' : 'text-slate-500 dark:text-zinc-400'}>/ {total}</span>
+          <span className="font-semibold text-slate-900 dark:text-zinc-100">{count}</span>
+          <span className="text-slate-500 dark:text-zinc-400">/ {total}</span>
         </span>
       </div>
       <div
@@ -164,10 +164,10 @@ function ProgressLevel({ id, label, count, total, valueText, done, doneLabel, se
         aria-valuenow={count}
         aria-labelledby={id}
         aria-valuetext={valueText}
-        className={`mt-1 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-zinc-700 ${secondary ? 'h-1' : 'h-2'}`}
+        className="mt-1 h-2 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-zinc-700"
       >
         <div
-          className={`h-full rounded-full ${secondary ? 'bg-slate-400 dark:bg-zinc-500' : 'bg-forest-500'}`}
+          className="h-full rounded-full bg-forest-500"
           style={{ width: `${percent}%` }}
         />
       </div>
@@ -454,9 +454,8 @@ export default function StocktakeModal({ items, onClose, onApplied }) {
       maxWidth="max-w-4xl"
       footer={step === 'edit' ? (
         <div className="flex w-full flex-wrap items-center justify-between gap-x-6 gap-y-3 border-t border-border pt-4">
-          {/* Two levels: the chosen category (bold, green 8px bar), then all categories (small, grey 4px bar).
-              With "All" or a search there is no category, so the all-categories level is shown as the main one. */}
-          <div className="min-w-[12rem] flex-1 space-y-2.5 sm:max-w-xs">
+          {/* One bar: the chosen category's progress, or all categories with "All" or a search. */}
+          <div className="min-w-[12rem] flex-1 sm:max-w-xs">
             {!query && currentCategory ? (
               <ProgressLevel
                 id="stocktake-progress-category"
@@ -467,17 +466,17 @@ export default function StocktakeModal({ items, onClose, onApplied }) {
                 done={completedCategories.has(currentCategory)}
                 doneLabel={t('inventory.categoryDone')}
               />
-            ) : null}
-            <ProgressLevel
-              id="stocktake-progress-all"
-              label={t('inventory.allCategories')}
-              count={countedTotal}
-              total={rows.length}
-              valueText={t('inventory.countedProgress', { count: countedTotal, total: rows.length })}
-              done={rows.length > 0 && countedTotal === rows.length}
-              doneLabel={t('inventory.categoryDone')}
-              secondary={Boolean(!query && currentCategory)}
-            />
+            ) : (
+              <ProgressLevel
+                id="stocktake-progress-all"
+                label={t('inventory.allCategories')}
+                count={countedTotal}
+                total={rows.length}
+                valueText={t('inventory.countedProgress', { count: countedTotal, total: rows.length })}
+                done={rows.length > 0 && countedTotal === rows.length}
+                doneLabel={t('inventory.categoryDone')}
+              />
+            )}
           </div>
           <div className="flex flex-col items-end gap-1.5">
             <div className="flex gap-3">
@@ -533,113 +532,122 @@ export default function StocktakeModal({ items, onClose, onApplied }) {
               }]}
             />
           ) : null}
-          {visible.length === 0 ? <p className="text-muted text-sm">{t('inventory.noMatches')}</p> : null}
-          {visible.length > 0 ? (
-            <div className="overflow-x-auto">
-              <div role="table" aria-label={t('inventory.stocktakeTitle')} className="min-w-[30rem] text-sm">
-                <div role="row" className={`table-head grid items-center gap-x-3 px-3 py-2 ${gridColumns}`}>
-                  <span role="columnheader">{t('inventory.colItem')}</span>
-                  <span role="columnheader" className="text-right">{t('inventory.colSystem')}</span>
-                  <span role="columnheader" className="text-right">{t('inventory.colCounted')}</span>
-                  {editMax ? <span role="columnheader" className="text-right">{t('inventory.colNewMax')}</span> : null}
-                </div>
-                {pageRows.map((item) => {
-                  const comparison = compareCount(item, counted[item.id])
-                  const rowCounted = comparison.state !== 'empty' && comparison.state !== 'invalid'
-                  const currentMax = formatAmount(item.max_stock, item.is_weight)
-                  const maxEntry = parseField(maximums[item.id], item)
-                  const maxEdited = !maxEntry.error && maxEntry.value != null && maxEntry.value !== currentMax
-                  const maxHint = t('inventory.maxChangedFrom', { value: currentMax })
-                  const hint = comparison.state === 'match'
-                    ? t('inventory.matchesSystem')
-                    : comparison.state === 'invalid'
-                      ? t('inventory.numberRequired')
-                      : comparison.diff != null
-                        ? t('inventory.diffVsSystem', { diff: formatSignedDiff(comparison.diff) })
-                        : undefined
-                  return (
-                  <div key={item.id} role="row" className={`grid h-11 items-center gap-x-3 border-b border-border/60 px-3 transition-colors ${ROW_TINT[comparison.state] ?? ''} ${gridColumns}`}>
-                    <div role="cell" className="min-w-0 truncate" title={`${item.item_name} · ${item.unit_label}`}>
-                      <span className="font-medium">{item.item_name}</span>
-                      <span className="text-xs text-slate-500 dark:text-zinc-400"> · {item.unit_label}</span>
-                    </div>
-                    <div role="cell" className="text-right tabular-nums" title={String(formatAmount(item.stock_quantity, item.is_weight))}>
-                      {formatSystemDisplay(item.stock_quantity)}
-                    </div>
-                    <div role="cell" className="flex min-w-0 items-center gap-1.5">
+          {/* Always ROWS_PER_PAGE rows tall (blank rows pad a short page) and the pager keeps its space,
+              so switching category or searching never resizes the modal. */}
+          <div className="overflow-x-auto">
+            <div role="table" aria-label={t('inventory.stocktakeTitle')} className="min-w-[30rem] text-sm">
+              <div role="row" className={`table-head grid items-center gap-x-3 px-3 py-2 ${gridColumns}`}>
+                <span role="columnheader">{t('inventory.colItem')}</span>
+                <span role="columnheader" className="text-right">{t('inventory.colSystem')}</span>
+                <span role="columnheader" className="text-right">{t('inventory.colCounted')}</span>
+                {editMax ? <span role="columnheader" className="text-right">{t('inventory.colNewMax')}</span> : null}
+              </div>
+              {pageRows.map((item) => {
+                const comparison = compareCount(item, counted[item.id])
+                const rowCounted = comparison.state !== 'empty' && comparison.state !== 'invalid'
+                const currentMax = formatAmount(item.max_stock, item.is_weight)
+                const maxEntry = parseField(maximums[item.id], item)
+                const maxEdited = !maxEntry.error && maxEntry.value != null && maxEntry.value !== currentMax
+                const maxHint = t('inventory.maxChangedFrom', { value: currentMax })
+                const hint = comparison.state === 'match'
+                  ? t('inventory.matchesSystem')
+                  : comparison.state === 'invalid'
+                    ? t('inventory.numberRequired')
+                    : comparison.diff != null
+                      ? t('inventory.diffVsSystem', { diff: formatSignedDiff(comparison.diff) })
+                      : undefined
+                return (
+                <div key={item.id} role="row" className={`grid h-11 items-center gap-x-3 border-b border-border/60 px-3 transition-colors ${ROW_TINT[comparison.state] ?? ''} ${gridColumns}`}>
+                  <div role="cell" className="min-w-0 truncate" title={`${item.item_name} · ${item.unit_label}`}>
+                    <span className="font-medium">{item.item_name}</span>
+                    <span className="text-xs text-slate-500 dark:text-zinc-400"> · {item.unit_label}</span>
+                  </div>
+                  <div role="cell" className="text-right tabular-nums" title={String(formatAmount(item.stock_quantity, item.is_weight))}>
+                    {formatSystemDisplay(item.stock_quantity)}
+                  </div>
+                  <div role="cell" className="flex min-w-0 items-center gap-1.5">
+                    <UnitNumberInput
+                      item={item}
+                      unit={item.unit_label}
+                      value={counted[item.id] ?? ''}
+                      onChange={(event) => setCounted((current) => ({ ...current, [item.id]: event.target.value }))}
+                      onKeyDown={focusNextCount}
+                      data-counted=""
+                      tone={rowCounted ? 'counted' : comparison.state}
+                      strong={rowCounted}
+                      hint={hint}
+                      warning={comparison.state === 'major'}
+                      aria-invalid={comparison.state === 'invalid' ? true : undefined}
+                      aria-describedby={hint ? `count-hint-${item.id}` : undefined}
+                      aria-label={`${item.item_name} ${t('inventory.countedQuantity')} (${item.unit_label})`}
+                    />
+                    {hint ? <span id={`count-hint-${item.id}`} className="sr-only">{hint}</span> : null}
+                    <MatchButton
+                      counted={rowCounted}
+                      matched={comparison.state === 'match'}
+                      label={`${t('inventory.matchesSystem')}: ${item.item_name}`}
+                      onClick={() => setCounted((current) => ({
+                        ...current,
+                        [item.id]: String(formatAmount(item.stock_quantity, item.is_weight)),
+                      }))}
+                    />
+                  </div>
+                  {editMax ? (
+                    <div role="cell" className="min-w-0">
                       <UnitNumberInput
                         item={item}
                         unit={item.unit_label}
-                        value={counted[item.id] ?? ''}
-                        onChange={(event) => setCounted((current) => ({ ...current, [item.id]: event.target.value }))}
-                        onKeyDown={focusNextCount}
-                        data-counted=""
-                        tone={rowCounted ? 'counted' : comparison.state}
-                        strong={rowCounted}
-                        hint={hint}
-                        warning={comparison.state === 'major'}
-                        aria-invalid={comparison.state === 'invalid' ? true : undefined}
-                        aria-describedby={hint ? `count-hint-${item.id}` : undefined}
-                        aria-label={`${item.item_name} ${t('inventory.countedQuantity')} (${item.unit_label})`}
+                        // Starts as the current max (real text, not a grey placeholder); only an edit lands in state.
+                        value={maximums[item.id] ?? String(formatAmount(item.max_stock, item.is_weight))}
+                        onChange={(event) => setMaximums((current) => ({ ...current, [item.id]: event.target.value }))}
+                        tone={maxEntry.error ? 'invalid' : maxEdited ? 'edited' : 'editable'}
+                        aria-invalid={maxEntry.error ? true : undefined}
+                        hint={maxEdited ? maxHint : undefined}
+                        marker={maxEdited}
+                        aria-describedby={maxEdited ? `max-hint-${item.id}` : undefined}
+                        aria-label={`${item.item_name} ${t('inventory.newMaximum')} (${item.unit_label})`}
                       />
-                      {hint ? <span id={`count-hint-${item.id}`} className="sr-only">{hint}</span> : null}
-                      <MatchButton
-                        counted={rowCounted}
-                        matched={comparison.state === 'match'}
-                        label={`${t('inventory.matchesSystem')}: ${item.item_name}`}
-                        onClick={() => setCounted((current) => ({
-                          ...current,
-                          [item.id]: String(formatAmount(item.stock_quantity, item.is_weight)),
-                        }))}
-                      />
+                      {maxEdited ? <span id={`max-hint-${item.id}`} className="sr-only">{maxHint}</span> : null}
                     </div>
-                    {editMax ? (
-                      <div role="cell" className="min-w-0">
-                        <UnitNumberInput
-                          item={item}
-                          unit={item.unit_label}
-                          // Starts as the current max (real text, not a grey placeholder); only an edit lands in state.
-                          value={maximums[item.id] ?? String(formatAmount(item.max_stock, item.is_weight))}
-                          onChange={(event) => setMaximums((current) => ({ ...current, [item.id]: event.target.value }))}
-                          tone={maxEntry.error ? 'invalid' : maxEdited ? 'edited' : 'editable'}
-                          aria-invalid={maxEntry.error ? true : undefined}
-                          hint={maxEdited ? maxHint : undefined}
-                          marker={maxEdited}
-                          aria-describedby={maxEdited ? `max-hint-${item.id}` : undefined}
-                          aria-label={`${item.item_name} ${t('inventory.newMaximum')} (${item.unit_label})`}
-                        />
-                        {maxEdited ? <span id={`max-hint-${item.id}`} className="sr-only">{maxHint}</span> : null}
-                      </div>
-                    ) : null}
-                  </div>
-                  )
-                })}
-              </div>
+                  ) : null}
+                </div>
+                )
+              })}
+              {visible.length === 0 ? (
+                <div role="row" className="flex h-11 items-center px-3">
+                  <span role="cell" className="text-muted">{t('inventory.noMatches')}</span>
+                </div>
+              ) : null}
+              {Array.from({ length: ROWS_PER_PAGE - Math.max(pageRows.length, 1) }, (_, index) => (
+                <div key={`pad-${index}`} className="h-11" aria-hidden />
+              ))}
             </div>
-          ) : null}
-          {pageCount > 1 ? (
-            <nav aria-label={t('inventory.paginationLabel')} className="flex items-center justify-end gap-2">
-              <button
-                type="button"
-                disabled={currentPage <= 1}
-                onClick={() => setPage(currentPage - 1)}
-                className="btn-secondary min-h-8 px-3 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                {t('inventory.pageBack')}
-              </button>
-              <span className="text-muted px-1 text-xs tabular-nums" aria-live="polite">
-                {t('inventory.pageOf', { page: currentPage, total: pageCount })}
-              </span>
-              <button
-                type="button"
-                disabled={currentPage >= pageCount}
-                onClick={() => setPage(currentPage + 1)}
-                className="btn-secondary min-h-8 px-3 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                {t('common.next')}
-              </button>
-            </nav>
-          ) : null}
+          </div>
+          <nav
+            aria-label={t('inventory.paginationLabel')}
+            aria-hidden={pageCount <= 1 || undefined}
+            className={`flex items-center justify-end gap-2 ${pageCount > 1 ? '' : 'invisible'}`}
+          >
+            <button
+              type="button"
+              disabled={currentPage <= 1}
+              onClick={() => setPage(currentPage - 1)}
+              className="btn-secondary min-h-8 px-3 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {t('inventory.pageBack')}
+            </button>
+            <span className="text-muted px-1 text-xs tabular-nums" aria-live="polite">
+              {t('inventory.pageOf', { page: currentPage, total: pageCount })}
+            </span>
+            <button
+              type="button"
+              disabled={currentPage >= pageCount}
+              onClick={() => setPage(currentPage + 1)}
+              className="btn-secondary min-h-8 px-3 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {t('common.next')}
+            </button>
+          </nav>
         </div>
       ) : null}
       {step === 'summary' ? (

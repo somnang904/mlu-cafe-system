@@ -1,15 +1,28 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AtSign, Eye, EyeOff, KeyRound, Lock, Pencil, ShieldCheck, Trash2, User, UserCheck, UserPlus, Wallet } from 'lucide-react'
+import {
+  AtSign,
+  Eye,
+  EyeOff,
+  KeyRound,
+  Lock,
+  ShieldCheck,
+  SquarePen,
+  Trash2,
+  User,
+  UserCheck,
+  UserPlus,
+  Wallet,
+} from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { apiFetch } from '../services/apiClient'
 import { useActionBanner } from '../hooks/useActionBanner'
 import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal'
 import FieldLabel from '../components/ui/FieldLabel'
-import IconSelect from '../components/ui/IconSelect'
 import ModalHeader from '../components/ui/ModalHeader'
+import Tooltip from '../components/ui/Tooltip'
 import { useAuth } from '../context/AuthContext'
 import {
-  STAFF_DEFAULT_PERMISSIONS,
+  CASHIER_DEFAULT_PERMISSIONS,
   defaultPermissionsForRole,
   isAdminRole,
   normalizePermissions,
@@ -42,8 +55,6 @@ const PERMISSION_LABEL_KEYS = {
   reports: 'nav.reports',
 }
 
-const ASSIGNABLE_ROLES = ['Cashier', 'Staff']
-
 function passwordMeetsPolicy(password) {
   return password.length >= 8 && /[A-Za-z]/.test(password) && /[0-9]/.test(password)
 }
@@ -56,12 +67,6 @@ function roleLabel(t, role) {
 function permissionLabel(t, permissionId) {
   const key = PERMISSION_LABEL_KEYS[permissionId]
   return key ? t(key) : permissionId
-}
-
-function roleBlurbKey(role) {
-  if (isAdminRole(role)) return 'users.roleBlurbAdmin'
-  if (String(role).toLowerCase() === 'cashier') return 'users.roleBlurbCashier'
-  return 'users.roleBlurbStaff'
 }
 
 function sortUsersWithAdminsFirst(userList) {
@@ -83,28 +88,15 @@ function UserFormModal({ mode, user, onClose, onSave }) {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
-  const [role, setRole] = useState(() => {
-    if (editingExistingAdmin) return 'Admin'
-    const normalized = String(user?.role || '').toLowerCase()
-    if (normalized === 'cashier' || normalized === 'supervisor') return 'Cashier'
-    if (normalized === 'staff') return 'Staff'
-    return 'Staff'
-  })
+  const role = editingExistingAdmin ? 'Admin' : 'Cashier'
   const [permissions, setPermissions] = useState(() => {
     if (isAdminRole(user?.role)) return []
     if (user?.permissions) return normalizePermissions(user.permissions)
-    return [...STAFF_DEFAULT_PERMISSIONS]
+    return [...CASHIER_DEFAULT_PERMISSIONS]
   })
   const [error, setError] = useState('')
-  const isAdminUser = editingExistingAdmin || isAdminRole(role)
+  const isAdminUser = editingExistingAdmin
   const availablePermissions = useMemo(() => permissionOptionsForRole(), [])
-
-  const handleRoleChange = (nextRole) => {
-    if (editingExistingAdmin) return
-    if (!ASSIGNABLE_ROLES.includes(nextRole)) return
-    setRole(nextRole)
-    setPermissions(defaultPermissionsForRole(nextRole))
-  }
 
   const handlePermissionToggle = (sectionId) => {
     setPermissions((prev) =>
@@ -273,24 +265,19 @@ function UserFormModal({ mode, user, onClose, onSave }) {
             <FieldLabel icon={ShieldCheck} htmlFor="user-role">
               {t('users.assignmentRole')}
             </FieldLabel>
-            {editingExistingAdmin ? (
-              <p id="user-role" className="input-field px-3 py-2 text-sm font-medium text-emerald-800 dark:text-emerald-200">
-                {roleLabel(t, 'Admin')}
-              </p>
-            ) : (
-              <IconSelect
-                id="user-role"
-                value={role}
-                onChange={handleRoleChange}
-                options={[
-                  { value: 'Staff', label: t('users.roles.staff'), icon: User },
-                  { value: 'Cashier', label: t('users.roles.cashier'), icon: Wallet },
-                ]}
-                className="rounded-xl"
-              />
-            )}
+            <p
+              id="user-role"
+              className={`input-field flex items-center gap-2.5 px-3 py-2 text-sm font-medium ${
+                editingExistingAdmin
+                  ? 'text-emerald-800 dark:text-emerald-200'
+                  : 'text-slate-900 dark:text-zinc-100'
+              }`}
+            >
+              {editingExistingAdmin ? null : <Wallet className="h-4 w-4 shrink-0 text-forest-600 dark:text-forest-400" aria-hidden />}
+              {roleLabel(t, role)}
+            </p>
             <p className="text-muted mt-1.5 text-2xs leading-snug">
-              {editingExistingAdmin ? t('users.roleBlurbAdminFixed') : t(roleBlurbKey(role))}
+              {editingExistingAdmin ? t('users.roleBlurbAdminFixed') : t('users.roleBlurbCashier')}
             </p>
           </div>
 
@@ -347,8 +334,6 @@ export default function Users() {
   const [userToDelete, setUserToDelete] = useState(null)
   const [isDeleting, setIsDeleting] = useState(false)
   const [error, setError] = useState('')
-  const [resetNotice, setResetNotice] = useState(null)
-  const [resettingId, setResettingId] = useState(null)
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -412,32 +397,6 @@ export default function Users() {
     }
   }
 
-  const resetUserPassword = async (event, account) => {
-    event.stopPropagation()
-    if (resettingId) return
-    setError('')
-    setResettingId(account.id)
-    try {
-      const res = await apiFetch(`/users/${account.id}/reset-password`, { method: 'POST' })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        throw new Error(data.message || t('users.errors.reset'))
-      }
-      if (data.token && data.user) {
-        adoptSession(data.token, data.user)
-      }
-      setResetNotice({
-        username: account.username,
-        temporaryPassword: data.temporaryPassword || '',
-      })
-    } catch (err) {
-      setError(err.message || t('users.errors.reset'))
-      notifyFailed(err)
-    } finally {
-      setResettingId(null)
-    }
-  }
-
   const requestDeleteUser = (event, user) => {
     event.stopPropagation()
     setError('')
@@ -485,11 +444,13 @@ export default function Users() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-heading text-lg font-bold">{t('nav.users')}</h3>
-        </div>
-        <button type="button" onClick={openCreateModal} className="btn-primary inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold">
+      <div className="space-y-4">
+        <h3 className="text-heading text-lg font-bold">{t('nav.users')}</h3>
+        <button
+          type="button"
+          onClick={openCreateModal}
+          className="btn-primary beam-border inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold shadow-[0_4px_14px_rgba(16,185,129,0.35)]"
+        >
           <UserPlus className="h-4 w-4" />
           {t('users.addNew')}
         </button>
@@ -544,44 +505,43 @@ export default function Users() {
                       )}
                     </div>
                   </td>
-                  <td className="px-6 py-4 text-right" onClick={(event) => event.stopPropagation()}>
-                    <button
-                      type="button"
-                      onClick={(event) => resetUserPassword(event, user)}
-                      disabled={resettingId === user.id}
-                      title={t('users.resetPassword')}
-                      aria-label={t('users.resetPassword')}
-                      className="rounded-lg p-2 text-stone-400 transition hover:bg-forest-50 hover:text-forest-700 disabled:opacity-40 dark:hover:bg-forest-950/40 dark:hover:text-forest-300"
-                    >
-                      <KeyRound className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        openEditModal(user)
-                      }}
-                      title={t('users.editUser')}
-                      aria-label={t('users.editUser')}
-                      className="rounded-lg p-2 text-stone-400 transition hover:bg-forest-50 hover:text-forest-700 dark:hover:bg-forest-950/40 dark:hover:text-forest-300"
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </button>
-                    {(() => {
-                      const { canDelete, title } = getDeleteGuard(user)
-                      return (
+                  <td className="px-6 py-4" onClick={(event) => event.stopPropagation()}>
+                    <div className="ml-auto flex w-fit items-center gap-0.5 rounded-full bg-white/90 p-0.5 shadow-sm ring-1 ring-slate-200 dark:bg-zinc-800/90 dark:ring-zinc-700">
+                      <Tooltip label={t('common.edit')}>
                         <button
                           type="button"
-                          onClick={(event) => canDelete && requestDeleteUser(event, user)}
-                          disabled={!canDelete}
-                          title={title}
-                          aria-label={title}
-                          className="rounded-lg p-2 text-stone-400 transition hover:bg-red-50 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-stone-400 dark:hover:bg-red-950/40 dark:hover:text-red-300"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            openEditModal(user)
+                          }}
+                          aria-label={t('users.editUser')}
+                          className="flex h-8 w-8 items-center justify-center rounded-full text-slate-500 transition hover:bg-forest-50 hover:text-forest-600 focus-visible:outline-2 focus-visible:outline-forest-500 dark:text-zinc-400 dark:hover:bg-forest-950/50 dark:hover:text-forest-300"
                         >
-                          <Trash2 className="h-4 w-4" />
+                          <SquarePen className="h-4 w-4" aria-hidden />
                         </button>
-                      )
-                    })()}
+                      </Tooltip>
+                      {isAdminRole(user.role)
+                        ? null
+                        : (() => {
+                            const { canDelete, title } = getDeleteGuard(user)
+                            return (
+                              <>
+                                <span className="h-4 w-px bg-slate-200 dark:bg-zinc-700" aria-hidden />
+                                <Tooltip label={t('common.delete')}>
+                                  <button
+                                    type="button"
+                                    onClick={(event) => canDelete && requestDeleteUser(event, user)}
+                                    disabled={!canDelete}
+                                    aria-label={title}
+                                    className="flex h-8 w-8 items-center justify-center rounded-full text-slate-500 transition hover:bg-red-50 hover:text-red-600 focus-visible:outline-2 focus-visible:outline-red-500 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-500 dark:text-zinc-400 dark:hover:bg-red-950/50 dark:hover:text-red-400"
+                                  >
+                                    <Trash2 className="h-4 w-4" aria-hidden />
+                                  </button>
+                                </Tooltip>
+                              </>
+                            )
+                          })()}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -599,27 +559,6 @@ export default function Users() {
           onSave={handleSaveUser}
         />
       )}
-      {resetNotice ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="modal-backdrop" aria-hidden="true" />
-          <div role="dialog" aria-modal="true" className="modal-panel relative z-10 w-full max-w-md p-6">
-            <ModalHeader icon={KeyRound} title={t('users.resetPasswordTitle')} onClose={() => setResetNotice(null)} />
-            <p className="mt-3 text-sm text-slate-500 dark:text-zinc-400">{t('users.resetPasswordBody', { username: resetNotice.username })}</p>
-            <p className="mt-4 break-all rounded-xl bg-stone-100 px-4 py-3 font-mono text-sm text-slate-900 dark:bg-zinc-800 dark:text-zinc-100">
-              {resetNotice.temporaryPassword}
-            </p>
-            <div className="mt-4 flex justify-end">
-              <button
-                type="button"
-                className="btn-primary beam-border px-4 py-2 text-sm shadow-[0_4px_14px_rgba(16,185,129,0.35)]"
-                onClick={() => setResetNotice(null)}
-              >
-                {t('common.close')}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
       <ConfirmDeleteModal
         isOpen={Boolean(userToDelete)}
         title={t('users.deleteTitle')}

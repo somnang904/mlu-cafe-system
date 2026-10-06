@@ -78,7 +78,9 @@ const CATEGORY_LABEL_KEYS = {
   Dessert: 'order.categories.dessert',
 }
 
-function categoryLabel(category, t) {
+// `labels` holds the names given to renamed built-in categories on the Menu page.
+function categoryLabel(category, t, labels = {}) {
+  if (labels[category]) return labels[category]
   const key = CATEGORY_LABEL_KEYS[category]
   return key ? t(key) : category
 }
@@ -127,6 +129,23 @@ export default function Order() {
   const [sentConfirmation, setSentConfirmation] = useState(null)
   const [sendPaused, setSendPaused] = useState(false)
   const [activeCategory, setActiveCategory] = useState('All')
+  // From the Menu page: which categories exist (deleted built-ins are left out) and renamed ones' labels.
+  const [menuCategories, setMenuCategories] = useState({ categories: null, labels: {} })
+  useEffect(() => {
+    let cancelled = false
+    apiFetch('/menu/categories')
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`Server status returned ${res.status}`)
+        const data = await res.json()
+        if (!cancelled && Array.isArray(data.categories)) {
+          setMenuCategories({ categories: data.categories, labels: data.labels || {} })
+        }
+      })
+      .catch((err) => console.error('Error loading menu categories:', err))
+    return () => {
+      cancelled = true
+    }
+  }, [])
   const [searchQuery, setSearchQuery] = useState('')
   const [sugarItem, setSugarItem] = useState(null)
   const [sugarPresetServing, setSugarPresetServing] = useState(null)
@@ -227,6 +246,24 @@ export default function Order() {
 
   const menuImageById = useMemo(() => new Map(menuItems.map((item) => [Number(item.id), item.image_url])), [menuItems])
 
+  // Categories added on the Menu page get a chip after the built-in ones, once an item uses them.
+  const categoryFilters = useMemo(() => {
+    const { categories, labels } = menuCategories
+    const builtIns = CATEGORY_FILTERS.filter(({ id }) => id === 'All' || !categories || categories.includes(id)).map(
+      (filter) => (labels[filter.id] ? { id: filter.id, label: labels[filter.id] } : filter),
+    )
+    const known = new Set(builtIns.map(({ id }) => id))
+    const added = []
+    menuItems.forEach((item) => {
+      const category = String(item.category || '').trim()
+      if (category && !known.has(category)) {
+        known.add(category)
+        added.push({ id: category, label: category })
+      }
+    })
+    return [...builtIns, ...added]
+  }, [menuItems, menuCategories])
+
   const filteredMenuItems = useMemo(() => {
     const query = searchQuery.trim().toLowerCase()
     return menuItems.filter((item) => {
@@ -238,7 +275,7 @@ export default function Order() {
       const matchesSearch =
         !query ||
         menuNameMatchesQuery(item.name, query, i18n.language, t) ||
-        String(categoryLabel(item.category, t) || '')
+        String(categoryLabel(item.category, t, menuCategories.labels) || '')
           .toLowerCase()
           .includes(query) ||
         String(item.category || '')
@@ -246,7 +283,7 @@ export default function Order() {
           .includes(query)
       return matchesCategory && matchesSearch
     })
-  }, [menuItems, activeCategory, searchQuery, i18n.language, t])
+  }, [menuItems, activeCategory, searchQuery, i18n.language, t, menuCategories.labels])
 
   const addToCart = (item, options = {}) => {
     const notes = options.notes != null ? String(options.notes) : item.notes || ''
@@ -575,7 +612,7 @@ export default function Order() {
             </div>
 
             <ScrollRow className="-mx-1 -my-1 gap-2 px-1 py-2">
-              {CATEGORY_FILTERS.map(({ id, labelKey }) => (
+              {categoryFilters.map(({ id, labelKey, label }) => (
                 <button
                   key={id}
                   type="button"
@@ -584,7 +621,7 @@ export default function Order() {
                     activeCategory === id ? 'tab-pill-active' : 'tab-pill-inactive'
                   }`}
                 >
-                  {t(labelKey)}
+                  {labelKey ? t(labelKey) : label}
                 </button>
               ))}
             </ScrollRow>
@@ -634,7 +671,7 @@ export default function Order() {
                     tabIndex={showServingButtons ? undefined : 0}
                   >
                     <div className="flex w-full items-center justify-between gap-1.5">
-                      <span className="badge-olive truncate">{categoryLabel(item.category, t)}</span>
+                      <span className="badge-olive truncate">{categoryLabel(item.category, t, menuCategories.labels)}</span>
                       <StockBadge level={stockLevel} left={item.stock_left} />
                     </div>
 

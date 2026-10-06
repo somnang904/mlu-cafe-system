@@ -29,7 +29,7 @@ const {
     tableLockName,
 } = require('./src/utils/orderTargets');
 const { normalizeAllowedRole, passwordPolicyError, assignableRoleError } = require('./src/utils/accountPolicy');
-const { generateTemporaryPassword, hashPassword } = require('./src/utils/userAccounts');
+const { hashPassword } = require('./src/utils/userAccounts');
 const { saveMenuImage } = require('./src/utils/menuImage');
 const { downloadRemoteImage } = require('./src/utils/remoteImage');
 const {
@@ -65,9 +65,13 @@ const { isUnderMaintenance, maintenanceMessage } = require('./src/utils/maintena
 const { parseBackupPeriod, buildBackupFilename } = require('./src/utils/backupPeriod');
 const { buildActiveAlerts } = require('./src/utils/alertEngine');
 const {
+    createMenuCategory,
+    deleteMenuCategory,
     ensureMenuItemsSchema,
+    getMenuCategories,
     menuCategoryFieldSql,
-    normalizeMenuCategory,
+    renameMenuCategory,
+    resolveMenuCategory,
     normalizeMenuImageUrl,
     normalizeMenuPrices,
     serializeMenuItem,
@@ -112,7 +116,7 @@ const {
 } = require('./src/utils/auditLog');
 const helmet = require('helmet');
 const { sanitizeRequest } = require('./src/middleware/sanitize');
-const { apiLimiter, createPasswordResetLimiter, sensitiveOperationLimiter } = require('./src/middleware/rateLimit');
+const { apiLimiter, sensitiveOperationLimiter } = require('./src/middleware/rateLimit');
 const { errorHandler, notFoundHandler } = require('./src/middleware/errorHandler');
 const { logError, logSecurity } = require('./src/utils/logger');
 const { publicAuthRouter, privateAuthRouter, rejectPublicSignup } = require('./src/routes/auth');
@@ -354,11 +358,11 @@ app.post('/api/users', requireAdmin, async (req, res) => {
         return res.status(400).json({ message: policyError });
     }
 
-    const allowedRole = normalizeAllowedRole(role || 'Staff');
+    const allowedRole = normalizeAllowedRole(role || 'Cashier');
     if (!allowedRole || allowedRole === 'Admin') {
-        return res.status(400).json({ message: assignableRoleError(role || 'Admin') || 'Role must be Cashier or Staff.' });
+        return res.status(400).json({ message: assignableRoleError(role || 'Admin') || 'Role must be Cashier.' });
     }
-    const assignError = assignableRoleError(role);
+    const assignError = assignableRoleError(allowedRole);
     if (assignError) {
         return res.status(400).json({ message: assignError });
     }
@@ -576,75 +580,6 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
     }
 });
 
-app.post('/api/users/:id/reset-password', createPasswordResetLimiter(), requireAdmin, async (req, res) => {
-    const userId = Number.parseInt(req.params.id, 10);
-    if (!Number.isInteger(userId) || userId <= 0) {
-        return res.status(400).json({ message: 'Invalid user id' });
-    }
-
-    try {
-        const [existingRows] = await db.execute(
-            'SELECT id, display_name, username, role, permissions FROM users WHERE id = ? LIMIT 1',
-            [userId],
-        );
-        if (!existingRows.length) {
-            return res.status(404).json({ message: 'User not found' });
-        }
-
-        const temporaryPassword = generateTemporaryPassword();
-        const passwordHash = await hashPassword(temporaryPassword);
-        await invalidateUserTokens(db, userId);
-        await db.execute(
-            'UPDATE users SET password_hash = ?, must_change_password = 1 WHERE id = ?',
-            [passwordHash, userId],
-        );
-
-        const account = existingRows[0];
-        await auditFromRequest(db, req, {
-            action: 'password_reset',
-            module: 'Users',
-            description: `Administrator ${req.user?.username || 'admin'} reset the password for ${account.username} (id ${account.id}). They must change it at next login.`,
-        });
-
-        const response = {
-            message: 'Temporary password created. It is shown once and is not stored.',
-            temporaryPassword,
-            user: {
-                id: account.id,
-                username: account.username,
-                must_change_password: true,
-            },
-        };
-
-        if (req.user?.id === userId) {
-            const issued = await signSessionToken(db, {
-                ...account,
-                permissions: isAdminRole(account.role)
-                    ? [...VALID_PERMISSIONS]
-                    : normalizePermissions(account.permissions),
-                must_change_password: true,
-            });
-            await createUserSession(db, { jti: issued.jti, userId, req });
-            response.token = issued.token;
-            response.user = {
-                id: account.id,
-                display_name: account.display_name,
-                username: account.username,
-                role: account.role,
-                permissions: isAdminRole(account.role)
-                    ? [...VALID_PERMISSIONS]
-                    : normalizePermissions(account.permissions),
-                must_change_password: true,
-            };
-        }
-
-        res.status(200).json(response);
-    } catch (error) {
-        console.error('❌ RESET PASSWORD ERROR:', error.message);
-        res.status(500).json({ message: 'Failed to reset password' });
-    }
-});
-
 app.delete('/api/users/:id', requireAdmin, async (req, res) => {
     const userId = Number.parseInt(req.params.id, 10);
 
@@ -768,6 +703,73 @@ app.post('/api/menu/upload-image', requirePermission('menu'), (req, res) => {
     });
 });
 
+// Menu categories: the built-in ones, then any added from the Menu page (oldest first).
+app.get('/api/menu/categories', async (req, res) => {
+    try {
+        res.status(200).json(await getMenuCategories(db));
+    } catch (error) {
+        console.error('Error loading menu categories:', error);
+        res.status(500).json({ message: 'Failed to load menu categories' });
+    }
+});
+
+app.post('/api/menu/categories', requirePermission('menu'), async (req, res) => {
+    try {
+        const name = await createMenuCategory(db, req.body?.name);
+        await auditFromRequest(db, req, {
+            action: 'menu_category_create',
+            module: 'Menu Management',
+            description: `Added menu category "${name}"`,
+        });
+        res.status(201).json({ category: name, ...(await getMenuCategories(db)) });
+    } catch (error) {
+        if (error.status) return res.status(error.status).json({ message: error.message, code: error.code });
+        console.error('Error adding menu category:', error);
+        res.status(500).json({ message: 'Failed to add the category' });
+    }
+});
+
+app.put('/api/menu/categories/:name', requirePermission('menu'), async (req, res) => {
+    try {
+        const previous = req.params.name;
+        const name = await renameMenuCategory(db, previous, req.body?.name);
+        const result = await getMenuCategories(db);
+        // A built-in category keeps its key, so log the new display label.
+        await auditFromRequest(db, req, {
+            action: 'menu_category_update',
+            module: 'Menu Management',
+            description: `Renamed menu category "${previous}" to "${result.labels[name] ?? name}"`,
+        });
+        res.status(200).json({ category: name, ...result });
+    } catch (error) {
+        if (error.status) return res.status(error.status).json({ message: error.message, code: error.code });
+        console.error('Error renaming menu category:', error);
+        res.status(500).json({ message: 'Failed to save the category' });
+    }
+});
+
+// A category with items needs ?moveTo=<category>, so no menu item is left without one.
+app.delete('/api/menu/categories/:name', requirePermission('menu'), async (req, res) => {
+    try {
+        const moveTo = req.query.moveTo ?? req.body?.moveTo ?? null;
+        const { key, moved } = await deleteMenuCategory(db, req.params.name, moveTo);
+        await auditFromRequest(db, req, {
+            action: 'menu_category_delete',
+            module: 'Menu Management',
+            description: moved
+                ? `Deleted menu category "${key}" and moved its ${moved} items to "${moveTo}"`
+                : `Deleted menu category "${key}"`,
+        });
+        res.status(200).json({ moved, ...(await getMenuCategories(db)) });
+    } catch (error) {
+        if (error.status) {
+            return res.status(error.status).json({ message: error.message, code: error.code, count: error.count });
+        }
+        console.error('Error deleting menu category:', error);
+        res.status(500).json({ message: 'Failed to delete the category' });
+    }
+});
+
 // 1. GET ALL MENU ITEMS (To display them on your frontend grid)
 app.get('/api/menu', async (req, res) => {
     try {
@@ -791,7 +793,7 @@ app.get('/api/menu', async (req, res) => {
 // 2. ADD A NEW MENU ITEM (When you click 'Add Item' on your management page)
 app.post('/api/menu', requirePermission('menu'), async (req, res) => {
     const { name, image_url } = req.body ?? {};
-    const category = normalizeMenuCategory(req.body?.category);
+    const category = await resolveMenuCategory(db, req.body?.category).catch(() => null);
     const prices = normalizeMenuPrices(req.body ?? {}, category);
 
     if (!name || !category || prices.error) {
@@ -841,7 +843,7 @@ app.post('/api/menu', requirePermission('menu'), async (req, res) => {
 app.put('/api/menu/:id', requirePermission('menu'), async (req, res) => {
     const itemId = Number.parseInt(req.params.id, 10);
     const { name, image_url } = req.body ?? {};
-    const category = normalizeMenuCategory(req.body?.category);
+    const category = await resolveMenuCategory(db, req.body?.category).catch(() => null);
     const prices = normalizeMenuPrices(req.body ?? {}, category);
 
     if (!Number.isInteger(itemId) || itemId <= 0) {

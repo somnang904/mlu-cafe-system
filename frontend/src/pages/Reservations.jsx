@@ -11,11 +11,13 @@ import {
   Clock,
   Crown,
   Hourglass,
+  ListFilter,
   Pencil,
   Phone,
   Plus,
   ScrollText,
   Search,
+  SquarePen,
   StickyNote,
   Tag,
   Trash2,
@@ -26,6 +28,8 @@ import {
 import { useTranslation } from 'react-i18next'
 import ConfirmationLetterModal from '../components/reservations/ConfirmationLetterModal'
 import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal'
+import PaginationBar from '../components/ui/PaginationBar'
+import Tooltip from '../components/ui/Tooltip'
 import OperatingHoursNotice from '../components/common/OperatingHoursNotice'
 import PageContainer from '../components/common/PageContainer'
 import StatusBadge from '../components/common/StatusBadge'
@@ -60,6 +64,7 @@ import {
   formatMonthYear,
   formatSlotRange12Hour,
   formatTime12Hour,
+  localizeDigits,
 } from '../utils/dateTimeFormat'
 import { canIssueConfirmationLetter } from '../utils/reservationLetter'
 import { useAlerts } from '../context/AlertsContext'
@@ -132,6 +137,8 @@ function reservationTableLabel(reservation, t) {
   return floorTableLabel(table, t)
 }
 
+const SHEET_PAGE_SIZE = 10
+
 function ReservationCalendar({ monthDate, selectedDate, countsByDate, onSelectDate, onChangeMonth }) {
   const { t } = useTranslation()
   const year = monthDate.getFullYear()
@@ -149,86 +156,93 @@ function ReservationCalendar({ monthDate, selectedDate, countsByDate, onSelectDa
   }
 
   return (
-    <div className="surface-card h-full min-w-0 p-5">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <div>
-          <p className="text-heading text-sm font-semibold">{t('reservations.calendar')}</p>
-          <p className="text-muted text-xs">
-            {formatMonthYear(monthDate, t)}
-          </p>
+    <div className="surface-card flex h-full min-w-0 flex-col p-5">
+      <div className="mb-5 flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-2xs font-semibold uppercase tracking-wide text-muted-foreground">{t('reservations.calendar')}</p>
+          <p className="text-heading mt-0.5 truncate text-lg font-bold">{formatMonthYear(monthDate, t)}</p>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex shrink-0 items-center gap-1">
           <button
             type="button"
             onClick={() => onChangeMonth(-1)}
-            className="flex h-9 w-9 items-center justify-center rounded-full border border-border text-muted-foreground hover:bg-olive-50 dark:hover:bg-zinc-800"
+            className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition hover:bg-forest-50 hover:text-forest-700 dark:hover:bg-forest-950/40 dark:hover:text-forest-300"
             aria-label={t('reservations.previousMonth')}
           >
-            <ChevronLeft className="h-4 w-4" />
+            <ChevronLeft className="h-5 w-5" />
           </button>
           <button
             type="button"
             onClick={() => onChangeMonth(0)}
-            className="rounded-full px-3 py-1.5 text-xs font-semibold text-forest-700 hover:bg-forest-50 dark:text-forest-300 dark:hover:bg-forest-950/40"
+            className="rounded-full bg-forest-50 px-3.5 py-1.5 text-xs font-semibold text-forest-700 transition hover:bg-forest-100 dark:bg-forest-950/50 dark:text-forest-300 dark:hover:bg-forest-950"
           >
             {t('reservations.today')}
           </button>
           <button
             type="button"
             onClick={() => onChangeMonth(1)}
-            className="flex h-9 w-9 items-center justify-center rounded-full border border-border text-muted-foreground hover:bg-olive-50 dark:hover:bg-zinc-800"
+            className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition hover:bg-forest-50 hover:text-forest-700 dark:hover:bg-forest-950/40 dark:hover:text-forest-300"
             aria-label={t('reservations.nextMonth')}
           >
-            <ChevronRight className="h-4 w-4" />
+            <ChevronRight className="h-5 w-5" />
           </button>
         </div>
       </div>
 
-      <div className="grid min-w-0 grid-cols-7 gap-1 text-center text-2xs font-semibold uppercase tracking-wide text-muted-foreground">
+      <div className="grid min-w-0 grid-cols-7 border-b border-border/60 pb-2 text-center text-xs font-semibold text-muted-foreground">
         {WEEKDAY_KEYS.map((day) => (
-          <div key={day} className="min-w-0 break-words py-1">
-            {t(`dates.weekdays.${day}`)}
+          <div key={day} className="min-w-0 py-1">
+            {t(`dates.weekdaysShort.${day}`)}
           </div>
         ))}
       </div>
-      <div className="mt-1 grid min-w-0 grid-cols-7 gap-1">
+      <div className="mt-2 grid min-w-0 grid-cols-7 gap-y-1.5">
         {cells.map((day, index) => {
-          if (!day) return <div key={`empty-${index}`} className="min-h-11" />
+          if (!day) return <div key={`empty-${index}`} className="h-11" />
           const iso = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
           const count = countsByDate[iso] || 0
           const isSelected = selectedDate === iso
           const isToday = today === iso
           const closed = isMonday(iso)
           return (
-            <button
-              key={iso}
-              type="button"
-              onClick={() => onSelectDate(iso)}
-              className={`flex min-h-11 min-w-0 flex-col items-center justify-center rounded-xl px-0.5 py-1.5 text-sm transition ${
-                isSelected
-                  ? 'bg-forest-600 text-white shadow-sm'
-                  : closed
-                    ? 'text-muted-foreground/70 hover:bg-stone-100 dark:hover:bg-zinc-800/80'
-                    : isToday
-                      ? 'bg-forest-50 font-semibold text-forest-800 ring-1 ring-forest-200 dark:bg-forest-950/40 dark:text-forest-200 dark:ring-forest-800'
-                      : 'text-foreground hover:bg-olive-50 dark:hover:bg-zinc-800'
-              }`}
-            >
-              <span className="block leading-none">{day}</span>
-              {closed ? (
-                <span className={`mt-1 text-2xs font-semibold uppercase tracking-wide ${isSelected ? 'text-white/80' : 'text-rose-600 dark:text-rose-400'}`}>
-                  {t('reservations.closed')}
-                </span>
-              ) : count > 0 ? (
-                <span
-                  className={`mt-1 inline-flex h-1.5 w-1.5 rounded-full ${
-                    isSelected ? 'bg-white' : 'bg-violet-500'
-                  }`}
-                />
-              ) : null}
-            </button>
+            <div key={iso} className="flex h-11 items-center justify-center">
+              <button
+                type="button"
+                onClick={() => onSelectDate(iso)}
+                aria-label={closed ? `${localizeDigits(day)} - ${t('reservations.closed')}` : undefined}
+                aria-pressed={isSelected}
+                className={`relative flex h-10 w-10 items-center justify-center rounded-full text-sm tabular-nums transition focus-visible:outline-2 focus-visible:outline-forest-500 ${
+                  isSelected
+                    ? 'bg-forest-600 font-semibold text-white shadow-[0_4px_12px_rgba(16,185,129,0.4)]'
+                    : closed
+                      ? 'bg-rose-50 text-rose-400 hover:bg-rose-100 dark:bg-rose-950/30 dark:text-rose-300/70 dark:hover:bg-rose-950/50'
+                      : isToday
+                        ? 'font-bold text-forest-700 ring-2 ring-forest-300 hover:bg-forest-50 dark:text-forest-300 dark:ring-forest-700 dark:hover:bg-forest-950/40'
+                        : 'text-foreground hover:bg-forest-50 dark:hover:bg-zinc-800'
+                }`}
+              >
+                {localizeDigits(day)}
+                {count > 0 && !closed ? (
+                  <span
+                    className={`absolute bottom-1 h-1 w-1 rounded-full ${isSelected ? 'bg-white' : 'bg-violet-500'}`}
+                    aria-hidden
+                  />
+                ) : null}
+              </button>
+            </div>
           )
         })}
+      </div>
+
+      <div className="mt-auto flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border/60 pt-3 text-2xs text-muted-foreground">
+        <span className="inline-flex items-center gap-1.5">
+          <span className="h-1.5 w-1.5 rounded-full bg-violet-500" aria-hidden />
+          {t('reservations.legendBooked')}
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-full bg-rose-100 ring-1 ring-rose-300 dark:bg-rose-950/50 dark:ring-rose-800" aria-hidden />
+          {t('reservations.closed')}
+        </span>
       </div>
     </div>
   )
@@ -510,12 +524,13 @@ function ReservationActions({
   touch = false,
 }) {
   const { t } = useTranslation()
-  const iconButton = touch
-    ? 'inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center rounded-full'
-    : 'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full'
+  const iconButton = `flex shrink-0 items-center justify-center rounded-full transition focus-visible:outline-2 focus-visible:outline-forest-500 ${
+    touch ? 'h-10 w-10' : 'h-8 w-8'
+  }`
+  const canLetter = canIssueConfirmationLetter(reservation)
 
   return (
-    <div className={`flex items-center gap-1 ${touch ? 'flex-wrap' : 'flex-nowrap'}`}>
+    <div className={`flex items-center gap-2 ${touch ? 'flex-wrap' : 'flex-nowrap'}`}>
       {canCheckInReservation(reservation) ? (
         <button
           type="button"
@@ -530,36 +545,41 @@ function ReservationActions({
           {checkingInId === reservation.id ? '…' : t('reservations.checkIn')}
         </button>
       ) : null}
-      <button
-        type="button"
-        disabled={!canIssueConfirmationLetter(reservation)}
-        onClick={() => onLetter(reservation)}
-        className={`${iconButton} text-forest-700 hover:bg-forest-50 disabled:cursor-not-allowed disabled:opacity-40 dark:text-forest-300 dark:hover:bg-forest-950/40`}
-        aria-label={t('a11y.confirmationLetterFor', { name: reservation.customer_name })}
-        title={
-          canIssueConfirmationLetter(reservation)
-            ? t('reservations.confirmationLetter')
-            : t('reservations.confirmationUnavailableCanceled')
-        }
-      >
-        <ScrollText className="h-4 w-4" />
-      </button>
-      <button
-        type="button"
-        onClick={() => onEdit(reservation)}
-        className={`${iconButton} text-forest-700 hover:bg-forest-50 dark:text-forest-300 dark:hover:bg-forest-950/40`}
-        aria-label={t('a11y.editGuest', { name: reservation.customer_name })}
-      >
-        <Pencil className="h-4 w-4" />
-      </button>
-      <button
-        type="button"
-        onClick={() => onDelete(reservation)}
-        className={`${iconButton} text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30`}
-        aria-label={t('a11y.deleteGuest', { name: reservation.customer_name })}
-      >
-        <Trash2 className="h-4 w-4" />
-      </button>
+      <div className="flex w-fit items-center gap-0.5 rounded-full bg-white/90 p-0.5 shadow-sm ring-1 ring-slate-200 dark:bg-zinc-800/90 dark:ring-zinc-700">
+        <Tooltip label={canLetter ? t('reservations.confirmationLetter') : t('reservations.confirmationUnavailableCanceled')}>
+          <button
+            type="button"
+            disabled={!canLetter}
+            onClick={() => onLetter(reservation)}
+            className={`${iconButton} text-slate-500 hover:bg-forest-50 hover:text-forest-600 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-500 dark:text-zinc-400 dark:hover:bg-forest-950/50 dark:hover:text-forest-300`}
+            aria-label={t('a11y.confirmationLetterFor', { name: reservation.customer_name })}
+          >
+            <ScrollText className="h-4 w-4" aria-hidden />
+          </button>
+        </Tooltip>
+        <span className="h-4 w-px bg-slate-200 dark:bg-zinc-700" aria-hidden />
+        <Tooltip label={t('common.edit')}>
+          <button
+            type="button"
+            onClick={() => onEdit(reservation)}
+            className={`${iconButton} text-slate-500 hover:bg-forest-50 hover:text-forest-600 dark:text-zinc-400 dark:hover:bg-forest-950/50 dark:hover:text-forest-300`}
+            aria-label={t('a11y.editGuest', { name: reservation.customer_name })}
+          >
+            <SquarePen className="h-4 w-4" aria-hidden />
+          </button>
+        </Tooltip>
+        <span className="h-4 w-px bg-slate-200 dark:bg-zinc-700" aria-hidden />
+        <Tooltip label={t('common.delete')}>
+          <button
+            type="button"
+            onClick={() => onDelete(reservation)}
+            className={`${iconButton} text-slate-500 hover:bg-red-50 hover:text-red-600 dark:text-zinc-400 dark:hover:bg-red-950/50 dark:hover:text-red-400`}
+            aria-label={t('a11y.deleteGuest', { name: reservation.customer_name })}
+          >
+            <Trash2 className="h-4 w-4" aria-hidden />
+          </button>
+        </Tooltip>
+      </div>
     </div>
   )
 }
@@ -574,7 +594,7 @@ export default function Reservations() {
   const [reservations, setReservations] = useState([])
   const [statusFilter, setStatusFilter] = useState('all')
   const [search, setSearch] = useState('')
-  const [showMonth, setShowMonth] = useState(false)
+  const [sheetPage, setSheetPage] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
   const [modalMode, setModalMode] = useState(null)
@@ -656,7 +676,7 @@ export default function Reservations() {
   const sheetRows = useMemo(() => {
     const query = search.trim().toLowerCase()
     return reservations.filter((reservation) => {
-      if (!showMonth && reservation.reservation_date !== selectedDate) return false
+      if (reservation.reservation_date !== selectedDate) return false
       if (statusFilter !== 'all' && reservation.status !== statusFilter) return false
       if (!query) return true
       return [reservation.customer_name, reservation.phone, reservation.table_name, reservation.notes]
@@ -664,18 +684,38 @@ export default function Reservations() {
         .toLowerCase()
         .includes(query)
     })
-  }, [reservations, selectedDate, showMonth, statusFilter, search])
+  }, [reservations, selectedDate, statusFilter, search])
+
+  const sheetPageCount = Math.max(1, Math.ceil(sheetRows.length / SHEET_PAGE_SIZE))
+  const activeSheetPage = Math.min(sheetPage, sheetPageCount - 1)
+  const pagedRows = useMemo(
+    () => sheetRows.slice(activeSheetPage * SHEET_PAGE_SIZE, (activeSheetPage + 1) * SHEET_PAGE_SIZE),
+    [sheetRows, activeSheetPage],
+  )
 
   const selectedDayCount = countsByDate[selectedDate] || 0
 
-  const activeRowsForSummary = useMemo(() => {
-    if (showMonth) return reservations
-    return reservations.filter((row) => row.reservation_date === selectedDate)
-  }, [reservations, showMonth, selectedDate])
+  const statusFilterOptions = [
+    { value: 'all', label: t('reservations.allStatuses'), icon: ListFilter },
+    ...RESERVATION_STATUSES.map((status) => {
+      const meta = RESERVATION_STATUS_META[status]
+      return {
+        value: status,
+        label: meta?.labelKey ? t(meta.labelKey) : status,
+        icon: STATUS_ICONS[status] || CircleDot,
+      }
+    }),
+  ]
+  const emptyMessage = isLoading
+    ? t('reservations.loading')
+    : sheetRows.length === 0
+      ? t('reservations.emptyFiltered')
+      : ''
 
-  const activeSummaryTotal = useMemo(() => {
-    return activeRowsForSummary.filter((row) => row.status !== 'Canceled').length
-  }, [activeRowsForSummary])
+  const activeRowsForSummary = useMemo(
+    () => reservations.filter((row) => row.reservation_date === selectedDate),
+    [reservations, selectedDate],
+  )
 
   const openCreate = () => {
     setEditing(null)
@@ -807,7 +847,6 @@ export default function Reservations() {
       if (!response.ok) throw new Error(data.message || t('reservations.errors.save'))
       setModalMode(null)
       setEditing(null)
-      setShowMonth(false)
 
       const bookedDateStr = data?.reservation_date || payload.reservation_date
       if (bookedDateStr) {
@@ -864,7 +903,7 @@ export default function Reservations() {
       const now = parseISODate(today)
       setMonthDate(now)
       setSelectedDate(today)
-      setShowMonth(false)
+      setSheetPage(0)
       return
     }
     const next = new Date(monthDate.getFullYear(), monthDate.getMonth() + direction, 1)
@@ -882,7 +921,7 @@ export default function Reservations() {
         <button
           type="button"
           onClick={openCreate}
-          className="btn-primary inline-flex shrink-0 items-center gap-2 whitespace-nowrap px-4 py-2 text-sm"
+          className="btn-primary beam-border inline-flex shrink-0 items-center gap-2 whitespace-nowrap px-4 py-2 text-sm shadow-[0_4px_14px_rgba(16,185,129,0.35)]"
         >
           <Plus className="h-4 w-4" />
           {t('reservations.newBooking')}
@@ -896,7 +935,7 @@ export default function Reservations() {
           countsByDate={countsByDate}
           onSelectDate={(iso) => {
             setSelectedDate(iso)
-            setShowMonth(false)
+            setSheetPage(0)
           }}
           onChangeMonth={handleChangeMonth}
         />
@@ -906,23 +945,12 @@ export default function Reservations() {
             <div className="flex min-w-0 items-center gap-2">
               <CalendarDays className="h-4 w-4 shrink-0 text-forest-600 dark:text-forest-400" />
               <p className="min-w-0 break-words text-heading text-sm font-semibold">
-                {showMonth
-                  ? formatMonthYear(monthDate, t)
-                  : formatLongDate(parseISODate(selectedDate), t)}
+                {formatLongDate(parseISODate(selectedDate), t)}
               </p>
             </div>
-            {showMonth ? (
-              <span className="rounded-full bg-forest-50 px-2.5 py-0.5 text-xs font-semibold text-forest-700 dark:bg-forest-950/60 dark:text-forest-300">
-                {t('reservations.fullMonthView')}
-              </span>
-            ) : null}
           </div>
           <p className="text-muted mt-2 break-words text-sm">
-            {showMonth ? (
-              activeSummaryTotal === 0
-                ? t('reservations.noneInMonth')
-                : t('reservations.bookingCount', { count: activeSummaryTotal })
-            ) : isMonday(selectedDate) ? (
+            {isMonday(selectedDate) ? (
               t('reservations.unavailableOnDate')
             ) : selectedDayCount === 0 ? (
               t('reservations.noneOnDate')
@@ -939,7 +967,7 @@ export default function Reservations() {
                   <p className="text-muted break-words text-2xs font-semibold uppercase leading-tight tracking-wide">
                     {t(meta?.labelKey || status)}
                   </p>
-                  <p className="mt-1 text-xl font-semibold tabular-nums">{count}</p>
+                  <p className="mt-1 text-xl font-semibold tabular-nums">{localizeDigits(count)}</p>
                 </div>
               )
             })}
@@ -950,51 +978,39 @@ export default function Reservations() {
       <div className="surface-card min-w-0 overflow-hidden">
         <div className="flex min-w-0 flex-wrap items-center gap-3 border-b border-border/60 px-5 py-4">
           <p className="shrink-0 text-heading text-sm font-semibold">{t('reservations.sheet')}</p>
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-            <div className="relative min-w-[12rem] flex-1">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder={t('reservations.searchPlaceholder')}
-                className="input-field w-full min-w-0 py-2 pl-9 pr-3 text-sm"
-              />
-            </div>
-            <select
+          <div className="relative min-w-[12rem] flex-1">
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-slate-500 dark:text-zinc-400" aria-hidden />
+            <input
+              value={search}
+              onChange={(event) => {
+                setSearch(event.target.value)
+                setSheetPage(0)
+              }}
+              placeholder={t('reservations.searchPlaceholder')}
+              className="input-field w-full min-w-0 py-2 pl-9 pr-3 text-sm"
+            />
+          </div>
+          <div className="w-full shrink-0 sm:w-52">
+            <IconSelect
               value={statusFilter}
-              onChange={(event) => setStatusFilter(event.target.value)}
-              className="input-field shrink-0 bg-white px-3 py-2 text-sm dark:bg-obsidian-900"
-            >
-              <option value="all">{t('reservations.allStatuses')}</option>
-              {RESERVATION_STATUSES.map((status) => {
-                const meta = RESERVATION_STATUS_META[status]
-                return (
-                  <option key={status} value={status}>
-                    {meta?.labelKey ? t(meta.labelKey) : status}
-                  </option>
-                )
-              })}
-            </select>
-            <button
-              type="button"
-              onClick={() => setShowMonth((prev) => !prev)}
-              className="btn-secondary shrink-0 whitespace-nowrap px-4 py-2 text-sm font-semibold"
-            >
-              {showMonth ? t('reservations.showSelectedDay') : t('reservations.showFullMonth')}
-            </button>
+              options={statusFilterOptions}
+              onChange={(value) => {
+                setStatusFilter(value)
+                setSheetPage(0)
+              }}
+              className="w-full px-3 py-2 text-sm"
+            />
           </div>
         </div>
 
         {error ? <p className="break-words px-5 py-3 text-sm text-red-600 dark:text-red-400">{error}</p> : null}
 
-        {isLoading ? (
-          <p className="px-5 py-10 text-center text-muted-foreground">{t('reservations.loading')}</p>
-        ) : sheetRows.length === 0 ? (
-          <p className="px-5 py-10 text-center text-muted-foreground">{t('reservations.emptyFiltered')}</p>
-        ) : (
+        {emptyMessage ? (
+          <p className="px-5 py-10 text-center text-muted-foreground lg:hidden">{emptyMessage}</p>
+        ) : null}
           <>
             <div className="lg:hidden">
-              {sheetRows.map((reservation) => {
+              {pagedRows.map((reservation) => {
                 const meta = RESERVATION_STATUS_META[reservation.status] || RESERVATION_STATUS_META.Pending
                 return (
                   <article key={reservation.id} className="min-w-0 border-b border-border/60 px-4 py-4 last:border-b-0">
@@ -1033,7 +1049,6 @@ export default function Reservations() {
                         {t('reservations.checkedInAt', { time: formatTime12Hour(reservation.checked_in_at) })}
                       </p>
                     ) : null}
-                    <p className="text-muted mt-3 break-words text-xs">{reservation.notes || '—'}</p>
                     <div className="mt-3">
                       <ReservationActions
                         reservation={reservation}
@@ -1050,39 +1065,48 @@ export default function Reservations() {
               })}
             </div>
 
-            <div className="hidden overflow-x-auto lg:block">
-              <table className="w-full min-w-[72rem] border-collapse text-left text-sm">
+            <div className="hidden min-h-[37.5rem] overflow-x-auto lg:block">
+              <table className="w-full min-w-[56rem] border-collapse text-left text-sm">
                 <thead className="bg-olive-50/70 text-xs uppercase tracking-wide text-muted-foreground dark:bg-zinc-900/60">
                   <tr>
-                    <th className="whitespace-nowrap px-3 py-3 font-semibold">{t('reservations.date')}</th>
-                    <th className="whitespace-nowrap px-3 py-3 font-semibold">{t('reservations.timeSlot')}</th>
-                    <th className="whitespace-nowrap px-3 py-3 font-semibold">{t('reservations.customerName')}</th>
-                    <th className="whitespace-nowrap px-3 py-3 font-semibold">{t('reservations.phoneNumber')}</th>
-                    <th className="whitespace-nowrap px-3 py-3 font-semibold">{t('reservations.guestCount')}</th>
-                    <th className="whitespace-nowrap px-3 py-3 font-semibold">{t('tables.table')}</th>
-                    <th className="whitespace-nowrap px-3 py-3 font-semibold">{t('common.status')}</th>
-                    <th className="min-w-[14rem] px-3 py-3 font-semibold">{t('common.notes')}</th>
-                    <th className="whitespace-nowrap px-3 py-3 font-semibold">{t('common.actions')}</th>
+                    <th className="whitespace-nowrap px-4 py-3 font-semibold">{t('reservations.date')}</th>
+                    <th className="whitespace-nowrap px-4 py-3 font-semibold">{t('reservations.timeSlot')}</th>
+                    <th className="whitespace-nowrap px-4 py-3 font-semibold">{t('reservations.customerName')}</th>
+                    <th className="whitespace-nowrap px-4 py-3 font-semibold">{t('reservations.phoneNumber')}</th>
+                    <th className="whitespace-nowrap px-4 py-3 font-semibold">{t('reservations.guestCount')}</th>
+                    <th className="whitespace-nowrap px-4 py-3 font-semibold">{t('tables.table')}</th>
+                    <th className="whitespace-nowrap px-4 py-3 font-semibold">{t('common.status')}</th>
+                    <th className="whitespace-nowrap px-4 py-3 font-semibold">{t('common.actions')}</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-border/60">
-                  {sheetRows.map((reservation) => {
+                <tbody className="divide-y divide-border">
+                  {emptyMessage ? (
+                    <tr>
+                      <td colSpan={8} className="h-[34rem] px-5 text-center text-muted-foreground">
+                        {emptyMessage}
+                      </td>
+                    </tr>
+                  ) : null}
+                  {pagedRows.map((reservation) => {
                     const meta = RESERVATION_STATUS_META[reservation.status] || RESERVATION_STATUS_META.Pending
                     return (
-                      <tr key={reservation.id} className="align-top hover:bg-olive-50/40 dark:hover:bg-zinc-900/40">
-                        <td className="whitespace-nowrap px-3 py-3 tabular-nums">{reservation.reservation_date}</td>
-                        <td className="whitespace-nowrap px-3 py-3">
+                      <tr
+                        key={reservation.id}
+                        className="align-middle transition-colors even:bg-slate-50 hover:bg-slate-100/80 dark:even:bg-zinc-900/30 dark:hover:bg-zinc-800/60"
+                      >
+                        <td className="whitespace-nowrap px-4 py-4 tabular-nums">{reservation.reservation_date}</td>
+                        <td className="whitespace-nowrap px-4 py-4">
                           {slotLabel(
                             reservation.time_slot,
                             reservation.time_slot_label,
                             reservation.duration_minutes,
                           )}
                         </td>
-                        <td className="whitespace-nowrap px-3 py-3 font-medium">{reservation.customer_name}</td>
-                        <td className="whitespace-nowrap px-3 py-3">{reservation.phone}</td>
-                        <td className="whitespace-nowrap px-3 py-3 tabular-nums">{reservation.guest_count}</td>
-                        <td className="whitespace-nowrap px-3 py-3">{reservationTableLabel(reservation, t)}</td>
-                        <td className="whitespace-nowrap px-3 py-3">
+                        <td className="whitespace-nowrap px-4 py-4 font-medium">{reservation.customer_name}</td>
+                        <td className="whitespace-nowrap px-4 py-4">{reservation.phone}</td>
+                        <td className="whitespace-nowrap px-4 py-4 tabular-nums">{reservation.guest_count}</td>
+                        <td className="whitespace-nowrap px-4 py-4">{reservationTableLabel(reservation, t)}</td>
+                        <td className="whitespace-nowrap px-4 py-4">
                           <StatusBadge className={`ring-1 ${meta.badge}`}>
                             {t(meta.labelKey)}
                           </StatusBadge>
@@ -1092,12 +1116,7 @@ export default function Reservations() {
                             </span>
                           ) : null}
                         </td>
-                        <td className="min-w-[14rem] max-w-[22rem] px-3 py-3 text-xs leading-relaxed text-muted-foreground">
-                          <p className="whitespace-pre-wrap break-words">
-                            {reservation.notes || '—'}
-                          </p>
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-3">
+                        <td className="whitespace-nowrap px-4 py-4">
                           <ReservationActions
                             reservation={reservation}
                             checkingInId={checkingInId}
@@ -1114,7 +1133,23 @@ export default function Reservations() {
               </table>
             </div>
           </>
-        )}
+
+        <div className="flex flex-col gap-3 border-t border-border/60 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-muted shrink-0 text-xs tabular-nums">
+            {t('reservations.showingRange', {
+              from: localizeDigits(sheetRows.length === 0 ? 0 : activeSheetPage * SHEET_PAGE_SIZE + 1),
+              to: localizeDigits(Math.min((activeSheetPage + 1) * SHEET_PAGE_SIZE, sheetRows.length)),
+              total: localizeDigits(sheetRows.length),
+            })}
+          </p>
+          <PaginationBar
+            alwaysShow
+            currentPage={activeSheetPage}
+            totalPages={sheetPageCount}
+            onPageChange={setSheetPage}
+            className="sm:min-w-[22rem]"
+          />
+        </div>
       </div>
 
       <BookingFormModal
