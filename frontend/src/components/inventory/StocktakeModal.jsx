@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AlertTriangle, Check, Search } from 'lucide-react'
+import { AlertTriangle, Check, CircleCheck, Search } from 'lucide-react'
 import Modal from '../common/Modal'
-import CategoryChips, { groupCategories } from './CategoryChips'
+import CategoryChips, { groupCategories, inventoryCategoryLabel } from './CategoryChips'
 import { apiFetch, saveBlobAsDownload } from '../../services/apiClient'
 
 const WHOLE_UNITS = new Set(['bottles', 'bottle', 'cans', 'can', 'eggs', 'egg', 'coconuts', 'coconut', 'tea bags', 'tea bag'])
@@ -69,9 +69,8 @@ function formatSignedDiff(diff) {
 
 const COUNT_BORDER = {
   empty: 'border-slate-300 focus-within:border-forest-500 dark:border-zinc-700',
-  match: 'border-emerald-400 dark:border-emerald-600',
-  minor: 'border-amber-400 dark:border-amber-500',
-  major: 'border-red-500',
+  // Any valid count (match or not); a difference shows through the row tint and hint instead.
+  counted: 'border-forest-500 dark:border-forest-500',
   invalid: 'border-red-500',
   // New max: a clearly visible border so it reads as editable.
   editable: 'border-slate-400 focus-within:border-forest-500 dark:border-zinc-500',
@@ -84,8 +83,8 @@ const ROW_TINT = {
   invalid: 'bg-red-50/80 dark:bg-red-950/25',
 }
 
-/** ✓ button that fills Counted with the system amount; turns green once the row matches. */
-function MatchButton({ matched, label, onClick }) {
+/** ✓ button that fills Counted with the system amount; solid green once the row has a count. */
+function MatchButton({ counted, matched, label, onClick }) {
   return (
     <button
       type="button"
@@ -94,7 +93,7 @@ function MatchButton({ matched, label, onClick }) {
       aria-pressed={matched}
       title={label}
       className={`flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-lg border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-forest-500/40 ${
-        matched
+        counted
           ? 'border-forest-500 bg-forest-500 text-white'
           : 'border-slate-300 text-slate-400 hover:border-forest-500 hover:text-forest-600 dark:border-zinc-700 dark:text-zinc-500 dark:hover:text-forest-400'
       }`}
@@ -108,7 +107,7 @@ function MatchButton({ matched, label, onClick }) {
  * Compact number box with the unit shown inside on the right. The <label> wrapper
  * makes a click on the unit focus the input; spinners are hidden and the wheel can't change the value.
  */
-function UnitNumberInput({ unit, item, tone = 'empty', hint, warning = false, marker = false, ...inputProps }) {
+function UnitNumberInput({ unit, item, tone = 'empty', hint, warning = false, marker = false, strong = false, ...inputProps }) {
   return (
     <label
       title={hint}
@@ -124,11 +123,53 @@ function UnitNumberInput({ unit, item, tone = 'empty', hint, warning = false, ma
         step={allowsDecimal(item) ? 'any' : '1'}
         inputMode="decimal"
         onWheel={(event) => event.currentTarget.blur()}
-        className="w-0 min-w-0 flex-1 border-0 bg-transparent p-0 text-right text-sm tabular-nums text-slate-900 outline-none placeholder:text-slate-400 focus:ring-0 dark:text-zinc-100 dark:placeholder:text-zinc-500 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+        className={`w-0 min-w-0 flex-1 border-0 bg-transparent p-0 text-right text-sm tabular-nums ${strong ? 'font-semibold' : ''} text-slate-900 outline-none placeholder:text-slate-400 focus:ring-0 dark:text-zinc-100 dark:placeholder:text-zinc-500 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none`}
         {...inputProps}
       />
       <span aria-hidden="true" className="shrink-0 text-xs text-slate-500 dark:text-zinc-400">{unit}</span>
     </label>
+  )
+}
+
+/**
+ * One labelled progress row: name on the left, "X / Y" on the right, bar below.
+ * Primary = 8px green bar with bold X; `secondary` = small grey text with a 4px grey bar.
+ * Widths come straight from the counts, so a new count moves the bar on the same render.
+ */
+function ProgressLevel({ id, label, count, total, valueText, done, doneLabel, secondary = false }) {
+  const percent = total ? (count / total) * 100 : 0
+  return (
+    <div>
+      <div className={`flex items-baseline justify-between gap-3 ${secondary ? 'text-xs text-slate-500 dark:text-zinc-400' : 'text-sm'}`}>
+        <span id={id} className={`min-w-0 truncate ${secondary ? '' : 'font-medium text-slate-700 dark:text-zinc-300'}`}>
+          {label}
+        </span>
+        <span className="inline-flex shrink-0 items-center gap-1 tabular-nums">
+          {done ? (
+            <>
+              <CircleCheck className="h-3.5 w-3.5 text-forest-600 dark:text-forest-400" aria-hidden="true" />
+              <span className="sr-only">{doneLabel}: </span>
+            </>
+          ) : null}
+          <span className={secondary ? '' : 'font-semibold text-slate-900 dark:text-zinc-100'}>{count}</span>
+          <span className={secondary ? '' : 'text-slate-500 dark:text-zinc-400'}>/ {total}</span>
+        </span>
+      </div>
+      <div
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={total}
+        aria-valuenow={count}
+        aria-labelledby={id}
+        aria-valuetext={valueText}
+        className={`mt-1 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-zinc-700 ${secondary ? 'h-1' : 'h-2'}`}
+      >
+        <div
+          className={`h-full rounded-full ${secondary ? 'bg-slate-400 dark:bg-zinc-500' : 'bg-forest-500'}`}
+          style={{ width: `${percent}%` }}
+        />
+      </div>
+    </div>
   )
 }
 
@@ -169,12 +210,13 @@ export default function StocktakeModal({ items, onClose, onApplied }) {
   }, [items])
 
   const { categories, counts: categoryCounts } = useMemo(() => groupCategories(rows), [rows])
-  const currentCategory = categories.includes(activeCategory) ? activeCategory : categories[0]
+  // null = the "All" chip.
+  const currentCategory = categories.includes(activeCategory) ? activeCategory : null
   const query = search.trim().toLowerCase()
 
   // Search looks across every category; otherwise show only the chosen chip's items.
   const visible = rows.filter((item) => {
-    if (!query) return String(item.category || '').trim() === currentCategory
+    if (!query) return currentCategory == null || String(item.category || '').trim() === currentCategory
     return item.item_name.toLowerCase().includes(query) || String(item.category).toLowerCase().includes(query)
   })
 
@@ -307,6 +349,18 @@ export default function StocktakeModal({ items, onClose, onApplied }) {
     setStep('summary')
   }
 
+  // Apply: with items still uncounted, ask first (they keep their system quantity);
+  // a fully counted sheet, or one that fails validation, goes straight on.
+  const uncountedTotal = rows.length - countedTotal
+  const [confirmUncounted, setConfirmUncounted] = useState(false)
+  const requestApply = () => {
+    if (!review.fieldError && review.changes.length > 0 && uncountedTotal > 0) {
+      setConfirmUncounted(true)
+      return
+    }
+    openSummary()
+  }
+
   const apply = async () => {
     setSaving(true)
     setError('')
@@ -389,35 +443,37 @@ export default function StocktakeModal({ items, onClose, onApplied }) {
       maxWidth="max-w-4xl"
       footer={step === 'edit' ? (
         <div className="flex w-full flex-wrap items-center justify-between gap-x-6 gap-y-3 border-t border-border pt-4">
-          <div className="min-w-[10rem] flex-1 sm:max-w-xs">
-            <p className="text-muted text-sm tabular-nums">
-              {t('inventory.countedProgress', { count: countedTotal, total: rows.length })}
-            </p>
+          {/* Two levels: the chosen category (bold, green 8px bar), then all categories (small, grey 4px bar).
+              With "All" or a search there is no category, so the all-categories level is shown as the main one. */}
+          <div className="min-w-[12rem] flex-1 space-y-2.5 sm:max-w-xs">
             {!query && currentCategory ? (
-              <p className="text-muted text-xs tabular-nums">
-                {t('inventory.countedInCategory', { count: categoryCounted, total: categoryRows.length })}
-              </p>
-            ) : null}
-            <div
-              role="progressbar"
-              aria-valuemin={0}
-              aria-valuemax={rows.length}
-              aria-valuenow={countedTotal}
-              aria-label={t('inventory.countedProgress', { count: countedTotal, total: rows.length })}
-              className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-zinc-700"
-            >
-              <div
-                className="h-full rounded-full bg-forest-500 transition-all duration-300"
-                style={{ width: `${rows.length ? (countedTotal / rows.length) * 100 : 0}%` }}
+              <ProgressLevel
+                id="stocktake-progress-category"
+                label={inventoryCategoryLabel(currentCategory, t)}
+                count={categoryCounted}
+                total={categoryRows.length}
+                valueText={t('inventory.countedInCategory', { count: categoryCounted, total: categoryRows.length })}
+                done={completedCategories.has(currentCategory)}
+                doneLabel={t('inventory.categoryDone')}
               />
-            </div>
+            ) : null}
+            <ProgressLevel
+              id="stocktake-progress-all"
+              label={t('inventory.allCategories')}
+              count={countedTotal}
+              total={rows.length}
+              valueText={t('inventory.countedProgress', { count: countedTotal, total: rows.length })}
+              done={rows.length > 0 && countedTotal === rows.length}
+              doneLabel={t('inventory.categoryDone')}
+              secondary={Boolean(!query && currentCategory)}
+            />
           </div>
           <div className="flex flex-col items-end gap-1.5">
             <div className="flex gap-3">
               <button type="button" onClick={onClose} className="btn-secondary px-4 py-2.5 text-sm">{t('common.cancel')}</button>
               <button
                 type="button"
-                onClick={openSummary}
+                onClick={requestApply}
                 aria-describedby={visibleApplyHint ? 'stocktake-apply-hint' : undefined}
                 className="btn-primary px-4 py-2.5 text-sm"
               >
@@ -452,11 +508,18 @@ export default function StocktakeModal({ items, onClose, onApplied }) {
         <div ref={countsRef} className="space-y-4">
           {categories.length > 0 ? (
             <CategoryChips
+              singleRow
               categories={categories}
               counts={categoryCounts}
               completed={completedCategories}
               active={query ? null : currentCategory}
               onSelect={selectCategory}
+              leading={[{
+                key: 'all',
+                label: `${inventoryCategoryLabel('All', t)} (${rows.length})`,
+                selected: !query && currentCategory == null,
+                onSelect: () => selectCategory(null),
+              }]}
             />
           ) : null}
           {visible.length === 0 ? <p className="text-muted text-sm">{t('inventory.noMatches')}</p> : null}
@@ -471,6 +534,7 @@ export default function StocktakeModal({ items, onClose, onApplied }) {
                 </div>
                 {pageRows.map((item) => {
                   const comparison = compareCount(item, counted[item.id])
+                  const rowCounted = comparison.state !== 'empty' && comparison.state !== 'invalid'
                   const currentMax = formatAmount(item.max_stock, item.is_weight)
                   const maxEntry = parseField(maximums[item.id], item)
                   const maxEdited = !maxEntry.error && maxEntry.value != null && maxEntry.value !== currentMax
@@ -499,7 +563,8 @@ export default function StocktakeModal({ items, onClose, onApplied }) {
                         onChange={(event) => setCounted((current) => ({ ...current, [item.id]: event.target.value }))}
                         onKeyDown={focusNextCount}
                         data-counted=""
-                        tone={comparison.state}
+                        tone={rowCounted ? 'counted' : comparison.state}
+                        strong={rowCounted}
                         hint={hint}
                         warning={comparison.state === 'major'}
                         aria-invalid={comparison.state === 'invalid' ? true : undefined}
@@ -508,6 +573,7 @@ export default function StocktakeModal({ items, onClose, onApplied }) {
                       />
                       {hint ? <span id={`count-hint-${item.id}`} className="sr-only">{hint}</span> : null}
                       <MatchButton
+                        counted={rowCounted}
                         matched={comparison.state === 'match'}
                         label={`${t('inventory.matchesSystem')}: ${item.item_name}`}
                         onClick={() => setCounted((current) => ({
@@ -605,6 +671,37 @@ export default function StocktakeModal({ items, onClose, onApplied }) {
             ))}
           </ul>
         </div>
+      ) : null}
+      {confirmUncounted ? (
+        <Modal
+          stacked
+          title={t('inventory.uncountedTitle')}
+          titleId="stocktake-uncounted-title"
+          onClose={() => setConfirmUncounted(false)}
+          closeLabel={t('a11y.close')}
+          maxWidth="max-w-sm"
+          footer={(
+            <div className="flex w-full justify-end gap-3">
+              <button type="button" onClick={() => setConfirmUncounted(false)} className="btn-secondary px-4 py-2.5 text-sm">
+                {t('inventory.keepCounting')}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setConfirmUncounted(false)
+                  openSummary()
+                }}
+                className="btn-primary px-4 py-2.5 text-sm"
+              >
+                {t('inventory.applyAnyway')}
+              </button>
+            </div>
+          )}
+        >
+          <p className="text-sm text-slate-700 dark:text-zinc-300">
+            {t('inventory.uncountedBody', { count: uncountedTotal })}
+          </p>
+        </Modal>
       ) : null}
     </Modal>
   )
