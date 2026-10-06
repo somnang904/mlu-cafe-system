@@ -34,6 +34,8 @@ import ModalHeader from '../components/ui/ModalHeader'
 import IconSelect from '../components/ui/IconSelect'
 import Tooltip from '../components/ui/Tooltip'
 import ScrollRow from '../components/ui/ScrollRow'
+import PaginationBar from '../components/ui/PaginationBar'
+import { usePagedGrid } from '../hooks/usePagedGrid'
 import TruncatedText from '../components/ui/TruncatedText'
 import { useModalKeyboard } from '../hooks/useModalKeyboard'
 import { compressImage, MENU_IMAGE_ACCEPT } from '../utils/compressImage'
@@ -166,6 +168,15 @@ export default function MenuManagement() {
     const matchesSearch = menuNameMatchesQuery(item.name, search, i18n.language, t)
     return matchesCategory && matchesSearch
   })
+
+  const gridRef = useRef(null)
+  const filterKey = `${activeCategory}|${search.trim().toLowerCase()}`
+  const { pageItems, currentPage, totalPages, goToPage } = usePagedGrid(gridRef, filtered, filterKey)
+
+  const changePage = (page) => {
+    goToPage(page)
+    gridRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
 
   const handleEditClick = (item) => {
     setIsEditing(true)
@@ -442,8 +453,8 @@ export default function MenuManagement() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-        {filtered.map((item, index) => (
+      <div ref={gridRef} className="grid scroll-mt-4 grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+        {pageItems.map((item, index) => (
             <div
               key={item.id}
               className="surface-card flex flex-col items-center p-4 text-center shadow-[0_2px_6px_rgba(40,55,35,0.06),0_8px_24px_rgba(40,55,35,0.10)] transition duration-200 hover:-translate-y-0.5 hover:border-olive-300 hover:shadow-[0_4px_10px_rgba(40,55,35,0.08),0_14px_32px_rgba(40,55,35,0.14)] motion-reduce:hover:translate-y-0 dark:shadow-[0_8px_24px_rgba(0,0,0,0.45)] dark:hover:shadow-[0_14px_32px_rgba(0,0,0,0.55)]"
@@ -495,6 +506,8 @@ export default function MenuManagement() {
             </div>
         ))}
       </div>
+
+      <PaginationBar currentPage={currentPage} totalPages={totalPages} onPageChange={changePage} />
 
       {isLoadingMenu && items.length === 0 && (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
