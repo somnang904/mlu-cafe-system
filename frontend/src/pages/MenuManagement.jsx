@@ -33,6 +33,8 @@ import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal'
 import ModalHeader from '../components/ui/ModalHeader'
 import IconSelect from '../components/ui/IconSelect'
 import Tooltip from '../components/ui/Tooltip'
+import ScrollRow from '../components/ui/ScrollRow'
+import TruncatedText from '../components/ui/TruncatedText'
 import { useModalKeyboard } from '../hooks/useModalKeyboard'
 import { compressImage, MENU_IMAGE_ACCEPT } from '../utils/compressImage'
 import { formatMenuPrice, isDrinkMenuCategory } from '../utils/drinkOptions'
@@ -418,20 +420,20 @@ export default function MenuManagement() {
             <span className="hidden sm:inline">{t('menuAdmin.addNewItem')}</span>
           </button>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <ScrollRow className="-mx-1 -my-1 gap-2 px-1 py-2">
           {categories.map((category) => (
             <button
               key={category}
               type="button"
               onClick={() => setActiveCategory(category)}
-              className={`tab-pill rounded-xl shadow-sm ${
+              className={`tab-pill shrink-0 whitespace-nowrap rounded-xl px-3.5 shadow-sm ${
                 activeCategory === category ? 'tab-pill-active' : 'tab-pill-inactive'
               }`}
             >
               {categoryLabel(category, t)}
             </button>
           ))}
-        </div>
+        </ScrollRow>
       </div>
 
       {usingFallbackMenu && (
@@ -482,9 +484,12 @@ export default function MenuManagement() {
                 iconClassName="h-10 w-10"
               />
 
-              {/* flex-1 keeps prices on one baseline when names wrap to two lines */}
-              <h4 className="text-heading mt-3 line-clamp-2 flex-1 text-base font-semibold">{translateMenuName(item.name, i18n.language, t)}</h4>
-              <p className="mt-1 text-lg font-bold tabular-nums text-forest-600 dark:text-forest-400">
+              <TruncatedText
+                text={translateMenuName(item.name, i18n.language, t)}
+                wrapperClassName="mb-3 mt-3 w-full min-w-0 flex-1 justify-center"
+                className="text-heading text-base font-semibold"
+              />
+              <p className="mt-auto text-lg font-bold tabular-nums text-forest-600 dark:text-forest-400">
                 {formatMenuPrice(item)}
               </p>
             </div>
