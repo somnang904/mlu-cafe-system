@@ -27,14 +27,14 @@ import {
   StickyNote,
   Tag,
   Trash2,
-  TriangleAlert,
   Utensils,
   Wine,
   Wrench,
 } from 'lucide-react'
 import Modal from '../components/common/Modal'
 import StocktakeModal from '../components/inventory/StocktakeModal'
-import CategoryChips, { groupCategories, inventoryCategoryLabel } from '../components/inventory/CategoryChips'
+import { groupCategories } from '../components/inventory/CategoryChips'
+import { CategoryFilter, StatusTabs } from '../components/inventory/StockFilters'
 import ExpenseLogModal from '../components/finance/ExpenseLogModal'
 import StatusBadge from '../components/common/StatusBadge'
 import FieldLabel from '../components/ui/FieldLabel'
@@ -45,53 +45,33 @@ import { userHasPermission } from '../utils/permissions'
 import { apiFetch } from '../services/apiClient'
 import { cacheInventoryItems, getInventoryFallback } from '../utils/offlineFallbacks'
 import { useModalKeyboard } from '../hooks/useModalKeyboard'
+import { STOCK_STATUS, getStockRatio, getStockStatus, stockStatusRank } from '../utils/stockStatus'
 
+// Out of stock = red, Low = amber, In stock = green; the badge always carries the status text too.
 const statusStyles = {
-  'In Stock':
+  [STOCK_STATUS.IN]:
     'border border-emerald-500/30 bg-emerald-500/10 text-emerald-950 font-bold dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-500/30 ring-1 ring-emerald-500/30',
-  'Low Stock':
+  [STOCK_STATUS.LOW]:
     'bg-amber-500/15 text-amber-950 font-bold ring-amber-500/40 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-500/30 ring-1',
-  'Very Low Stock':
-    'bg-rose-500/15 text-rose-950 font-bold ring-rose-500/40 dark:bg-red-950/40 dark:text-red-300 dark:ring-red-500/30 ring-1',
-  'Out of Stock':
+  [STOCK_STATUS.OUT]:
     'bg-rose-500/15 text-rose-950 font-bold ring-rose-500/40 dark:bg-red-950/40 dark:text-red-300 dark:ring-red-500/30 ring-1',
 }
 
-
-function getStatus(item) {
-  const stock = Number(item.stock_quantity)
-  if (!Number.isFinite(stock) || stock <= 0) return 'Out of Stock'
-  if (item.critical_threshold != null && stock <= Number(item.critical_threshold)) return 'Very Low Stock'
-  if (stock <= Number(item.low_threshold)) return 'Low Stock'
-  return 'In Stock'
+function compareNames(a, b) {
+  return String(a.item_name || '').localeCompare(String(b.item_name || ''), undefined, { numeric: true, sensitivity: 'base' })
 }
 
-const STATUS_SEVERITY = {
-  'Out of Stock': 0,
-  'Very Low Stock': 1,
-  'Low Stock': 2,
-  'In Stock': 3,
-}
-
-// Status chips share the filter value with category chips, so their keys can't clash with a category name.
-const STATUS_FILTERS = {
-  __very_low: { labelKey: 'inventory.filterVeryLow', statuses: ['Out of Stock', 'Very Low Stock'] },
-  __low: { labelKey: 'inventory.filterLow', statuses: ['Low Stock'] },
-}
-
-const VISIBLE_CATEGORY_CHIPS = 6
-
+/**
+ * Default order: Out of stock first, then Low (emptiest first), then In stock A–Z.
+ * Also the Status column's ascending order.
+ */
 function compareStockUrgency(a, b) {
-  const statusA = getStatus(a)
-  const statusB = getStatus(b)
-  const rankA = STATUS_SEVERITY[statusA] ?? 3
-  const rankB = STATUS_SEVERITY[statusB] ?? 3
-
-  if (rankA !== rankB) {
-    return rankA - rankB
-  }
-
-  return (a.item_name || '').localeCompare(b.item_name || '')
+  const statusA = getStockStatus(a)
+  const statusB = getStockStatus(b)
+  const byStatus = stockStatusRank(statusA) - stockStatusRank(statusB)
+  if (byStatus !== 0) return byStatus
+  if (statusA === STOCK_STATUS.LOW) return getStockRatio(a) - getStockRatio(b) || compareNames(a, b)
+  return compareNames(a, b)
 }
 
 function formatAmount(value, isWeight) {
@@ -113,18 +93,10 @@ function formatStockDisplay(item) {
   return `${current} / ${max} ${item.unit_label}`
 }
 
-function getFillPercent(item) {
-  const stock = Number(item.stock_quantity)
-  const max = Number(item.max_stock)
-  if (!Number.isFinite(stock) || stock <= 0 || !Number.isFinite(max) || max <= 0) return 0
-  return Math.min(100, (stock / max) * 100)
-}
-
 const progressColors = {
-  'In Stock': 'bg-emerald-500',
-  'Low Stock': 'bg-amber-500',
-  'Very Low Stock': 'bg-red-500',
-  'Out of Stock': 'bg-red-500',
+  [STOCK_STATUS.IN]: 'bg-emerald-500',
+  [STOCK_STATUS.LOW]: 'bg-amber-500',
+  [STOCK_STATUS.OUT]: 'bg-red-500',
 }
 
 // The list only needs a glance-level figure (at most 2 decimals); modals keep the exact 3-decimal amounts.
@@ -134,17 +106,17 @@ function formatListAmount(value) {
   return String(Math.round(num * 100) / 100)
 }
 
-// Short labels so the badge fits the 92px Status column.
-const STATUS_SHORT_KEYS = {
-  'In Stock': 'inventory.statusShort.inStock',
-  'Low Stock': 'inventory.statusShort.low',
-  'Very Low Stock': 'inventory.statusShort.veryLow',
-  'Out of Stock': 'inventory.statusShort.out',
+// Short labels so the badge fits the 104px Status column.
+const STATUS_LABEL_KEYS = {
+  [STOCK_STATUS.IN]: 'inventory.statusShort.inStock',
+  [STOCK_STATUS.LOW]: 'inventory.statusShort.low',
+  [STOCK_STATUS.OUT]: 'inventory.statusShort.out',
 }
 
 function StockLevel({ item }) {
-  const status = getStatus(item)
-  const fill = getFillPercent(item)
+  const status = getStockStatus(item)
+  // Out of stock always shows an empty bar.
+  const fill = status === STOCK_STATUS.OUT ? 0 : getStockRatio(item) * 100
 
   return (
     <div className="min-w-0 max-w-[190px]">
@@ -334,10 +306,6 @@ function RowActionsMenu({ item, actions }) {
           style={position ?? { top: 0, right: 0, visibility: 'hidden' }}
           className="fixed z-[60] w-56 rounded-2xl border border-border bg-white p-1.5 shadow-xl ring-1 ring-black/5 dark:bg-card"
         >
-          <div aria-hidden="true" className="border-b border-slate-200 px-3 pb-2 pt-1.5 dark:border-zinc-700/70">
-            <p className="text-[11px] font-medium uppercase tracking-[0.4px] text-slate-500 dark:text-zinc-400">{t('common.actions')}</p>
-            <p className="text-heading truncate text-sm font-semibold" title={item.item_name}>{item.item_name}</p>
-          </div>
           <div
             ref={menuRef}
             role="menu"
@@ -345,7 +313,7 @@ function RowActionsMenu({ item, actions }) {
             aria-label={menuLabel}
             onKeyDown={handleMenuKeyDown}
             onMouseLeave={() => setActiveIndex(-1)}
-            className="mt-1.5 focus:outline-none"
+            className="focus:outline-none"
           >
             {actions.map((action, index) => {
               const Icon = action.icon
@@ -440,17 +408,13 @@ function ListPagination({ page, pageCount, total, onPageChange }) {
 // From md (768px) up: Name | Quantity | Status | Action, shared by the header and every row.
 // Status and Action sit side by side; the Action buttons are centred under their header.
 // Below md the header is hidden and each row stacks name + status over quantity, with buttons on the right.
-const LIST_COLUMNS = 'md:grid-cols-[minmax(0,1.5fr)_minmax(0,1.1fr)_92px_84px] md:gap-x-[14px]'
-
-function compareNames(a, b) {
-  return String(a.item_name || '').localeCompare(String(b.item_name || ''), undefined, { numeric: true, sensitivity: 'base' })
-}
+const LIST_COLUMNS = 'md:grid-cols-[minmax(0,1.5fr)_minmax(0,1.1fr)_104px_84px] md:gap-x-[14px]'
 
 // Units differ between items (kg, boxes, bottles), so Quantity sorts by how full each item is.
 const LIST_SORTERS = {
   name: compareNames,
-  quantity: (a, b) => getFillPercent(a) - getFillPercent(b) || compareNames(a, b),
-  // Ascending is most urgent first (Out, Very low, Low, In stock), the same as the default order.
+  quantity: (a, b) => getStockRatio(a) - getStockRatio(b) || compareNames(a, b),
+  // Ascending is Out of stock → Low → In stock; descending reverses it.
   status: compareStockUrgency,
 }
 
@@ -485,7 +449,7 @@ function InventoryListHeader({ sort, onSort }) {
   const { t } = useTranslation()
 
   return (
-    <div role="row" className={`sticky top-0 z-20 hidden items-center rounded-t-2xl border-b border-slate-300/80 bg-slate-50 px-5 py-2 text-[11px] font-medium leading-4 text-slate-500 md:grid dark:border-zinc-700/70 dark:bg-zinc-800 dark:text-zinc-400 ${LIST_COLUMNS}`}>
+    <div role="row" className={`sticky top-0 z-20 hidden items-center border-b border-slate-300/80 bg-slate-50 px-5 py-2 text-[11px] font-medium leading-4 text-slate-500 md:grid dark:border-zinc-700/70 dark:bg-zinc-800 dark:text-zinc-400 ${LIST_COLUMNS}`}>
       <SortHeaderButton label={t('inventory.colName')} sortKey="name" sort={sort} onSort={onSort} />
       <SortHeaderButton label={t('inventory.colQuantity')} sortKey="quantity" sort={sort} onSort={onSort} />
       <SortHeaderButton label={t('common.status')} sortKey="status" sort={sort} onSort={onSort} />
@@ -494,7 +458,7 @@ function InventoryListHeader({ sort, onSort }) {
   )
 }
 
-function InventoryList({ items, onRestock, onHistory, onAdjust, onEdit, onLink, canManageItems, canAdjustStock, isLoading }) {
+function InventoryList({ items, onRestock, onHistory, onAdjust, onEdit, onLink, onClearFilters, canManageItems, canAdjustStock, isLoading }) {
   const { t } = useTranslation()
 
   if (isLoading) {
@@ -512,7 +476,14 @@ function InventoryList({ items, onRestock, onHistory, onAdjust, onEdit, onLink, 
   if (items.length === 0) {
     return (
       <div role="row" className="px-6 py-12 text-center">
-        <p role="cell" className="text-muted text-sm">{t('inventory.noMatches')}</p>
+        <div role="cell" className="flex flex-col items-center gap-3">
+          <p className="text-muted text-sm">{t('inventory.noFilterMatches')}</p>
+          {onClearFilters ? (
+            <button type="button" onClick={onClearFilters} className="btn-secondary min-h-9 px-4 py-2 text-sm">
+              {t('inventory.clearFilters')}
+            </button>
+          ) : null}
+        </div>
       </div>
     )
   }
@@ -520,7 +491,7 @@ function InventoryList({ items, onRestock, onHistory, onAdjust, onEdit, onLink, 
   return (
     <ul role="rowgroup" className="divide-y divide-slate-300/80 dark:divide-zinc-700/70">
       {items.map((item) => {
-        const status = getStatus(item)
+        const status = getStockStatus(item)
         const actions = [
           { key: 'history', icon: History, label: t('inventory.history'), onSelect: () => onHistory(item) },
           canManageItems && { key: 'edit', icon: Pencil, label: t('inventory.editItem'), onSelect: () => onEdit(item) },
@@ -529,14 +500,14 @@ function InventoryList({ items, onRestock, onHistory, onAdjust, onEdit, onLink, 
         ].filter(Boolean)
 
         return (
-          <li key={item.id} role="row" className={`grid min-h-[60px] grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 px-4 py-2.5 transition-colors first:rounded-t-2xl hover:bg-slate-50 md:first:rounded-none md:px-5 dark:hover:bg-zinc-800/40 ${LIST_COLUMNS}`}>
+          <li key={item.id} role="row" className={`grid min-h-[60px] grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 px-4 py-2.5 transition-colors hover:bg-slate-50 md:px-5 dark:hover:bg-zinc-800/40 ${LIST_COLUMNS}`}>
             <div role="cell" className="col-start-1 row-start-1 flex min-w-0 items-center gap-2 md:col-auto md:row-auto">
               <span className="text-heading min-w-0 truncate text-[15px] font-semibold" title={item.item_name}>{item.item_name}</span>
               {item.menu_links?.length ? <span className="shrink-0"><RecipeBadge links={item.menu_links} /></span> : null}
               {/* Small screens: status rides on the name line; md+ gives it its own column. */}
               <span className="shrink-0 md:hidden">
                 <StatusBadge className={`transition-colors duration-300 ${statusStyles[status]}`}>
-                  {t(STATUS_SHORT_KEYS[status])}
+                  {t(STATUS_LABEL_KEYS[status])}
                 </StatusBadge>
               </span>
             </div>
@@ -545,7 +516,7 @@ function InventoryList({ items, onRestock, onHistory, onAdjust, onEdit, onLink, 
             </div>
             <div role="cell" className="hidden md:block">
               <StatusBadge className={`transition-colors duration-300 ${statusStyles[status]}`}>
-                {t(STATUS_SHORT_KEYS[status])}
+                {t(STATUS_LABEL_KEYS[status])}
               </StatusBadge>
             </div>
             <div role="cell" className="col-start-2 row-span-2 row-start-1 flex items-center gap-2 justify-self-end md:col-auto md:row-auto md:row-span-1 md:justify-self-center">
@@ -873,13 +844,10 @@ function unitsFor(section) {
   return STOCK_UNITS.filter((unit) => unit.section === section)
 }
 
-function defaultThresholds(max) {
+function defaultLowThreshold(max) {
   const num = Number(max)
-  if (!Number.isFinite(num) || num < 0) return { low: '', critical: '' }
-  return {
-    low: String(Math.round(num * 0.2 * 1000) / 1000),
-    critical: String(Math.round(num * 0.1 * 1000) / 1000),
-  }
+  if (!Number.isFinite(num) || num < 0) return ''
+  return String(Math.round(num * 0.2 * 1000) / 1000)
 }
 
 function SearchField({ id, icon, label, placeholder, query, onQuery, options, onSelect, emptyAction }) {
@@ -939,7 +907,9 @@ function ItemFormModal({ mode, item, prefillName, stacked, onClose, onSaved, onU
   const [stock, setStock] = useState(editing ? '' : '0')
   const [max, setMax] = useState(editing ? String(item.max_stock) : '')
   const [low, setLow] = useState(editing ? String(item.low_threshold ?? '') : '')
-  const [critical, setCritical] = useState(editing && item.critical_threshold != null ? String(item.critical_threshold) : '')
+  // critical_threshold is no longer shown (there's no Very low status) but the API still takes it:
+  // edits send the stored value back, new items get the old default of 10% of the maximum.
+  const storedCritical = editing && item.critical_threshold != null ? Number(item.critical_threshold) : null
   const [thresholdsTouched, setThresholdsTouched] = useState(editing)
   const [error, setError] = useState('')
   const [suggestion, setSuggestion] = useState(null)
@@ -955,11 +925,7 @@ function ItemFormModal({ mode, item, prefillName, stacked, onClose, onSaved, onU
 
   const changeMax = (value) => {
     setMax(value)
-    if (!thresholdsTouched) {
-      const next = defaultThresholds(value)
-      setLow(next.low)
-      setCritical(next.critical)
-    }
+    if (!thresholdsTouched) setLow(defaultLowThreshold(value))
   }
 
   const handleSubmit = async (event) => {
@@ -975,20 +941,12 @@ function ItemFormModal({ mode, item, prefillName, stacked, onClose, onSaved, onU
       setError(t('inventory.categoryRequired'))
       return
     }
-    const numbers = editing ? [max, low] : [stock, max, low, critical]
-    if (!editing && critical === '') {
-      setError(t('inventory.numberMin'))
-      return
-    }
+    const numbers = editing ? [max, low] : [stock, max, low]
     if (numbers.some((value) => value === '' || Number(value) < 0 || !Number.isFinite(Number(value)))) {
       setError(t('inventory.numberMin'))
       return
     }
-    if (critical !== '' && (Number(critical) < 0 || !Number.isFinite(Number(critical)))) {
-      setError(t('inventory.numberMin'))
-      return
-    }
-    if (Number(max) < Number(low) || (critical !== '' && Number(max) < Number(critical))) {
+    if (Number(max) < Number(low)) {
       setError(t('inventory.maxBelowThreshold'))
       return
     }
@@ -1000,7 +958,10 @@ function ItemFormModal({ mode, item, prefillName, stacked, onClose, onSaved, onU
       unit_label: unit,
       max_stock: Number(max),
       low_threshold: Number(low),
-      critical_threshold: critical === '' ? null : Number(critical),
+      // Capped at the maximum, which the API requires.
+      critical_threshold: editing
+        ? (storedCritical == null ? null : Math.min(storedCritical, Number(max)))
+        : Math.round(Number(max) * 0.1 * 1000) / 1000,
     }
     if (!editing) payload.stock_quantity = Number(stock)
     if (confirmUnit) payload.confirm_unit_change = true
@@ -1102,15 +1063,9 @@ function ItemFormModal({ mode, item, prefillName, stacked, onClose, onSaved, onU
           <FieldLabel icon={Boxes} htmlFor="stock-item-max">{t('inventory.maximum')}</FieldLabel>
           <input id="stock-item-max" type="number" min="0" step={section === 'uncountable' ? '0.001' : '1'} value={max} onChange={(event) => changeMax(event.target.value)} className="input-field w-full" required />
         </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div>
-            <FieldLabel icon={ArrowDown} htmlFor="stock-item-low">{t('inventory.lowThreshold')}</FieldLabel>
-            <input id="stock-item-low" type="number" min="0" step="0.001" value={low} onChange={(event) => { setThresholdsTouched(true); setLow(event.target.value) }} className="input-field w-full" required />
-          </div>
-          <div>
-            <FieldLabel icon={TriangleAlert} htmlFor="stock-item-critical">{t('inventory.veryLowThreshold')}</FieldLabel>
-            <input id="stock-item-critical" type="number" min="0" step="0.001" value={critical} onChange={(event) => { setThresholdsTouched(true); setCritical(event.target.value) }} className="input-field w-full" required={!editing} />
-          </div>
+        <div>
+          <FieldLabel icon={ArrowDown} htmlFor="stock-item-low">{t('inventory.lowThreshold')}</FieldLabel>
+          <input id="stock-item-low" type="number" min="0" step="0.001" value={low} onChange={(event) => { setThresholdsTouched(true); setLow(event.target.value) }} className="input-field w-full" required />
         </div>
         {existing ? (
           <div className="space-y-2">
@@ -1296,7 +1251,9 @@ export default function InventoryStock({ view = 'items', onNavigate }) {
   const [items, setItems] = useState([])
   const [isLoading, setIsLoading] = useState(true)
   const [usingFallbackInventory, setUsingFallbackInventory] = useState(false)
-  const [activeFilter, setActiveFilter] = useState('All')
+  // Status tab and category combine (e.g. Low + Dairy); null category = every category.
+  const [statusTab, setStatusTab] = useState('all')
+  const [category, setCategory] = useState(null)
   const [search, setSearch] = useState('')
   const [restockItem, setRestockItem] = useState(null)
   const [historyItem, setHistoryItem] = useState(null)
@@ -1353,45 +1310,55 @@ export default function InventoryStock({ view = 'items', onNavigate }) {
 
   const { categories, counts: categoryCounts } = useMemo(() => groupCategories(items), [items])
 
+  // Everything except the status tab, so each tab's count follows the chosen category and search.
+  const scopedItems = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    return items.filter((item) => {
+      const itemCategory = String(item.category || '').trim()
+      if (category && itemCategory !== category) return false
+      return (
+        !query ||
+        String(item.item_name || '').toLowerCase().includes(query) ||
+        itemCategory.toLowerCase().includes(query)
+      )
+    })
+  }, [items, category, search])
+
   const statusCounts = useMemo(() => {
-    const counts = Object.fromEntries(Object.keys(STATUS_FILTERS).map((key) => [key, 0]))
-    items.forEach((item) => {
-      const status = getStatus(item)
-      Object.entries(STATUS_FILTERS).forEach(([key, filter]) => {
-        if (filter.statuses.includes(status)) counts[key] += 1
-      })
+    const counts = { all: scopedItems.length, [STOCK_STATUS.IN]: 0, [STOCK_STATUS.LOW]: 0, [STOCK_STATUS.OUT]: 0 }
+    scopedItems.forEach((item) => {
+      counts[getStockStatus(item)] += 1
     })
     return counts
-  }, [items])
+  }, [scopedItems])
 
   const [sort, setSort] = useState(null)
 
   const filteredItems = useMemo(() => {
-    const statusFilter = STATUS_FILTERS[activeFilter]
     const compare = sort
       ? (a, b) => (sort.dir === 'desc' ? -1 : 1) * LIST_SORTERS[sort.key](a, b)
       : compareStockUrgency
-    return items
-      .filter((item) => {
-        const matchesCategory = statusFilter
-          ? statusFilter.statuses.includes(getStatus(item))
-          : activeFilter === 'All' ||
-            String(item.category || '').toLowerCase() === activeFilter.toLowerCase()
-        const query = search.trim().toLowerCase()
-        const matchesSearch =
-          !query ||
-          String(item.item_name || '').toLowerCase().includes(query) ||
-          String(item.category || '').toLowerCase().includes(query)
-        return matchesCategory && matchesSearch
-      })
+    return scopedItems
+      .filter((item) => statusTab === 'all' || getStockStatus(item) === statusTab)
       .sort(compare)
-  }, [items, activeFilter, search, sort])
+  }, [scopedItems, statusTab, sort])
+
+  const clearFilters = () => {
+    setStatusTab('all')
+    setCategory(null)
+    setSearch('')
+  }
 
   const [page, setPage] = useState(1)
-  const [pagedQuery, setPagedQuery] = useState({ activeFilter, search, sort })
-  // A new filter, search or sort starts again from page 1.
-  if (pagedQuery.activeFilter !== activeFilter || pagedQuery.search !== search || pagedQuery.sort !== sort) {
-    setPagedQuery({ activeFilter, search, sort })
+  const [pagedQuery, setPagedQuery] = useState({ statusTab, category, search, sort })
+  // A new tab, category, search or sort starts again from page 1.
+  if (
+    pagedQuery.statusTab !== statusTab ||
+    pagedQuery.category !== category ||
+    pagedQuery.search !== search ||
+    pagedQuery.sort !== sort
+  ) {
+    setPagedQuery({ statusTab, category, search, sort })
     setPage(1)
   }
   const pageCount = Math.max(1, Math.ceil(filteredItems.length / ITEMS_PER_PAGE))
@@ -1414,7 +1381,7 @@ export default function InventoryStock({ view = 'items', onNavigate }) {
             <button
               type="button"
               onClick={() => setItemForm({ mode: 'create' })}
-              className="btn-primary inline-flex min-h-9 items-center gap-1.5 px-4 py-2 text-sm font-semibold"
+              className="btn-primary beam-border shadow-[0_4px_14px_rgba(16,185,129,0.35)] inline-flex min-h-9 items-center gap-1.5 px-4 py-2 text-sm font-semibold"
             >
               <Plus className="h-4 w-4" />
               {t('inventory.addItem')}
@@ -1433,46 +1400,30 @@ export default function InventoryStock({ view = 'items', onNavigate }) {
         </div>
       </div>
 
-      <CategoryChips
-        categories={categories}
-        counts={categoryCounts}
-        active={activeFilter}
-        onSelect={setActiveFilter}
-        visibleCount={VISIBLE_CATEGORY_CHIPS}
-      >
-        <button
-          type="button"
-          onClick={() => setActiveFilter('All')}
-          className={`tab-pill ${activeFilter === 'All' ? 'tab-pill-active' : 'tab-pill-inactive'}`}
-        >
-          {inventoryCategoryLabel('All', t)}
-        </button>
-        {Object.entries(STATUS_FILTERS).map(([key, filter]) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => setActiveFilter(key)}
-            className={`tab-pill ${activeFilter === key ? 'tab-pill-active' : 'tab-pill-inactive'}`}
-          >
-            {t(filter.labelKey)} ({statusCounts[key]})
-          </button>
-        ))}
-      </CategoryChips>
-
       <section className="table-shell !overflow-visible">
-        <div role="table" aria-label={t('nav.stockItems')}>
-        <InventoryListHeader sort={sort} onSort={setSort} />
-        <InventoryList
-          items={pageItems}
-          onRestock={setRestockItem}
-          onHistory={setHistoryItem}
-          onAdjust={setAdjustItem}
-          onEdit={(row) => setItemForm({ mode: 'edit', item: row })}
-          onLink={setLinkItem}
-          canManageItems={canManageItems}
-          canAdjustStock={canAdjustStock}
-          isLoading={isLoading}
-        />
+        {/* Status tabs and the category filter sit on the card's top edge; below md the category drops under the tabs. */}
+        <div className="flex flex-col gap-2 border-b border-slate-300/80 px-2 pt-1.5 md:flex-row md:items-end md:justify-between md:gap-4 md:px-3 md:pt-1 dark:border-zinc-700/70">
+          <StatusTabs active={statusTab} counts={statusCounts} onChange={setStatusTab} panelId="stock-items-panel" />
+          <div className="px-2 pb-2.5 md:px-0 md:pb-1">
+            <CategoryFilter categories={categories} counts={categoryCounts} value={category} onChange={setCategory} />
+          </div>
+        </div>
+        <div id="stock-items-panel" role="tabpanel" aria-labelledby={`stock-items-panel-tab-${statusTab}`}>
+          <div role="table" aria-label={t('nav.stockItems')}>
+            <InventoryListHeader sort={sort} onSort={setSort} />
+            <InventoryList
+              items={pageItems}
+              onRestock={setRestockItem}
+              onHistory={setHistoryItem}
+              onAdjust={setAdjustItem}
+              onEdit={(row) => setItemForm({ mode: 'edit', item: row })}
+              onLink={setLinkItem}
+              onClearFilters={clearFilters}
+              canManageItems={canManageItems}
+              canAdjustStock={canAdjustStock}
+              isLoading={isLoading}
+            />
+          </div>
         </div>
         {!isLoading && filteredItems.length > 0 ? (
           <ListPagination
