@@ -3,8 +3,8 @@
  * section: 'uncountable' — Kitchen & Fresh (weight in kg)
  *
  * stock / maxStock are absolute counts (not percentages).
- * criticalThreshold — triggers "Very Low Stock" (e.g. milk ≤ 5 boxes)
- * lowThreshold — triggers "Low Stock" when above critical but still low
+ * criticalThreshold — legacy value the API still stores; the list no longer shows a Very low status
+ * Status on the Items page comes from stock vs. maxStock (see utils/stockStatus.js).
  */
 export const inventoryItems = [
   // Bar & Packaging Supplies (Countable)

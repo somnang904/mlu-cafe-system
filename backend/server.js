@@ -65,9 +65,13 @@ const { isUnderMaintenance, maintenanceMessage } = require('./src/utils/maintena
 const { parseBackupPeriod, buildBackupFilename } = require('./src/utils/backupPeriod');
 const { buildActiveAlerts } = require('./src/utils/alertEngine');
 const {
+    createMenuCategory,
+    deleteMenuCategory,
     ensureMenuItemsSchema,
+    getMenuCategories,
     menuCategoryFieldSql,
-    normalizeMenuCategory,
+    renameMenuCategory,
+    resolveMenuCategory,
     normalizeMenuImageUrl,
     normalizeMenuPrices,
     serializeMenuItem,
@@ -768,6 +772,73 @@ app.post('/api/menu/upload-image', requirePermission('menu'), (req, res) => {
     });
 });
 
+// Menu categories: the built-in ones, then any added from the Menu page (oldest first).
+app.get('/api/menu/categories', async (req, res) => {
+    try {
+        res.status(200).json(await getMenuCategories(db));
+    } catch (error) {
+        console.error('Error loading menu categories:', error);
+        res.status(500).json({ message: 'Failed to load menu categories' });
+    }
+});
+
+app.post('/api/menu/categories', requirePermission('menu'), async (req, res) => {
+    try {
+        const name = await createMenuCategory(db, req.body?.name);
+        await auditFromRequest(db, req, {
+            action: 'menu_category_create',
+            module: 'Menu Management',
+            description: `Added menu category "${name}"`,
+        });
+        res.status(201).json({ category: name, ...(await getMenuCategories(db)) });
+    } catch (error) {
+        if (error.status) return res.status(error.status).json({ message: error.message, code: error.code });
+        console.error('Error adding menu category:', error);
+        res.status(500).json({ message: 'Failed to add the category' });
+    }
+});
+
+app.put('/api/menu/categories/:name', requirePermission('menu'), async (req, res) => {
+    try {
+        const previous = req.params.name;
+        const name = await renameMenuCategory(db, previous, req.body?.name);
+        const result = await getMenuCategories(db);
+        // A built-in category keeps its key, so log the new display label.
+        await auditFromRequest(db, req, {
+            action: 'menu_category_update',
+            module: 'Menu Management',
+            description: `Renamed menu category "${previous}" to "${result.labels[name] ?? name}"`,
+        });
+        res.status(200).json({ category: name, ...result });
+    } catch (error) {
+        if (error.status) return res.status(error.status).json({ message: error.message, code: error.code });
+        console.error('Error renaming menu category:', error);
+        res.status(500).json({ message: 'Failed to save the category' });
+    }
+});
+
+// A category with items needs ?moveTo=<category>, so no menu item is left without one.
+app.delete('/api/menu/categories/:name', requirePermission('menu'), async (req, res) => {
+    try {
+        const moveTo = req.query.moveTo ?? req.body?.moveTo ?? null;
+        const { key, moved } = await deleteMenuCategory(db, req.params.name, moveTo);
+        await auditFromRequest(db, req, {
+            action: 'menu_category_delete',
+            module: 'Menu Management',
+            description: moved
+                ? `Deleted menu category "${key}" and moved its ${moved} items to "${moveTo}"`
+                : `Deleted menu category "${key}"`,
+        });
+        res.status(200).json({ moved, ...(await getMenuCategories(db)) });
+    } catch (error) {
+        if (error.status) {
+            return res.status(error.status).json({ message: error.message, code: error.code, count: error.count });
+        }
+        console.error('Error deleting menu category:', error);
+        res.status(500).json({ message: 'Failed to delete the category' });
+    }
+});
+
 // 1. GET ALL MENU ITEMS (To display them on your frontend grid)
 app.get('/api/menu', async (req, res) => {
     try {
@@ -791,7 +862,7 @@ app.get('/api/menu', async (req, res) => {
 // 2. ADD A NEW MENU ITEM (When you click 'Add Item' on your management page)
 app.post('/api/menu', requirePermission('menu'), async (req, res) => {
     const { name, image_url } = req.body ?? {};
-    const category = normalizeMenuCategory(req.body?.category);
+    const category = await resolveMenuCategory(db, req.body?.category).catch(() => null);
     const prices = normalizeMenuPrices(req.body ?? {}, category);
 
     if (!name || !category || prices.error) {
@@ -841,7 +912,7 @@ app.post('/api/menu', requirePermission('menu'), async (req, res) => {
 app.put('/api/menu/:id', requirePermission('menu'), async (req, res) => {
     const itemId = Number.parseInt(req.params.id, 10);
     const { name, image_url } = req.body ?? {};
-    const category = normalizeMenuCategory(req.body?.category);
+    const category = await resolveMenuCategory(db, req.body?.category).catch(() => null);
     const prices = normalizeMenuPrices(req.body ?? {}, category);
 
     if (!Number.isInteger(itemId) || itemId <= 0) {

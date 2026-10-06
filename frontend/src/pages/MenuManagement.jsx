@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import {
   Beer,
   CakeSlice,
+  Check,
   CircleDollarSign,
   Coffee,
   CupSoda,
@@ -29,6 +30,7 @@ import {
 import { apiFetch } from '../services/apiClient'
 import { cacheMenuItems, getMenuFallback } from '../utils/offlineFallbacks'
 import MenuItemImage from '../components/menu/MenuItemImage'
+import AddCategoryButton from '../components/menu/AddCategoryButton'
 import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal'
 import ModalHeader from '../components/ui/ModalHeader'
 import IconSelect from '../components/ui/IconSelect'
@@ -83,7 +85,9 @@ const EMPTY_FORM = {
   use_servings: false,
 }
 
-function categoryLabel(category, t) {
+// `labels` holds the names given to renamed built-in categories; they win over the translation.
+function categoryLabel(category, t, labels = {}) {
+  if (labels[category]) return labels[category]
   const key = CATEGORY_KEYS[category]
   return key ? t(`menuAdmin.categories.${key}`) : category
 }
@@ -130,7 +134,142 @@ export default function MenuManagement() {
 
   const [form, setForm] = useState(EMPTY_FORM)
 
-  const categories = ['All', ...CATEGORIES]
+  // Built-in categories (minus deleted ones), then ones added from this page (oldest first, so a
+  // new one lands at the end). Until the server answers, show the built-in list.
+  const [categoryState, setCategoryState] = useState({ categories: CATEGORIES, labels: {} })
+  const menuCategories = categoryState.categories
+  const categoryLabels = categoryState.labels
+  const categories = ['All', ...menuCategories]
+  const labelOf = (category) => categoryLabel(category, t, categoryLabels)
+  // For the name-clash check: each category's key and the name it shows.
+  const namesOf = (list) => [...new Set([...list, ...list.map(labelOf)])]
+  const applyCategories = (data) => {
+    if (!Array.isArray(data?.categories)) return false
+    setCategoryState({ categories: data.categories, labels: data.labels || {} })
+    return true
+  }
+
+  const [toastMessage, setToastMessage] = useState('')
+  const toastTimerRef = useRef(null)
+  const showToast = useCallback((message) => {
+    setToastMessage(message)
+    window.clearTimeout(toastTimerRef.current)
+    toastTimerRef.current = window.setTimeout(() => setToastMessage(''), 3000)
+  }, [])
+  useEffect(() => () => window.clearTimeout(toastTimerRef.current), [])
+
+  useEffect(() => {
+    let cancelled = false
+    apiFetch('/menu/categories')
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`Server status returned ${res.status}`)
+        const data = await res.json()
+        if (!cancelled) applyCategories(data)
+      })
+      .catch((err) => console.error('Error loading menu categories:', err))
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // A just-added chip sits at the end of the row, often scrolled out of view; bring it in.
+  const chipRefs = useRef(new Map())
+  const [revealCategory, setRevealCategory] = useState(null)
+  useEffect(() => {
+    if (!revealCategory) return
+    // Scroll only the chip row (scrollIntoView would also move the page).
+    const chip = chipRefs.current.get(revealCategory)
+    const row = chip?.parentElement
+    if (chip && row) {
+      const overshoot = chip.getBoundingClientRect().right - row.getBoundingClientRect().right
+      if (overshoot > 0) row.scrollBy({ left: overshoot + 16, behavior: 'smooth' })
+    }
+    setRevealCategory(null)
+  }, [revealCategory])
+
+  const handleCategoryCreated = (category, data) => {
+    if (!applyCategories(data)) {
+      setCategoryState((prev) =>
+        prev.categories.includes(category) ? prev : { ...prev, categories: [...prev.categories, category] },
+      )
+    }
+    setActiveCategory(category)
+    setRevealCategory(category)
+    showToast(t('menuAdmin.categoryAdded'))
+  }
+
+  // A built-in category keeps its key (only its label changes); an added one gets a new key.
+  const handleCategoryRenamed = (category, data) => {
+    const previous = activeCategory
+    if (!applyCategories(data)) {
+      setCategoryState((prev) => ({
+        ...prev,
+        categories: prev.categories.map((entry) => (entry === previous ? category : entry)),
+      }))
+    }
+    // The server moved the items too; mirror that so the grid doesn't empty out.
+    setItems((prev) => prev.map((item) => (item.category === previous ? { ...item, category } : item)))
+    setActiveCategory(category)
+    showToast(t('menuAdmin.categoryUpdated'))
+  }
+
+  // Any category can be renamed or deleted; deleting one with items moves them to `categoryMoveTo` first.
+  const [categoryDeleteTarget, setCategoryDeleteTarget] = useState(null)
+  const [categoryMoveTo, setCategoryMoveTo] = useState('')
+  const deleteItemCount = categoryDeleteTarget
+    ? items.filter((item) => item.category === categoryDeleteTarget).length
+    : 0
+  const moveTargets = menuCategories.filter((entry) => entry !== categoryDeleteTarget)
+
+  const requestDeleteCategory = (category) => {
+    setCategoryMoveTo(menuCategories.find((entry) => entry !== category) ?? '')
+    setCategoryDeleteTarget(category)
+  }
+
+  const confirmDeleteCategory = async () => {
+    const category = categoryDeleteTarget
+    if (!category) return
+    const moveTo = deleteItemCount > 0 ? categoryMoveTo : ''
+    setCategoryDeleteTarget(null)
+    try {
+      const query = moveTo ? `?moveTo=${encodeURIComponent(moveTo)}` : ''
+      const response = await apiFetch(`/menu/categories/${encodeURIComponent(category)}${query}`, { method: 'DELETE' })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        if (data.code === 'in_use') {
+          // Someone added items since this page loaded; refresh so the dialog offers to move them.
+          showToast(t('menuAdmin.categoryInUse', { count: data.count }))
+          fetchMenu()
+        }
+        else if (data.code === 'not_found') showToast(t('menuAdmin.categoryNotFound'))
+        else showToast(data.message || t('menuAdmin.categoryDeleteFailed'))
+        return
+      }
+      if (!applyCategories(data)) {
+        setCategoryState((prev) => ({ ...prev, categories: prev.categories.filter((entry) => entry !== category) }))
+      }
+      const moved = Number(data.moved) || 0
+      if (moved > 0) {
+        // Mirror the server's move and show the items where they went.
+        setItems((prev) => prev.map((item) => (item.category === category ? { ...item, category: moveTo } : item)))
+        setActiveCategory(moveTo)
+        showToast(t('menuAdmin.categoryDeletedMoved', { count: moved, category: labelOf(moveTo) }))
+      } else {
+        setActiveCategory('All')
+        showToast(t('menuAdmin.categoryDeleted'))
+      }
+    } catch {
+      showToast(t('menuAdmin.categoryDeleteFailed'))
+    }
+  }
+
+  // Outlined like the category chips, so the pair reads as belonging to that row.
+  const categoryActionClass =
+    'tab-pill tab-pill-inactive inline-flex w-full shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl px-3.5 shadow-sm aria-disabled:cursor-not-allowed aria-disabled:opacity-50 md:w-auto'
+
+  // Same look as "Add New Item"; both buttons size to their label and share one height.
+  const headerButtonClass =
+    'btn-primary beam-border inline-flex w-full shrink-0 items-center justify-center gap-2 whitespace-nowrap px-5 text-sm shadow-[0_4px_14px_rgba(16,185,129,0.35)] md:w-auto'
 
   const fetchMenu = () => {
     apiFetch('/menu')
@@ -305,7 +444,8 @@ export default function MenuManagement() {
   const openAddModal = () => {
     setIsEditing(false)
     setEditingId(null)
-    setForm(EMPTY_FORM)
+    // Coffee may have been deleted; then start on the first category that's left.
+    setForm({ ...EMPTY_FORM, category: menuCategories.includes(EMPTY_FORM.category) ? EMPTY_FORM.category : (menuCategories[0] ?? '') })
     setImageMode('upload')
     setUploadError('')
     setLinkDraft('')
@@ -396,6 +536,12 @@ export default function MenuManagement() {
 
   return (
     <>
+    {toastMessage ? (
+      <div role="status" className="fixed top-5 right-5 z-[80] flex items-center gap-2 rounded-xl bg-forest-800 px-4 py-3 text-sm font-medium text-white shadow-xl animate-in fade-in slide-in-from-top-3">
+        <Check className="h-4 w-4 text-emerald-400" aria-hidden />
+        <span>{toastMessage}</span>
+      </div>
+    ) : null}
     <div className="space-y-6 page-enter">
       <div className="flex items-center gap-3">
         <UtensilsCrossed className="h-6 w-6 shrink-0 text-forest-600 dark:text-forest-400" aria-hidden />
@@ -403,7 +549,8 @@ export default function MenuManagement() {
       </div>
 
       <div className="flex flex-col gap-3">
-        <div className="flex items-center gap-3">
+        {/* md+: [Search …][Add Category][Add New Item] on one line. Below md the buttons share a row 50/50. */}
+        <div className="flex flex-col gap-3 md:flex-row md:items-center">
           <form
             className="relative min-w-0 flex-1"
             onSubmit={(event) => {
@@ -420,31 +567,58 @@ export default function MenuManagement() {
               className="input-field rounded-xl pl-11 shadow-sm"
             />
           </form>
-          {/* Icon-only on phones so the search box keeps its width; label returns from sm up. */}
-          <button
-            type="button"
-            onClick={openAddModal}
-            aria-label={t('menuAdmin.addNewItem')}
-            className="btn-primary beam-border inline-flex shrink-0 items-center justify-center gap-2 px-3 text-sm shadow-[0_4px_14px_rgba(16,185,129,0.35)] sm:px-5"
-          >
-            <HandPlatter className="h-[1.125rem] w-[1.125rem]" aria-hidden />
-            <span className="hidden sm:inline">{t('menuAdmin.addNewItem')}</span>
-          </button>
+          <div className="relative grid grid-cols-2 gap-3 md:flex md:items-center">
+            <AddCategoryButton existing={namesOf(menuCategories)} onCreated={handleCategoryCreated} className={headerButtonClass} />
+            <button type="button" onClick={openAddModal} className={headerButtonClass}>
+              <HandPlatter className="h-[1.125rem] w-[1.125rem]" aria-hidden />
+              <span>{t('menuAdmin.addNewItem')}</span>
+            </button>
+          </div>
         </div>
+        {/* md+: [chips …][Edit][Delete] on one line; below md the two buttons sit under the chips 50/50. */}
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
+        <div className="min-w-0 flex-1">
         <ScrollRow className="-mx-1 -my-1 gap-2 px-1 py-2">
           {categories.map((category) => (
             <button
               key={category}
+              ref={(node) => {
+                if (node) chipRefs.current.set(category, node)
+                else chipRefs.current.delete(category)
+              }}
               type="button"
               onClick={() => setActiveCategory(category)}
               className={`tab-pill shrink-0 whitespace-nowrap rounded-xl px-3.5 shadow-sm ${
                 activeCategory === category ? 'tab-pill-active' : 'tab-pill-inactive'
               }`}
             >
-              {categoryLabel(category, t)}
+              {labelOf(category)}
             </button>
           ))}
         </ScrollRow>
+        </div>
+        {activeCategory !== 'All' ? (
+          <div className="relative grid grid-cols-2 gap-2 md:flex md:items-center">
+            <AddCategoryButton
+              key={activeCategory}
+              category={activeCategory}
+              currentName={labelOf(activeCategory)}
+              existing={namesOf(menuCategories.filter((entry) => entry !== activeCategory))}
+              onCreated={handleCategoryRenamed}
+              className={categoryActionClass}
+            />
+            <button
+              type="button"
+              aria-label={t('menuAdmin.deleteCategory')}
+              onClick={() => requestDeleteCategory(activeCategory)}
+              className={`${categoryActionClass} hover:text-red-600 dark:hover:text-red-400`}
+            >
+              <Trash2 className="h-4 w-4" aria-hidden />
+              <span>{t('common.delete')}</span>
+            </button>
+          </div>
+        ) : null}
+        </div>
       </div>
 
       {usingFallbackMenu && (
@@ -460,7 +634,7 @@ export default function MenuManagement() {
               className="surface-card flex flex-col items-center p-4 text-center shadow-[0_2px_6px_rgba(40,55,35,0.06),0_8px_24px_rgba(40,55,35,0.10)] transition duration-200 hover:-translate-y-0.5 hover:border-olive-300 hover:shadow-[0_4px_10px_rgba(40,55,35,0.08),0_14px_32px_rgba(40,55,35,0.14)] motion-reduce:hover:translate-y-0 dark:shadow-[0_8px_24px_rgba(0,0,0,0.45)] dark:hover:shadow-[0_14px_32px_rgba(0,0,0,0.55)]"
             >
               <div className="flex w-full items-center justify-between gap-2">
-                <span className="badge-olive truncate">{categoryLabel(item.category, t)}</span>
+                <span className="badge-olive truncate">{labelOf(item.category)}</span>
                 <div className="flex shrink-0 items-center gap-0.5 rounded-full bg-white/90 p-0.5 shadow-sm ring-1 ring-slate-200 dark:bg-zinc-800/90 dark:ring-zinc-700">
                   <Tooltip label={t('common.edit')}>
                     <button
@@ -572,10 +746,10 @@ export default function MenuManagement() {
                   id="item-category"
                   value={form.category}
                   onChange={(category) => setForm({ ...form, category })}
-                  options={CATEGORIES.map((cat) => ({
+                  options={menuCategories.map((cat) => ({
                     value: cat,
-                    label: categoryLabel(cat, t),
-                    icon: CATEGORY_ICONS[cat],
+                    label: labelOf(cat),
+                    icon: CATEGORY_ICONS[cat] ?? Tag,
                   }))}
                 />
               </div>
@@ -828,6 +1002,39 @@ export default function MenuManagement() {
         onConfirm={confirmDeleteMenuItem}
         confirmLabel={t('common.deleteConfirm')}
       />
+
+      <ConfirmDeleteModal
+        isOpen={Boolean(categoryDeleteTarget)}
+        title={t('menuAdmin.categoryDeleteTitle')}
+        message={
+          deleteItemCount > 0
+            ? t('menuAdmin.categoryDeleteMoveMessage', { count: deleteItemCount })
+            : t('menuAdmin.categoryDeleteMessage')
+        }
+        itemName={categoryDeleteTarget ? labelOf(categoryDeleteTarget) : ''}
+        onCancel={() => setCategoryDeleteTarget(null)}
+        onConfirm={confirmDeleteCategory}
+        confirmLabel={t('common.deleteConfirm')}
+      >
+        {deleteItemCount > 0 ? (
+          <div className="mt-4">
+            <label htmlFor="category-move-to" className={FIELD_LABEL_CLASS}>
+              <Tag className={FIELD_ICON_CLASS} aria-hidden />
+              {t('menuAdmin.moveItemsTo')}
+            </label>
+            <IconSelect
+              id="category-move-to"
+              value={categoryMoveTo}
+              onChange={setCategoryMoveTo}
+              options={moveTargets.map((entry) => ({
+                value: entry,
+                label: labelOf(entry),
+                icon: CATEGORY_ICONS[entry] ?? Tag,
+              }))}
+            />
+          </div>
+        ) : null}
+      </ConfirmDeleteModal>
     </>
   )
 }

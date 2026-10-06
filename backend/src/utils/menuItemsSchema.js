@@ -40,6 +40,183 @@ function normalizeMenuCategory(raw) {
   return null
 }
 
+// Built-in categories keep their key on menu_items (drink rules, reports and translations use it),
+// so renaming one stores a display label and deleting one hides it, in menu_category_settings.
+// Categories added from the Menu page live in menu_categories, after the built-in ones.
+const MENU_CATEGORY_NAME_MAX = 24
+// "All" is the Menu page's show-everything chip, so it can't be a category name.
+const RESERVED_CATEGORY_NAMES = ['All']
+
+function cleanCategoryName(raw) {
+  return String(raw ?? '').trim().replace(/\s+/g, ' ')
+}
+
+const sameName = (a, b) => String(a).toLowerCase() === String(b).toLowerCase()
+
+async function listCustomMenuCategories(db) {
+  const [rows] = await db.execute('SELECT name FROM menu_categories ORDER BY id')
+  return rows.map((row) => row.name)
+}
+
+/** Map of built-in key -> { label, hidden } for the built-ins that were renamed or deleted. */
+async function loadBuiltInSettings(db) {
+  const [rows] = await db.execute('SELECT name, label, hidden FROM menu_category_settings')
+  return new Map(rows.map((row) => [row.name, { label: row.label || null, hidden: Boolean(Number(row.hidden)) }]))
+}
+
+async function saveBuiltInSetting(db, key, { label = null, hidden = false }) {
+  await db.execute(
+    'INSERT INTO menu_category_settings (name, label, hidden) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE label = VALUES(label), hidden = VALUES(hidden)',
+    [key, label, hidden ? 1 : 0],
+  )
+}
+
+/**
+ * Category keys (built-in ones in their fixed order, then added ones oldest first) and the
+ * display labels of renamed built-ins. Deleted built-ins are left out.
+ */
+async function getMenuCategories(db) {
+  const settings = await loadBuiltInSettings(db)
+  const builtIns = MENU_CATEGORIES.filter((key) => !settings.get(key)?.hidden)
+  const labels = {}
+  for (const key of builtIns) {
+    const label = settings.get(key)?.label
+    if (label) labels[key] = label
+  }
+  return { categories: [...builtIns, ...(await listCustomMenuCategories(db))], labels }
+}
+
+async function listMenuCategories(db) {
+  return (await getMenuCategories(db)).categories
+}
+
+/** Like normalizeMenuCategory, but also accepts an added category (returned with its stored spelling). */
+async function resolveMenuCategory(db, raw) {
+  const builtIn = normalizeMenuCategory(raw)
+  if (builtIn) {
+    const settings = await loadBuiltInSettings(db)
+    return settings.get(builtIn)?.hidden ? null : builtIn
+  }
+  const name = cleanCategoryName(raw)
+  if (!name) return null
+  const [rows] = await db.execute('SELECT name FROM menu_categories WHERE LOWER(name) = LOWER(?) LIMIT 1', [name])
+  return rows[0]?.name ?? null
+}
+
+function categoryError(status, message, code) {
+  const error = new Error(message)
+  error.status = status
+  error.code = code
+  return error
+}
+
+function validCategoryName(raw) {
+  const name = cleanCategoryName(raw)
+  if (!name) throw categoryError(400, 'Enter a category name', 'required')
+  if (name.length > MENU_CATEGORY_NAME_MAX) {
+    throw categoryError(400, `Use ${MENU_CATEGORY_NAME_MAX} characters or fewer`, 'too_long')
+  }
+  return name
+}
+
+/**
+ * Throws if `name` clashes (ignoring case) with another category. Every built-in key stays taken,
+ * even a deleted one, because menu items store it. `self` is the category being renamed.
+ */
+async function assertCategoryNameFree(db, name, self = null) {
+  const settings = await loadBuiltInSettings(db)
+  const labels = [...settings]
+    .filter(([key, setting]) => key !== self && !setting.hidden && setting.label)
+    .map(([, setting]) => setting.label)
+  const taken = [...MENU_CATEGORIES_WITH_LEGACY, ...RESERVED_CATEGORY_NAMES, ...labels, ...(await listCustomMenuCategories(db))]
+    .filter((existing) => existing !== self)
+  if (taken.some((existing) => sameName(existing, name))) {
+    throw categoryError(409, 'That category already exists', 'duplicate')
+  }
+}
+
+/** Adds a category; duplicates are matched ignoring case and outer spaces. Re-adding a deleted built-in restores it. */
+async function createMenuCategory(db, raw) {
+  const name = validCategoryName(raw)
+  const settings = await loadBuiltInSettings(db)
+  const deletedBuiltIn = MENU_CATEGORIES.find((key) => sameName(key, name) && settings.get(key)?.hidden)
+  if (deletedBuiltIn) {
+    await saveBuiltInSetting(db, deletedBuiltIn, {})
+    return deletedBuiltIn
+  }
+  await assertCategoryNameFree(db, name)
+  try {
+    await db.execute('INSERT INTO menu_categories (name) VALUES (?)', [name])
+  } catch (error) {
+    // Two admins adding the same name at once: the UNIQUE key catches the second.
+    if (error?.code === 'ER_DUP_ENTRY') throw categoryError(409, 'That category already exists', 'duplicate')
+    throw error
+  }
+  return name
+}
+
+/** The category's key and whether it is built-in; 404 if it doesn't exist (or was deleted). */
+async function findMenuCategory(db, raw) {
+  const name = cleanCategoryName(raw)
+  const settings = await loadBuiltInSettings(db)
+  const builtIn = MENU_CATEGORIES.find((key) => sameName(key, name) && !settings.get(key)?.hidden)
+  if (builtIn) return { key: builtIn, builtIn: true }
+  const [rows] = await db.execute('SELECT name FROM menu_categories WHERE LOWER(name) = LOWER(?) LIMIT 1', [name])
+  if (!rows[0]) throw categoryError(404, 'That category no longer exists', 'not_found')
+  return { key: rows[0].name, builtIn: false }
+}
+
+/**
+ * Renames a category and returns its key. A built-in one keeps its key and gets a display label
+ * (renaming it back to its own name clears the label); an added one is renamed and its menu items move with it.
+ */
+async function renameMenuCategory(db, rawCurrent, rawNext) {
+  const { key, builtIn } = await findMenuCategory(db, rawCurrent)
+  const name = validCategoryName(rawNext)
+  if (builtIn) {
+    if (name === key) {
+      await saveBuiltInSetting(db, key, {})
+      return key
+    }
+    await assertCategoryNameFree(db, name, key)
+    await saveBuiltInSetting(db, key, { label: name })
+    return key
+  }
+  if (name === key) return key
+  // Changing only the letter case of its own name is fine; any other match is a duplicate.
+  await assertCategoryNameFree(db, name, key)
+  try {
+    await db.execute('UPDATE menu_categories SET name = ? WHERE name = ?', [name, key])
+  } catch (error) {
+    if (error?.code === 'ER_DUP_ENTRY') throw categoryError(409, 'That category already exists', 'duplicate')
+    throw error
+  }
+  await db.execute('UPDATE menu_items SET category = ? WHERE category = ?', [name, key])
+  return name
+}
+
+/**
+ * Deletes a category (a built-in one is hidden). Its menu items move to `rawMoveTo` first, which
+ * is required while it has any. Returns the key and how many items moved.
+ */
+async function deleteMenuCategory(db, raw, rawMoveTo = null) {
+  const { key, builtIn } = await findMenuCategory(db, raw)
+  const [[{ count }]] = await db.execute('SELECT COUNT(*) AS count FROM menu_items WHERE category = ?', [key])
+  const moved = Number(count)
+  if (moved > 0) {
+    const target = cleanCategoryName(rawMoveTo) ? await resolveMenuCategory(db, rawMoveTo) : null
+    if (!target || target === key) {
+      const error = categoryError(409, 'Choose a category to move its items to', 'in_use')
+      error.count = moved
+      throw error
+    }
+    await db.execute('UPDATE menu_items SET category = ? WHERE category = ?', [target, key])
+  }
+  if (builtIn) await saveBuiltInSetting(db, key, { hidden: true })
+  else await db.execute('DELETE FROM menu_categories WHERE name = ?', [key])
+  return { key, moved }
+}
+
 function isFoodCategory(category) {
   return !DRINK_CATEGORIES.has(category)
 }
@@ -112,8 +289,35 @@ async function ensureMenuItemsSchema(db) {
         )
       }
 
-      const enumValues = MENU_ENUM_VALUES.map((value) => `'${value}'`).join(',')
-      await db.execute(`ALTER TABLE menu_items MODIFY category ENUM(${enumValues}) NOT NULL`)
+      // category was an ENUM of the built-in names; added categories need free text.
+      // VARCHAR keeps every stored value, so this is a one-time, lossless change.
+      const [categoryColumn] = await db.execute(
+        `SELECT DATA_TYPE AS dataType
+         FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'menu_items' AND COLUMN_NAME = 'category'
+         LIMIT 1`,
+      )
+      if (String(categoryColumn[0]?.dataType || '').toLowerCase() === 'enum') {
+        await db.execute('ALTER TABLE menu_items MODIFY category VARCHAR(50) NOT NULL')
+      }
+
+      await db.execute(
+        `CREATE TABLE IF NOT EXISTS menu_categories (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          name VARCHAR(50) NOT NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE KEY uniq_menu_category_name (name)
+        )`,
+      )
+
+      await db.execute(
+        `CREATE TABLE IF NOT EXISTS menu_category_settings (
+          name VARCHAR(50) NOT NULL PRIMARY KEY,
+          label VARCHAR(50) NULL,
+          hidden TINYINT(1) NOT NULL DEFAULT 0,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )`,
+      )
     })().catch((error) => {
       menuItemsSchemaReadyPromise = null
       throw error
@@ -123,13 +327,22 @@ async function ensureMenuItemsSchema(db) {
   return menuItemsSchemaReadyPromise
 }
 
+// Built-in categories in their fixed order; anything else (added categories) after them.
 function menuCategoryFieldSql(column = 'category') {
-  return `FIELD(${column}, ${MENU_CATEGORIES.map((value) => `'${value}'`).join(', ')})`
+  const field = `FIELD(${column}, ${MENU_CATEGORIES.map((value) => `'${value}'`).join(', ')})`
+  return `${field} = 0, ${field}, ${column}`
 }
 
 module.exports = {
   MENU_CATEGORIES,
   MENU_CATEGORIES_WITH_LEGACY,
+  MENU_CATEGORY_NAME_MAX,
+  createMenuCategory,
+  renameMenuCategory,
+  deleteMenuCategory,
+  getMenuCategories,
+  listMenuCategories,
+  resolveMenuCategory,
   menuCategoryFieldSql,
   ensureMenuItemsSchema,
   ensureMenuItemsImageSchema: ensureMenuItemsSchema,

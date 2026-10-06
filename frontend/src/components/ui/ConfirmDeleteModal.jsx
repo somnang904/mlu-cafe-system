@@ -10,6 +10,7 @@ export default function ConfirmDeleteModal({
   onConfirm,
   onCancel,
   confirmLabel,
+  children,
 }) {
   const { t } = useTranslation()
   const resolvedConfirmLabel = confirmLabel || t('common.deleteConfirm')
@@ -47,6 +48,8 @@ export default function ConfirmDeleteModal({
               <p id="confirm-delete-message" className="text-muted mt-2 text-sm leading-relaxed">
                 {message}
               </p>
+              {/* Optional extra fields, e.g. where to move a deleted category's items. */}
+              {children}
             </div>
           </div>
         </div>
