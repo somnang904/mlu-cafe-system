@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Eye, EyeOff, KeyRound, Pencil, ShieldCheck, Trash2, UserPlus, X } from 'lucide-react'
+import { AtSign, Eye, EyeOff, KeyRound, Lock, Pencil, ShieldCheck, Trash2, User, UserCheck, UserPlus, Wallet } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { apiFetch } from '../services/apiClient'
 import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal'
+import FieldLabel from '../components/ui/FieldLabel'
+import IconSelect from '../components/ui/IconSelect'
+import ModalHeader from '../components/ui/ModalHeader'
 import { useAuth } from '../context/AuthContext'
 import {
   STAFF_DEFAULT_PERMISSIONS,
@@ -166,33 +169,26 @@ function UserFormModal({ mode, user, onClose, onSave }) {
       <div className="modal-backdrop" aria-hidden="true" />
 
       <div className="modal-panel relative z-10 max-h-[90vh] w-full max-w-md overflow-y-auto p-6">
-        <div className="flex items-start justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-olive-100 text-forest-600 dark:bg-olive-900/40 dark:text-forest-400">
-              <ShieldCheck className="h-5 w-5" />
-            </div>
-            <div>
-              <h3 className="text-heading text-lg font-semibold">
-                {isEdit ? t('users.editPermissions') : t('users.addNew')}
-              </h3>
-              <p className="text-muted text-xs">
-                {isEdit
-                  ? isAdminUser
-                    ? t('users.editAdminDescription')
-                    : t('users.editStaffDescription')
-                  : t('users.createDescription')}
-              </p>
-            </div>
-          </div>
-          <button type="button" onClick={onClose} className="rounded-lg p-1 text-stone-400 hover:bg-stone-100 dark:hover:bg-obsidian-800" aria-label={t('a11y.close')}>
-            <X className="h-5 w-5" />
-          </button>
-        </div>
+        <ModalHeader
+          icon={isEdit ? ShieldCheck : UserPlus}
+          title={isEdit ? t('users.editPermissions') : t('users.addNew')}
+          subtitle={
+            isEdit
+              ? isAdminUser
+                ? t('users.editAdminDescription')
+                : t('users.editStaffDescription')
+              : t('users.createDescription')
+          }
+          onClose={onClose}
+        />
 
         <form onSubmit={handleSubmit} className="mt-5 space-y-4">
           <div>
-            <label className="mb-1 block text-xs font-medium text-stone-600 dark:text-stone-300">{t('users.displayName')}</label>
+            <FieldLabel icon={User} htmlFor="user-display-name">
+              {t('users.displayName')}
+            </FieldLabel>
             <input
+              id="user-display-name"
               type="text"
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
@@ -202,8 +198,11 @@ function UserFormModal({ mode, user, onClose, onSave }) {
           </div>
 
           <div>
-            <label className="mb-1 block text-xs font-medium text-stone-600 dark:text-stone-300">{t('users.usernameLoginId')}</label>
+            <FieldLabel icon={AtSign} htmlFor="user-username">
+              {t('users.usernameLoginId')}
+            </FieldLabel>
             <input
+              id="user-username"
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
@@ -215,11 +214,12 @@ function UserFormModal({ mode, user, onClose, onSave }) {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="mb-1 block text-xs font-medium text-stone-600 dark:text-stone-300">
+              <FieldLabel icon={Lock} htmlFor="user-password">
                 {isEdit ? t('users.newPasswordOptional') : t('users.password')}
-              </label>
+              </FieldLabel>
               <div className="relative flex items-center">
                 <input
+                  id="user-password"
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -242,9 +242,12 @@ function UserFormModal({ mode, user, onClose, onSave }) {
               )}
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-stone-600 dark:text-stone-300">{t('users.confirmPassword')}</label>
+              <FieldLabel icon={KeyRound} htmlFor="user-confirm-password">
+                {t('users.confirmPassword')}
+              </FieldLabel>
               <div className="relative flex items-center">
                 <input
+                  id="user-confirm-password"
                   type={showConfirmPassword ? 'text' : 'password'}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
@@ -266,20 +269,24 @@ function UserFormModal({ mode, user, onClose, onSave }) {
           </div>
 
           <div>
-            <label className="mb-1 block text-xs font-medium text-stone-600 dark:text-stone-300">{t('users.assignmentRole')}</label>
+            <FieldLabel icon={ShieldCheck} htmlFor="user-role">
+              {t('users.assignmentRole')}
+            </FieldLabel>
             {editingExistingAdmin ? (
-              <p className="input-field px-3 py-2 text-sm font-medium text-emerald-800 dark:text-emerald-200">
+              <p id="user-role" className="input-field px-3 py-2 text-sm font-medium text-emerald-800 dark:text-emerald-200">
                 {roleLabel(t, 'Admin')}
               </p>
             ) : (
-              <select
+              <IconSelect
+                id="user-role"
                 value={role}
-                onChange={(e) => handleRoleChange(e.target.value)}
-                className="input-field bg-white px-3 py-2 text-sm dark:bg-obsidian-900"
-              >
-                <option value="Staff">{t('users.roles.staff')}</option>
-                <option value="Cashier">{t('users.roles.cashier')}</option>
-              </select>
+                onChange={handleRoleChange}
+                options={[
+                  { value: 'Staff', label: t('users.roles.staff'), icon: User },
+                  { value: 'Cashier', label: t('users.roles.cashier'), icon: Wallet },
+                ]}
+                className="rounded-xl"
+              />
             )}
             <p className="text-muted mt-1.5 text-2xs leading-snug">
               {editingExistingAdmin ? t('users.roleBlurbAdminFixed') : t(roleBlurbKey(role))}
@@ -288,7 +295,7 @@ function UserFormModal({ mode, user, onClose, onSave }) {
 
           {!isAdminUser ? (
             <div>
-              <label className="mb-1.5 block text-xs font-medium text-stone-600 dark:text-stone-300">{t('users.featurePermissions')}</label>
+              <FieldLabel icon={UserCheck}>{t('users.featurePermissions')}</FieldLabel>
               <div className="grid grid-cols-2 gap-2">
                 {availablePermissions.map((section) => (
                   <label
@@ -316,7 +323,10 @@ function UserFormModal({ mode, user, onClose, onSave }) {
 
           <div className="flex gap-3 pt-3">
             <button type="button" onClick={onClose} className="btn-secondary flex-1 py-2 text-xs font-semibold">{t('common.cancel')}</button>
-            <button type="submit" className="btn-primary flex-1 py-2 text-xs font-semibold">
+            <button
+              type="submit"
+              className="btn-primary beam-border flex-1 py-2 text-xs font-semibold shadow-[0_4px_14px_rgba(16,185,129,0.35)]"
+            >
               {isEdit ? t('common.saveChanges') : t('users.createUser')}
             </button>
           </div>
@@ -582,20 +592,19 @@ export default function Users() {
       )}
       {resetNotice ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <button
-            type="button"
-            className="absolute inset-0 bg-black/40"
-            aria-label={t('common.close')}
-            onClick={() => setResetNotice(null)}
-          />
+          <div className="modal-backdrop" aria-hidden="true" />
           <div role="dialog" aria-modal="true" className="modal-panel relative z-10 w-full max-w-md p-6">
-            <h2 className="text-lg font-semibold text-slate-900 dark:text-zinc-100">{t('users.resetPasswordTitle')}</h2>
-            <p className="mt-2 text-sm text-slate-500 dark:text-zinc-400">{t('users.resetPasswordBody', { username: resetNotice.username })}</p>
+            <ModalHeader icon={KeyRound} title={t('users.resetPasswordTitle')} onClose={() => setResetNotice(null)} />
+            <p className="mt-3 text-sm text-slate-500 dark:text-zinc-400">{t('users.resetPasswordBody', { username: resetNotice.username })}</p>
             <p className="mt-4 break-all rounded-xl bg-stone-100 px-4 py-3 font-mono text-sm text-slate-900 dark:bg-zinc-800 dark:text-zinc-100">
               {resetNotice.temporaryPassword}
             </p>
             <div className="mt-4 flex justify-end">
-              <button type="button" className="btn-primary px-4 py-2 text-sm" onClick={() => setResetNotice(null)}>
+              <button
+                type="button"
+                className="btn-primary beam-border px-4 py-2 text-sm shadow-[0_4px_14px_rgba(16,185,129,0.35)]"
+                onClick={() => setResetNotice(null)}
+              >
                 {t('common.close')}
               </button>
             </div>
