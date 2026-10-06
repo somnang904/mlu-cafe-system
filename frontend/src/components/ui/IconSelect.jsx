@@ -5,14 +5,7 @@ import { Check, ChevronDown } from 'lucide-react'
 const LIST_GAP = 6
 const LIST_MAX_HEIGHT = 320
 
-/**
- * Styled replacement for <select> (ARIA "select-only combobox"): focus stays on the
- * trigger and arrow keys move the highlight. The list is portalled to <body> so a
- * scrolling modal cannot clip it, and flips above the trigger when space runs out.
- *
- * options: [{ value, label, icon: LucideIcon }]
- */
-export default function IconSelect({ id, value, options, onChange, className = '' }) {
+export default function IconSelect({ id, value, options, onChange, placeholder, className = '' }) {
   const listId = useId()
   const triggerRef = useRef(null)
   const listRef = useRef(null)
@@ -20,8 +13,10 @@ export default function IconSelect({ id, value, options, onChange, className = '
   const [activeIndex, setActiveIndex] = useState(-1)
   const [position, setPosition] = useState(null)
 
-  const selectedIndex = Math.max(0, options.findIndex((option) => option.value === value))
-  const selected = options[selectedIndex]
+  const selectable = options.map((option, index) => (option.header ? -1 : index)).filter((index) => index >= 0)
+  const foundIndex = options.findIndex((option) => !option.header && option.value === value)
+  const selectedIndex = foundIndex >= 0 ? foundIndex : placeholder != null ? -1 : (selectable[0] ?? -1)
+  const selected = selectedIndex >= 0 ? options[selectedIndex] : null
   const SelectedIcon = selected?.icon
 
   const updatePosition = useCallback(() => {
@@ -40,21 +35,26 @@ export default function IconSelect({ id, value, options, onChange, className = '
 
   const openList = () => {
     updatePosition()
-    setActiveIndex(selectedIndex)
+    setActiveIndex(selectedIndex >= 0 ? selectedIndex : (selectable[0] ?? -1))
     setOpen(true)
   }
 
   const choose = (index) => {
     const option = options[index]
-    if (option) onChange(option.value)
+    if (option && !option.header) onChange(option.value)
     setOpen(false)
     triggerRef.current?.focus()
+  }
+
+  const step = (from, direction) => {
+    const position = selectable.indexOf(from)
+    if (position === -1) return selectable[direction > 0 ? 0 : selectable.length - 1] ?? -1
+    return selectable[Math.min(selectable.length - 1, Math.max(0, position + direction))]
   }
 
   useLayoutEffect(() => {
     if (!open) return undefined
     updatePosition()
-    // Capture phase so scrolling the modal body (not just the window) repositions too.
     window.addEventListener('scroll', updatePosition, true)
     window.addEventListener('resize', updatePosition)
     return () => {
@@ -79,7 +79,6 @@ export default function IconSelect({ id, value, options, onChange, className = '
   }, [open, activeIndex])
 
   const handleKeyDown = (event) => {
-    const last = options.length - 1
     if (!open) {
       if (['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(event.key)) {
         event.preventDefault()
@@ -90,19 +89,19 @@ export default function IconSelect({ id, value, options, onChange, className = '
     switch (event.key) {
       case 'ArrowDown':
         event.preventDefault()
-        setActiveIndex((index) => Math.min(last, index + 1))
+        setActiveIndex((index) => step(index, 1))
         break
       case 'ArrowUp':
         event.preventDefault()
-        setActiveIndex((index) => Math.max(0, index - 1))
+        setActiveIndex((index) => step(index, -1))
         break
       case 'Home':
         event.preventDefault()
-        setActiveIndex(0)
+        setActiveIndex(selectable[0] ?? -1)
         break
       case 'End':
         event.preventDefault()
-        setActiveIndex(last)
+        setActiveIndex(selectable[selectable.length - 1] ?? -1)
         break
       case 'Enter':
       case ' ':
@@ -110,7 +109,6 @@ export default function IconSelect({ id, value, options, onChange, className = '
         choose(activeIndex)
         break
       case 'Escape':
-        // Close only the list; stopping here keeps the surrounding modal open.
         event.preventDefault()
         event.stopPropagation()
         setOpen(false)
@@ -138,8 +136,15 @@ export default function IconSelect({ id, value, options, onChange, className = '
         onKeyDown={handleKeyDown}
         className={`input-field flex cursor-pointer items-center gap-2.5 text-left ${open ? 'border-forest-500 ring-2 ring-forest-500/20' : ''} ${className}`}
       >
-        {SelectedIcon ? <SelectedIcon className="h-4 w-4 shrink-0 text-forest-600 dark:text-forest-400" aria-hidden /> : null}
-        <span className="min-w-0 flex-1 truncate">{selected?.label}</span>
+        {SelectedIcon ? (
+          <SelectedIcon className="h-4 w-4 shrink-0 text-forest-600 dark:text-forest-400" aria-hidden />
+        ) : null}
+        <span className={`min-w-0 flex-1 truncate ${selected ? '' : 'text-slate-500 dark:text-zinc-500'}`}>
+          {selected ? selected.label : placeholder}
+        </span>
+        {selected?.hint ? (
+          <span className="shrink-0 text-xs text-slate-500 dark:text-zinc-400">{selected.hint}</span>
+        ) : null}
         <ChevronDown
           className={`h-4 w-4 shrink-0 text-slate-500 transition-transform duration-200 dark:text-zinc-400 ${open ? 'rotate-180' : ''}`}
           aria-hidden
@@ -164,6 +169,17 @@ export default function IconSelect({ id, value, options, onChange, className = '
               className="icon-select-list z-[70] overflow-y-auto rounded-xl bg-slate-900 p-1.5 text-sm text-white shadow-2xl ring-1 ring-black/5 dark:bg-zinc-100 dark:text-zinc-900"
             >
               {options.map((option, index) => {
+                if (option.header) {
+                  return (
+                    <li
+                      key={`header-${option.label}`}
+                      role="presentation"
+                      className="px-3 pb-1 pt-2.5 text-2xs font-semibold uppercase tracking-wider text-white/50 first:pt-1 dark:text-zinc-500"
+                    >
+                      {option.label}
+                    </li>
+                  )
+                }
                 const Icon = option.icon
                 const isSelected = index === selectedIndex
                 const isActive = index === activeIndex
@@ -174,7 +190,6 @@ export default function IconSelect({ id, value, options, onChange, className = '
                     data-index={index}
                     role="option"
                     aria-selected={isSelected}
-                    // mousedown keeps focus on the trigger, which owns the keyboard handling.
                     onMouseDown={(event) => event.preventDefault()}
                     onMouseEnter={() => setActiveIndex(index)}
                     onClick={() => choose(index)}
@@ -189,7 +204,12 @@ export default function IconSelect({ id, value, options, onChange, className = '
                       />
                     ) : null}
                     <span className="min-w-0 flex-1 truncate">{option.label}</span>
-                    {isSelected ? <Check className="h-4 w-4 shrink-0 text-emerald-400 dark:text-forest-600" aria-hidden /> : null}
+                    {option.hint ? (
+                      <span className="shrink-0 text-xs text-white/50 dark:text-zinc-500">{option.hint}</span>
+                    ) : null}
+                    {isSelected ? (
+                      <Check className="h-4 w-4 shrink-0 text-emerald-400 dark:text-forest-600" aria-hidden />
+                    ) : null}
                   </li>
                 )
               })}
