@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Clock, X, AlertCircle, Printer } from 'lucide-react'
+import { Clock, AlertCircle, Printer, DollarSign, Coins, NotebookPen } from 'lucide-react'
 import { useModalKeyboard } from '../../hooks/useModalKeyboard'
 import { apiFetch } from '../../services/apiClient'
 import { formatUsd, formatKhr, DEFAULT_EXCHANGE_RATE } from '../../utils/currency'
 import { STORE } from '../../config/store'
+import ModalHeader from '../ui/ModalHeader'
+import FieldLabel from '../ui/FieldLabel'
 
 /** Drawer movement reads as a change, so it keeps its sign; paying riel can take dollars out. */
 function signedUsd(amount) {
@@ -138,29 +140,17 @@ export default function ShiftModal({ isOpen, onClose }) {
         className="modal-panel relative z-10 w-full max-w-lg overflow-hidden print:max-w-none print:rounded-none print:border-none print:shadow-none"
       >
         {/* Modal Header */}
-        <div className="flex items-center justify-between border-b border-border p-5 print:hidden">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-forest-50 text-forest-700 ring-1 ring-forest-100 dark:bg-forest-950/40 dark:text-forest-300 dark:ring-forest-800">
-              <Clock className="h-5 w-5" />
-            </div>
-            <div>
-              <h3 className="text-heading text-lg font-bold">
-                {t('shifts.title', { defaultValue: 'Cash Drawer & Shift Management' })}
-              </h3>
-              <p className="text-muted text-xs">
-                {shift
-                  ? `${t('shifts.statusOpen', { defaultValue: 'Shift in progress' })} · ${shift.cashier_name}`
-                  : t('shifts.noOpenShift', { defaultValue: 'No active shift open' })}
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-zinc-800"
-          >
-            <X className="h-5 w-5" />
-          </button>
+        <div className="border-b border-border p-5 print:hidden">
+          <ModalHeader
+            icon={Clock}
+            title={t('shifts.title', { defaultValue: 'Cash Drawer & Shift Management' })}
+            subtitle={
+              shift
+                ? `${t('shifts.statusOpen', { defaultValue: 'Shift in progress' })} · ${shift.cashier_name}`
+                : t('shifts.noOpenShift', { defaultValue: 'No active shift open' })
+            }
+            onClose={onClose}
+          />
         </div>
 
         {/* Modal Content */}
@@ -192,12 +182,13 @@ export default function ShiftModal({ isOpen, onClose }) {
 
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
-                  <label className="text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-zinc-400">
+                  <FieldLabel icon={DollarSign} htmlFor="shift-open-usd">
                     {t('shifts.openingFloatUsd', { defaultValue: 'Starting Float (USD $)' })}
-                  </label>
-                  <div className="relative mt-1">
+                  </FieldLabel>
+                  <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 font-semibold text-slate-400">$</span>
                     <input
+                      id="shift-open-usd"
                       type="number"
                       step="0.01"
                       min="0"
@@ -211,11 +202,12 @@ export default function ShiftModal({ isOpen, onClose }) {
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-zinc-400">
+                  <FieldLabel icon={Coins} htmlFor="shift-open-khr">
                     {t('shifts.openingFloatKhr', { defaultValue: 'Starting Float (KHR ៛)' })}
-                  </label>
-                  <div className="relative mt-1">
+                  </FieldLabel>
+                  <div className="relative">
                     <input
+                      id="shift-open-khr"
                       type="number"
                       step="100"
                       min="0"
@@ -232,7 +224,9 @@ export default function ShiftModal({ isOpen, onClose }) {
               <button
                 type="submit"
                 disabled={submitting}
-                className="btn-primary w-full py-3 text-sm font-semibold disabled:opacity-50"
+                className={`btn-primary w-full py-3 text-sm font-semibold disabled:opacity-50 ${
+                  submitting ? '' : 'beam-border shadow-[0_4px_14px_rgba(16,185,129,0.35)]'
+                }`}
               >
                 {submitting
                   ? t('common.saving', { defaultValue: 'Opening...' })
@@ -317,7 +311,7 @@ export default function ShiftModal({ isOpen, onClose }) {
                 <button
                   type="button"
                   onClick={onClose}
-                  className="flex-1 rounded-xl border border-slate-200 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  className="btn-secondary flex-1 text-sm"
                 >
                   {t('common.done')}
                 </button>
@@ -349,12 +343,13 @@ export default function ShiftModal({ isOpen, onClose }) {
 
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
-                  <label className="text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-zinc-400">
+                  <FieldLabel icon={DollarSign} htmlFor="shift-counted-usd">
                     {t('shifts.countedUsd', { defaultValue: 'Actual Counted (USD $)' })}
-                  </label>
-                  <div className="relative mt-1">
+                  </FieldLabel>
+                  <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 font-semibold text-slate-400">$</span>
                     <input
+                      id="shift-counted-usd"
                       type="number"
                       step="0.01"
                       min="0"
@@ -368,11 +363,12 @@ export default function ShiftModal({ isOpen, onClose }) {
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-zinc-400">
+                  <FieldLabel icon={Coins} htmlFor="shift-counted-khr">
                     {t('shifts.countedKhr', { defaultValue: 'Actual Counted (KHR ៛)' })}
-                  </label>
-                  <div className="relative mt-1">
+                  </FieldLabel>
+                  <div className="relative">
                     <input
+                      id="shift-counted-khr"
                       type="number"
                       step="100"
                       min="0"
@@ -417,15 +413,16 @@ export default function ShiftModal({ isOpen, onClose }) {
               )}
 
               <div>
-                <label className="text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-zinc-400">
+                <FieldLabel icon={NotebookPen} htmlFor="shift-notes">
                   {t('shifts.handoverNotes', { defaultValue: 'Handover / Discrepancy Notes' })}
-                </label>
+                </FieldLabel>
                 <textarea
+                  id="shift-notes"
                   rows="2"
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder={t('shifts.notesPlaceholder', { defaultValue: 'Optional notes regarding this shift...' })}
-                  className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs text-slate-900 focus:border-emerald-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
+                  className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs text-slate-900 focus:border-emerald-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
                 />
               </div>
 
@@ -433,14 +430,16 @@ export default function ShiftModal({ isOpen, onClose }) {
                 <button
                   type="button"
                   onClick={() => setStep('view')}
-                  className="flex-1 rounded-xl border border-slate-200 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  className="btn-secondary flex-1 text-sm"
                 >
                   {t('common.cancel')}
                 </button>
                 <button
                   type="submit"
                   disabled={submitting || countedUsd === ''}
-                  className="btn-primary flex-1 py-2.5 text-sm font-semibold disabled:opacity-50"
+                  className={`btn-primary flex-1 py-2.5 text-sm font-semibold disabled:opacity-50 ${
+                    submitting || countedUsd === '' ? '' : 'beam-border shadow-[0_4px_14px_rgba(16,185,129,0.35)]'
+                  }`}
                 >
                   {submitting
                     ? t('common.saving', { defaultValue: 'Closing...' })
@@ -555,7 +554,7 @@ export default function ShiftModal({ isOpen, onClose }) {
                 <button
                   type="button"
                   onClick={onClose}
-                  className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  className="btn-secondary px-4 text-sm"
                 >
                   {t('common.done')}
                 </button>

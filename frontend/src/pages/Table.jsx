@@ -4,20 +4,23 @@ import {
   ArrowRightToLine,
   Armchair,
   BaggageClaim,
+  CalendarClock,
   Check,
   CreditCard,
   Crown,
   GitMerge,
+  Clock,
   LayoutGrid,
+  NotebookPen,
   Phone,
   Plus,
   ReceiptText,
   Sparkles,
   Tag,
+  User,
   UserCheck,
   Users,
   UtensilsCrossed,
-  X,
   XCircle,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -95,63 +98,66 @@ function ReservationPreview({
         aria-labelledby="reserved-table-title"
       >
         <div className="p-5">
-          <div className="mb-3 flex items-start justify-between gap-3">
-            <div>
-              <p className={`text-xs font-semibold uppercase tracking-wide ${
-                isSeated ? 'text-emerald-700 dark:text-emerald-300' : 'text-violet-700 dark:text-violet-300'
-              }`}>
-                {t(statusMeta.labelKey)}
-              </p>
-              <h4 id="reserved-table-title" className="text-heading mt-1 text-lg font-semibold">
-                {floorTableDisplayName(
-                  {
-                    id: reservation.table_id,
-                    name: reservation.table_name,
-                    section: String(reservation.table_name || '').startsWith('VIP') ? 'vip' : 'standard',
-                  },
-                  t,
-                )}
-              </h4>
-            </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground hover:bg-olive-50 dark:hover:bg-zinc-800"
-              aria-label={t('a11y.close')}
-            >
-              <X className="h-4 w-4" />
-            </button>
+          <div className="mb-4">
+            <ModalHeader
+              icon={CalendarClock}
+              iconClassName={
+                isSeated ? 'text-emerald-600 dark:text-emerald-400' : 'text-violet-600 dark:text-violet-400'
+              }
+              titleId="reserved-table-title"
+              title={floorTableDisplayName(
+                {
+                  id: reservation.table_id,
+                  name: reservation.table_name,
+                  section: String(reservation.table_name || '').startsWith('VIP') ? 'vip' : 'standard',
+                },
+                t,
+              )}
+              subtitle={t(statusMeta.labelKey)}
+              onClose={onClose}
+            />
           </div>
           <dl className="space-y-3 text-sm">
             <div>
-              <dt className="text-muted text-xs uppercase tracking-wide">{t('tables.customerName')}</dt>
+              <dt className="text-muted flex items-center gap-1.5 text-xs uppercase tracking-wide">
+                <User className="h-4 w-4 shrink-0 text-forest-600 dark:text-forest-400" aria-hidden />
+                {t('tables.customerName')}
+              </dt>
               <dd className="mt-0.5 font-medium">{reservation.customer_name}</dd>
             </div>
             <div>
-              <dt className="text-muted text-xs uppercase tracking-wide">{t('tables.time')}</dt>
+              <dt className="text-muted flex items-center gap-1.5 text-xs uppercase tracking-wide">
+                <Clock className="h-4 w-4 shrink-0 text-forest-600 dark:text-forest-400" aria-hidden />
+                {t('tables.time')}
+              </dt>
               <dd className="mt-0.5 font-medium">
                 {slotLabel(reservation.time_slot, reservation.time_slot_label, reservation.duration_minutes)}
               </dd>
             </div>
             <div>
-              <dt className="text-muted text-xs uppercase tracking-wide">{t('tables.phone')}</dt>
-              <dd className="mt-0.5 flex items-center gap-1.5 font-medium">
-                <Phone className="h-3.5 w-3.5 text-muted-foreground" />
+              <dt className="text-muted flex items-center gap-1.5 text-xs uppercase tracking-wide">
+                <Phone className="h-4 w-4 shrink-0 text-forest-600 dark:text-forest-400" aria-hidden />
+                {t('tables.phone')}
+              </dt>
+              <dd className="mt-0.5 font-medium">
                 <a href={`tel:${reservation.phone}`} className="text-forest-700 underline hover:text-forest-800 dark:text-forest-300">
                   {reservation.phone}
                 </a>
               </dd>
             </div>
             <div>
-              <dt className="text-muted text-xs uppercase tracking-wide">{t('tables.guests')}</dt>
-              <dd className="mt-0.5 flex items-center gap-1.5 font-medium">
-                <Users className="h-3.5 w-3.5 text-muted-foreground" />
-                {reservation.guest_count}
-              </dd>
+              <dt className="text-muted flex items-center gap-1.5 text-xs uppercase tracking-wide">
+                <Users className="h-4 w-4 shrink-0 text-forest-600 dark:text-forest-400" aria-hidden />
+                {t('tables.guests')}
+              </dt>
+              <dd className="mt-0.5 font-medium">{reservation.guest_count}</dd>
             </div>
             {reservation.notes && (
               <div>
-                <dt className="text-muted text-xs uppercase tracking-wide">{t('tables.notes')}</dt>
+                <dt className="text-muted flex items-center gap-1.5 text-xs uppercase tracking-wide">
+                  <NotebookPen className="h-4 w-4 shrink-0 text-forest-600 dark:text-forest-400" aria-hidden />
+                  {t('tables.notes')}
+                </dt>
                 <dd className="mt-0.5 text-muted-foreground">{reservation.notes}</dd>
               </div>
             )}
@@ -169,7 +175,9 @@ function ReservationPreview({
                 type="button"
                 disabled={busy}
                 onClick={onCheckIn}
-                className="btn-primary flex w-full items-center justify-center gap-2 py-2.5 text-sm"
+                className={`btn-primary flex w-full items-center justify-center gap-2 py-2.5 text-sm ${
+                  busy ? '' : 'beam-border shadow-[0_4px_14px_rgba(16,185,129,0.35)]'
+                }`}
               >
                 <UserCheck className="h-4 w-4" />
                 {t('tables.checkInGuest')}
@@ -579,15 +587,11 @@ function ClearTableModal({ isOpen, onClose, bill, onClear }) {
         aria-modal="true"
       >
         <div className="mb-4 flex items-start gap-3">
-          <div
-            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl ${
-              isPaid
-                ? 'bg-sky-100 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300'
-                : 'bg-red-100 text-red-600 dark:bg-red-950/50 dark:text-red-300'
-            }`}
-          >
-            {isPaid ? <Sparkles className="h-5 w-5" /> : <XCircle className="h-5 w-5" />}
-          </div>
+          {isPaid ? (
+            <Sparkles className="h-6 w-6 shrink-0 text-sky-600 dark:text-sky-400" aria-hidden />
+          ) : (
+            <XCircle className="h-6 w-6 shrink-0 text-red-600 dark:text-red-400" aria-hidden />
+          )}
           <div className="flex-1">
             <h4 className="text-heading text-lg font-bold">
               {isPaid

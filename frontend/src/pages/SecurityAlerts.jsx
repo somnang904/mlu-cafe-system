@@ -4,6 +4,7 @@ import { ShieldAlert } from 'lucide-react'
 import { apiFetch } from '../services/apiClient'
 import AuditLogPanel from '../components/security/AuditLogPanel'
 import Modal from '../components/common/Modal'
+import ModalHeader from '../components/ui/ModalHeader'
 
 function formatWhen(value, language) {
   if (!value) return '—'
@@ -326,6 +327,14 @@ function ActiveSessionsTab() {
         <Modal
           title={t('securityAlerts.terminateTitle')}
           titleId="terminate-session-title"
+          header={(
+            <ModalHeader
+              icon={ShieldAlert}
+              iconClassName="text-red-600 dark:text-red-400"
+              titleId="terminate-session-title"
+              title={t('securityAlerts.terminateTitle')}
+            />
+          )}
           onClose={() => { if (!pending) setConfirm(null) }}
           closeLabel={t('a11y.closeModal')}
           dismissible={!pending}

@@ -7,6 +7,7 @@ import {
   FileSpreadsheet,
   FileText,
   HardDrive,
+  KeyRound,
   Loader2,
   Upload,
 } from 'lucide-react'
@@ -15,6 +16,8 @@ import { useTranslation } from 'react-i18next'
 import { useAuth } from '../context/AuthContext'
 import { useNotifications } from '../context/NotificationContext'
 import Modal from '../components/common/Modal'
+import ModalHeader from '../components/ui/ModalHeader'
+import FieldLabel from '../components/ui/FieldLabel'
 import { apiFetchDownload, apiUpload, saveBlobAsDownload } from '../services/apiClient'
 import { userHasPermission } from '../utils/permissions'
 
@@ -409,6 +412,15 @@ export default function BackupRecovery() {
       {restoreOpen ? (
         <Modal
           title={t('backup.restoreTitle')}
+          titleId="restore-backup-title"
+          header={(
+            <ModalHeader
+              icon={AlertTriangle}
+              iconClassName="text-rose-600 dark:text-rose-400"
+              titleId="restore-backup-title"
+              title={t('backup.restoreTitle')}
+            />
+          )}
           onClose={() => {
             if (!restoreLoading) setRestoreOpen(false)
           }}
@@ -420,7 +432,7 @@ export default function BackupRecovery() {
                 type="button"
                 onClick={() => setRestoreOpen(false)}
                 disabled={restoreLoading}
-                className="rounded-xl border border-stone-200 px-4 py-2.5 text-sm font-semibold text-stone-700 disabled:opacity-60 dark:border-stone-700 dark:text-stone-200"
+                className="btn-secondary px-4 text-sm disabled:opacity-60"
               >
                 {t('backup.cancel')}
               </button>
@@ -446,17 +458,19 @@ export default function BackupRecovery() {
                 })}
               </p>
             ) : null}
-            <label className="block text-sm font-medium" htmlFor="restore-phrase">
-              {t('backup.restoreTypeLabel')}
+            <div>
+              <FieldLabel icon={KeyRound} htmlFor="restore-phrase">
+                {t('backup.restoreTypeLabel')}
+              </FieldLabel>
               <input
                 id="restore-phrase"
                 value={restorePhrase}
                 onChange={(event) => setRestorePhrase(event.target.value)}
                 autoComplete="off"
                 disabled={restoreLoading}
-                className="input-field mt-2 w-full rounded-xl px-3 py-2.5 text-sm"
+                className="input-field w-full rounded-xl px-3 py-2.5 text-sm"
               />
-            </label>
+            </div>
           </div>
         </Modal>
       ) : null}
