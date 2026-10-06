@@ -1,9 +1,9 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
-export default function PaginationBar({ currentPage, totalPages, onPageChange, className = '' }) {
+export default function PaginationBar({ currentPage, totalPages, onPageChange, className = '', alwaysShow = false }) {
   const { t } = useTranslation()
-  if (totalPages <= 1) return null
+  if (totalPages <= 1 && !alwaysShow) return null
 
   const label = (page) => t('order.pageOf', { page: page + 1, total: totalPages })
 
