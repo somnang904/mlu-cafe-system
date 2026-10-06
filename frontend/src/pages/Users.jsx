@@ -436,11 +436,13 @@ export default function Users() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-heading text-lg font-bold">{t('nav.users')}</h3>
-        </div>
-        <button type="button" onClick={openCreateModal} className="btn-primary inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold">
+      <div className="space-y-4">
+        <h3 className="text-heading text-lg font-bold">{t('nav.users')}</h3>
+        <button
+          type="button"
+          onClick={openCreateModal}
+          className="btn-primary beam-border inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold shadow-[0_4px_14px_rgba(16,185,129,0.35)]"
+        >
           <UserPlus className="h-4 w-4" />
           {t('users.addNew')}
         </button>
