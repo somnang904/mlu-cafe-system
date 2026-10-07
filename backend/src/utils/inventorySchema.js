@@ -41,6 +41,14 @@ async function ensureInventorySchema(db) {
       if (!hasPackSize) {
         await db.execute('ALTER TABLE inventory ADD COLUMN pack_size INT NULL');
       }
+
+      const hasIsIngredient = await columnExists(db, 'inventory', 'is_ingredient');
+      if (!hasIsIngredient) {
+        await db.execute('ALTER TABLE inventory ADD COLUMN is_ingredient TINYINT(1) NOT NULL DEFAULT 0');
+        await db.execute(
+          "UPDATE inventory SET is_ingredient = 1 WHERE archived_at IS NOT NULL AND category <> 'Menu'",
+        );
+      }
     })().catch((error) => {
       schemaReadyPromise = null;
       throw error;

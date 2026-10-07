@@ -106,6 +106,15 @@ const {
     archiveInventoryOnlyLinkedTo,
 } = require('./src/utils/menuStockSimple');
 const {
+    listIngredients,
+    loadIngredient,
+    serializeIngredient,
+    createIngredient,
+    updateIngredient,
+    adjustIngredient,
+    removeIngredient,
+} = require('./src/utils/ingredients');
+const {
     assertRefundable,
     createApprovalLimiter,
     resolveRefundApprover,
@@ -2183,6 +2192,88 @@ app.post('/api/inventory/menu-stock/:menuItemId/untrack', requireStockAccess, as
         res.status(200).json({ message: 'Stock counting stopped.' });
     } catch (error) {
         sendInventoryError(res, error, 'Failed to stop counting stock');
+    }
+});
+
+function parseIngredientParam(req, res) {
+    const id = Number.parseInt(req.params.id, 10);
+    if (!Number.isInteger(id) || id <= 0) {
+        res.status(400).json({ message: 'Invalid ingredient id' });
+        return null;
+    }
+    return id;
+}
+
+app.get('/api/ingredients', requirePermission('inventory_stock'), async (_req, res) => {
+    try {
+        res.status(200).json(await listIngredients(db));
+    } catch (error) {
+        sendInventoryError(res, error, 'Failed to load ingredients');
+    }
+});
+
+app.post('/api/ingredients', requireStockAccess, async (req, res) => {
+    try {
+        const created = await withTransaction(db, (conn) => createIngredient(conn, req.body, req.user?.id ?? null));
+        const item = serializeIngredient(await loadIngredient(db, created.inventoryId));
+        await auditFromRequest(db, req, {
+            action: 'ingredient_create',
+            module: 'Inventory',
+            description: `Added ingredient "${created.itemName}" (#${created.inventoryId}) with quantity ${created.quantity}.`,
+        });
+        res.status(201).json({ item });
+    } catch (error) {
+        sendInventoryError(res, error, 'Failed to add the ingredient');
+    }
+});
+
+app.patch('/api/ingredients/:id', requireStockAccess, async (req, res) => {
+    const id = parseIngredientParam(req, res);
+    if (id == null) return;
+    try {
+        const result = await withTransaction(db, (conn) => updateIngredient(conn, id, req.body));
+        const item = serializeIngredient(await loadIngredient(db, id));
+        await auditFromRequest(db, req, {
+            action: 'ingredient_update',
+            module: 'Inventory',
+            description: `Changed ingredient #${id} "${result.itemName}".`,
+        });
+        res.status(200).json({ item });
+    } catch (error) {
+        sendInventoryError(res, error, 'Failed to save the ingredient');
+    }
+});
+
+app.post('/api/ingredients/:id/adjust', requireStockAccess, async (req, res) => {
+    const id = parseIngredientParam(req, res);
+    if (id == null) return;
+    try {
+        const result = await withTransaction(db, (conn) => adjustIngredient(conn, id, req.body, req.user?.id ?? null));
+        const item = serializeIngredient(await loadIngredient(db, id));
+        await auditFromRequest(db, req, {
+            action: 'ingredient_adjust',
+            module: 'Inventory',
+            description: `Ingredient #${id} "${result.itemName}" (${result.mode}): ${result.before} → ${result.after}.`,
+        });
+        res.status(200).json({ item });
+    } catch (error) {
+        sendInventoryError(res, error, 'Failed to update the ingredient amount');
+    }
+});
+
+app.delete('/api/ingredients/:id', requireStockAccess, async (req, res) => {
+    const id = parseIngredientParam(req, res);
+    if (id == null) return;
+    try {
+        const result = await withTransaction(db, (conn) => removeIngredient(conn, id));
+        await auditFromRequest(db, req, {
+            action: 'ingredient_remove',
+            module: 'Inventory',
+            description: `Removed ingredient #${result.inventoryId} "${result.itemName}" from the list.`,
+        });
+        res.status(200).json({ message: 'Ingredient removed.' });
+    } catch (error) {
+        sendInventoryError(res, error, 'Failed to remove the ingredient');
     }
 });
 

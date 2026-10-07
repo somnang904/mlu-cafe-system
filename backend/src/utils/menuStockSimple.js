@@ -382,6 +382,12 @@ async function archiveNonDirectInventory(db) {
       chunk,
     )
     archived += Number(result.affectedRows)
+    await db.execute(
+      `UPDATE inventory SET is_ingredient = 1
+       WHERE category <> 'Menu' AND is_ingredient = 0 AND archived_at IS NOT NULL
+         AND id IN (${chunk.map(() => '?').join(', ')})`,
+      chunk,
+    )
   }
   console.log(`   Simple stock: archived ${archived} inventory row${archived === 1 ? '' : 's'}, kept ${active.length - ids.length}`)
   return archived
