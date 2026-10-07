@@ -87,6 +87,7 @@ function UserFormModal({ mode, user, onClose, onSave }) {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+  const [isActive, setIsActive] = useState(user?.is_active !== false)
   const role = editingExistingAdmin ? 'Admin' : 'Cashier'
   const [permissions, setPermissions] = useState(() => {
     if (isAdminRole(user?.role)) return []
@@ -145,6 +146,10 @@ function UserFormModal({ mode, user, onClose, onSave }) {
         : normalizePermissions(permissions),
     }
 
+    if (isEdit && !isAdminUser) {
+      payload.is_active = isActive
+    }
+
     if (password) {
       payload.password = password
     }
@@ -199,9 +204,12 @@ function UserFormModal({ mode, user, onClose, onSave }) {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               placeholder={t('users.usernamePlaceholder')}
-              disabled={isEdit}
+              disabled={isAdminUser}
               className="input-field px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-70"
             />
+            {isEdit && !isAdminUser ? (
+              <p className="text-muted mt-1.5 text-2xs leading-snug">{t('users.usernameChangeHint')}</p>
+            ) : null}
           </div>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -279,6 +287,33 @@ function UserFormModal({ mode, user, onClose, onSave }) {
               {editingExistingAdmin ? t('users.roleBlurbAdminFixed') : t('users.roleBlurbCashier')}
             </p>
           </div>
+
+          {isEdit && !isAdminUser ? (
+            <div className="flex items-center justify-between gap-4 rounded-xl border border-stone-200 px-3 py-2.5 dark:border-obsidian-800">
+              <div className="min-w-0">
+                <p className="text-sm font-medium">{t('users.accountActive')}</p>
+                <p className="text-muted mt-0.5 text-2xs leading-snug">
+                  {isActive ? t('users.accountActiveHint') : t('users.accountDisabledHint')}
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={isActive}
+                aria-label={t('users.accountActive')}
+                onClick={() => setIsActive((prev) => !prev)}
+                className={`relative h-6 w-11 shrink-0 rounded-full transition focus-visible:outline-2 focus-visible:outline-forest-500 ${
+                  isActive ? 'bg-forest-500' : 'bg-slate-300 dark:bg-zinc-600'
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${
+                    isActive ? 'left-[1.375rem]' : 'left-0.5'
+                  }`}
+                />
+              </button>
+            </div>
+          ) : null}
 
           {!isAdminUser ? (
             <div>
@@ -431,6 +466,9 @@ export default function Users() {
     if (isLastAdmin) {
       return { canDelete: false, title: t('users.cannotDeleteLastAdmin') }
     }
+    if (account.has_history) {
+      return { canDelete: false, title: t('users.cannotDeleteHasHistory') }
+    }
     return { canDelete: true, title: t('users.deleteAccount', { name: account.display_name }) }
   }
 
@@ -474,6 +512,11 @@ export default function Users() {
                   <td className="px-6 py-4">
                     <p className="text-heading text-sm font-semibold">{user.display_name}</p>
                     <p className="text-xs text-stone-400">@{user.username}</p>
+                    {user.is_active === false ? (
+                      <span className="mt-1 inline-block rounded-full bg-rose-50 px-2 py-0.5 text-2xs font-semibold text-rose-600 ring-1 ring-rose-200 dark:bg-rose-950/30 dark:text-rose-300 dark:ring-rose-900/50">
+                        {t('users.statusDisabled')}
+                      </span>
+                    ) : null}
                   </td>
                   <td className="px-6 py-4">
                     <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ${roleColors[user.role] || roleColors.Staff}`}>
@@ -519,7 +562,7 @@ export default function Users() {
                             return (
                               <>
                                 <span className="h-4 w-px bg-slate-200 dark:bg-zinc-700" aria-hidden />
-                                <Tooltip label={t('common.delete')}>
+                                <Tooltip label={canDelete ? t('common.delete') : title}>
                                   <button
                                     type="button"
                                     onClick={(event) => canDelete && requestDeleteUser(event, user)}

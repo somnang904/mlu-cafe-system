@@ -13,7 +13,7 @@
     "seed:desserts": "node src/scripts/setupDessertRecipes.js",
     "seed:expenses": "node src/scripts/seedExpenses.js",
     "check:prod": "node scripts/check-production.js",
-    "test": "node --test test/loginSecurity.test.js test/stockLedger.test.js test/stockPrecision.test.js test/inventoryItems.test.js test/stocktake.test.js test/sessionLifetime.test.js test/permissionsPolicy.test.js test/splitCheckout.test.js test/orderTableFlows.test.js test/refund.test.js test/cashDrawer.test.js test/expensePaidFrom.test.js test/salesTotals.test.js test/exportDocuments.test.js test/menuStock.test.js test/customLineIds.test.js test/orderLinePrices.test.js test/menuCategories.test.js",
+    "test": "node --test test/loginSecurity.test.js test/stockLedger.test.js test/stockPrecision.test.js test/inventoryItems.test.js test/stocktake.test.js test/sessionLifetime.test.js test/permissionsPolicy.test.js test/userAccountsUsername.test.js test/splitCheckout.test.js test/orderTableFlows.test.js test/refund.test.js test/cashDrawer.test.js test/expensePaidFrom.test.js test/salesTotals.test.js test/exportDocuments.test.js test/menuStock.test.js test/customLineIds.test.js test/orderLinePrices.test.js test/menuCategories.test.js",
     "test:tables": "node --test test/floorTables.test.js"
   },
   "keywords": [],
