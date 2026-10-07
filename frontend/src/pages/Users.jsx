@@ -1,16 +1,21 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   AtSign,
+  CheckCircle2,
+  CircleX,
   Eye,
   EyeOff,
   KeyRound,
+  ListFilter,
   Lock,
+  Search,
   ShieldCheck,
   SquarePen,
   Trash2,
   User,
   UserCheck,
   UserPlus,
+  Users as UsersIcon,
   Wallet,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -18,9 +23,12 @@ import { apiFetch } from '../services/apiClient'
 import { useActionBanner } from '../hooks/useActionBanner'
 import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal'
 import FieldLabel from '../components/ui/FieldLabel'
+import IconSelect from '../components/ui/IconSelect'
 import ModalHeader from '../components/ui/ModalHeader'
+import PaginationBar from '../components/ui/PaginationBar'
 import Tooltip from '../components/ui/Tooltip'
 import { useAuth } from '../context/AuthContext'
+import { localizeDigits } from '../utils/dateTimeFormat'
 import {
   CASHIER_DEFAULT_PERMISSIONS,
   defaultPermissionsForRole,
@@ -78,6 +86,54 @@ function sortUsersWithAdminsFirst(userList) {
   })
 }
 
+const VISIBLE_PERMISSION_CHIPS = 3
+const USERS_PAGE_SIZE = 10
+
+const STATUS_BADGE_TONES = {
+  active: {
+    pill: 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-900/50',
+    dot: 'bg-emerald-500',
+  },
+  disabled: {
+    pill: 'bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-950/30 dark:text-rose-300 dark:ring-rose-900/50',
+    dot: 'bg-rose-500',
+  },
+}
+
+function StatusBadge({ active, t }) {
+  const tone = active ? STATUS_BADGE_TONES.active : STATUS_BADGE_TONES.disabled
+  return (
+    <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold leading-none ring-1 ${tone.pill}`}>
+      <span className={`block h-2 w-2 shrink-0 rounded-full ${tone.dot}`} aria-hidden />
+      {active ? t('users.statusActive') : t('users.statusDisabled')}
+    </span>
+  )
+}
+
+function PermissionChips({ permissions, t }) {
+  const visible = permissions.slice(0, VISIBLE_PERMISSION_CHIPS)
+  const hidden = permissions.slice(VISIBLE_PERMISSION_CHIPS)
+  return (
+    <>
+      {visible.map((permission) => (
+        <span key={permission} className="rounded-lg bg-olive-50 px-2 py-0.5 text-2xs font-medium text-forest-700 dark:bg-olive-900/20 dark:text-forest-400">
+          {permissionLabel(t, permission)}
+        </span>
+      ))}
+      {hidden.length > 0 ? (
+        <Tooltip label={hidden.map((permission) => permissionLabel(t, permission)).join(', ')}>
+          <span
+            tabIndex={0}
+            className="cursor-default rounded-lg bg-slate-100 px-2 py-0.5 text-2xs font-semibold text-slate-600 dark:bg-zinc-800 dark:text-zinc-300"
+          >
+            +{hidden.length}
+          </span>
+        </Tooltip>
+      ) : null}
+    </>
+  )
+}
+
 function UserFormModal({ mode, user, onClose, onSave }) {
   const { t } = useTranslation()
   const isEdit = mode === 'edit'
@@ -88,6 +144,7 @@ function UserFormModal({ mode, user, onClose, onSave }) {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+  const [isActive, setIsActive] = useState(user?.is_active !== false)
   const role = editingExistingAdmin ? 'Admin' : 'Cashier'
   const [permissions, setPermissions] = useState(() => {
     if (isAdminRole(user?.role)) return []
@@ -146,6 +203,10 @@ function UserFormModal({ mode, user, onClose, onSave }) {
         : normalizePermissions(permissions),
     }
 
+    if (isEdit && !isAdminUser) {
+      payload.is_active = isActive
+    }
+
     if (password) {
       payload.password = password
     }
@@ -161,7 +222,7 @@ function UserFormModal({ mode, user, onClose, onSave }) {
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="modal-backdrop" aria-hidden="true" />
 
-      <div className="modal-panel relative z-10 max-h-[90vh] w-full max-w-md overflow-y-auto p-6">
+      <div className="modal-panel relative z-10 max-h-[90vh] w-full max-w-xl overflow-y-auto p-6">
         <ModalHeader
           icon={isEdit ? ShieldCheck : UserPlus}
           title={isEdit ? t('users.editPermissions') : t('users.addNew')}
@@ -200,14 +261,18 @@ function UserFormModal({ mode, user, onClose, onSave }) {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               placeholder={t('users.usernamePlaceholder')}
-              disabled={isEdit}
-              className="input-field px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-70"
+              className="input-field px-3 py-2 text-sm"
             />
+            {isEdit ? (
+              <p className="text-muted mt-1.5 text-2xs leading-snug">
+                {isAdminUser ? t('users.usernameChangeHintSelf') : t('users.usernameChangeHint')}
+              </p>
+            ) : null}
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
-              <FieldLabel icon={Lock} htmlFor="user-password">
+              <FieldLabel icon={Lock} htmlFor="user-password" className="whitespace-nowrap">
                 {isEdit ? t('users.newPasswordOptional') : t('users.password')}
               </FieldLabel>
               <div className="relative flex items-center">
@@ -230,12 +295,9 @@ function UserFormModal({ mode, user, onClose, onSave }) {
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
-              {isEdit && (
-                <p className="mt-1 text-2xs text-stone-400">{t('users.passwordResetHint')}</p>
-              )}
             </div>
             <div>
-              <FieldLabel icon={KeyRound} htmlFor="user-confirm-password">
+              <FieldLabel icon={KeyRound} htmlFor="user-confirm-password" className="whitespace-nowrap">
                 {t('users.confirmPassword')}
               </FieldLabel>
               <div className="relative flex items-center">
@@ -259,6 +321,9 @@ function UserFormModal({ mode, user, onClose, onSave }) {
                 </button>
               </div>
             </div>
+            {isEdit && (
+              <p className="text-2xs text-slate-500 sm:col-span-2 dark:text-zinc-400">{t('users.passwordResetHint')}</p>
+            )}
           </div>
 
           <div>
@@ -280,6 +345,33 @@ function UserFormModal({ mode, user, onClose, onSave }) {
               {editingExistingAdmin ? t('users.roleBlurbAdminFixed') : t('users.roleBlurbCashier')}
             </p>
           </div>
+
+          {isEdit && !isAdminUser ? (
+            <div className="flex items-center justify-between gap-4 rounded-xl border border-stone-200 px-3 py-2.5 dark:border-obsidian-800">
+              <div className="min-w-0">
+                <p className="text-sm font-medium">{t('users.accountActive')}</p>
+                <p className="text-muted mt-0.5 text-2xs leading-snug">
+                  {isActive ? t('users.accountActiveHint') : t('users.accountDisabledHint')}
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={isActive}
+                aria-label={t('users.accountActive')}
+                onClick={() => setIsActive((prev) => !prev)}
+                className={`relative h-6 w-11 shrink-0 rounded-full transition focus-visible:outline-2 focus-visible:outline-forest-500 ${
+                  isActive ? 'bg-forest-500' : 'bg-slate-300 dark:bg-zinc-600'
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${
+                    isActive ? 'left-[1.375rem]' : 'left-0.5'
+                  }`}
+                />
+              </button>
+            </div>
+          ) : null}
 
           {!isAdminUser ? (
             <div>
@@ -329,6 +421,9 @@ export default function Users() {
   const { user: currentUser, adoptSession } = useAuth()
   const { notifyCreated, notifySaved, notifyDeleted, notifyFailed } = useActionBanner()
   const [users, setUsers] = useState([])
+  const [usersPage, setUsersPage] = useState(0)
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
   const [modalMode, setModalMode] = useState(null)
   const [selectedUser, setSelectedUser] = useState(null)
   const [userToDelete, setUserToDelete] = useState(null)
@@ -428,6 +523,27 @@ export default function Users() {
     }
   }
 
+  const filteredUsers = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    return users.filter((account) => {
+      const isActive = account.is_active !== false
+      if (statusFilter === 'active' && !isActive) return false
+      if (statusFilter === 'disabled' && isActive) return false
+      if (!query) return true
+      return `${account.display_name} ${account.username}`.toLowerCase().includes(query)
+    })
+  }, [users, search, statusFilter])
+
+  const statusFilterOptions = [
+    { value: 'all', label: t('users.allStatuses'), icon: ListFilter },
+    { value: 'active', label: t('users.statusActive'), icon: CheckCircle2 },
+    { value: 'disabled', label: t('users.statusDisabled'), icon: CircleX },
+  ]
+
+  const usersPageCount = Math.max(1, Math.ceil(filteredUsers.length / USERS_PAGE_SIZE))
+  const activeUsersPage = Math.min(usersPage, usersPageCount - 1)
+  const pagedUsers = filteredUsers.slice(activeUsersPage * USERS_PAGE_SIZE, (activeUsersPage + 1) * USERS_PAGE_SIZE)
+
   const adminCount = users.filter((account) => isAdminRole(account.role)).length
 
   const getDeleteGuard = (account) => {
@@ -439,13 +555,19 @@ export default function Users() {
     if (isLastAdmin) {
       return { canDelete: false, title: t('users.cannotDeleteLastAdmin') }
     }
+    if (account.has_history) {
+      return { canDelete: false, title: t('users.cannotDeleteHasHistory') }
+    }
     return { canDelete: true, title: t('users.deleteAccount', { name: account.display_name }) }
   }
 
   return (
     <div className="space-y-6">
       <div className="space-y-4">
-        <h3 className="text-heading text-lg font-bold">{t('nav.users')}</h3>
+        <div className="flex items-center gap-3">
+          <UsersIcon className="h-6 w-6 shrink-0 text-forest-600 dark:text-forest-400" aria-hidden />
+          <h3 className="page-title">{t('nav.users')}</h3>
+        </div>
         <button
           type="button"
           onClick={openCreateModal}
@@ -463,51 +585,84 @@ export default function Users() {
       )}
 
       <div className="table-shell overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="flex flex-col gap-3 border-b border-border/60 px-6 py-4 sm:flex-row sm:items-center">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-slate-500 dark:text-zinc-400" aria-hidden />
+            <input
+              value={search}
+              onChange={(event) => {
+                setSearch(event.target.value)
+                setUsersPage(0)
+              }}
+              placeholder={t('users.searchPlaceholder')}
+              aria-label={t('users.searchPlaceholder')}
+              className="input-field w-full min-w-0 py-2 pl-10 pr-3 text-sm"
+            />
+          </div>
+          <div className="w-full shrink-0 sm:w-52">
+            <IconSelect
+              value={statusFilter}
+              options={statusFilterOptions}
+              onChange={(value) => {
+                setStatusFilter(value)
+                setUsersPage(0)
+              }}
+              className="w-full px-3 py-2 text-sm"
+            />
+          </div>
+        </div>
+        <div className="overflow-x-auto lg:min-h-[53rem]">
           <table className="w-full min-w-[640px] text-left text-sm">
             <thead>
               <tr className="table-head text-xs uppercase tracking-wider">
                 <th className="px-6 py-3.5">{t('common.name')}</th>
                 <th className="px-6 py-3.5">{t('users.assignmentRole')}</th>
                 <th className="px-6 py-3.5">{t('users.activePermissions')}</th>
+                <th className="px-6 py-3.5">{t('common.status')}</th>
                 <th className="px-6 py-3.5 text-right">{t('common.actions')}</th>
               </tr>
             </thead>
             <tbody className="table-divider">
-              {users.map((user) => (
+              {filteredUsers.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="h-72 px-6 text-center text-sm text-muted-foreground">
+                    {t('users.noMatches')}
+                  </td>
+                </tr>
+              ) : null}
+              {pagedUsers.map((user) => (
                 <tr
                   key={user.id}
                   className="table-row hover:bg-stone-50/50 dark:hover:bg-obsidian-900/20"
                 >
-                  <td className="px-6 py-4">
+                  <td className="px-6 py-3">
                     <p className="text-heading text-sm font-semibold">{user.display_name}</p>
                     <p className="text-xs text-stone-400">@{user.username}</p>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-6 py-3">
                     <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ${roleColors[user.role] || roleColors.Staff}`}>
                       {roleLabel(t, user.role)}
                     </span>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-6 py-3">
                     <div className="flex flex-wrap gap-1.5">
                       {isAdminRole(user.role) ? (
                         <span className="rounded-lg bg-emerald-50 px-2 py-0.5 text-2xs font-medium text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400">
                           {t('users.fullSystemAccess')}
                         </span>
                       ) : user.permissions && user.permissions.length > 0 ? (
-                        normalizePermissions(user.permissions).map((permission) => (
-                          <span key={permission} className="rounded-lg bg-olive-50 px-2 py-0.5 text-2xs font-medium text-forest-700 dark:bg-olive-900/20 dark:text-forest-400">
-                            {permissionLabel(t, permission)}
-                          </span>
-                        ))
+                        <PermissionChips permissions={normalizePermissions(user.permissions)} t={t} />
                       ) : (
                         <span className="text-xs italic text-stone-400">{t('users.noPermissions')}</span>
                       )}
                     </div>
                   </td>
-                  <td className="px-6 py-4" onClick={(event) => event.stopPropagation()}>
+                  <td className="px-6 py-3">
+                    <StatusBadge active={user.is_active !== false} t={t} />
+                  </td>
+                  <td className="px-6 py-3" onClick={(event) => event.stopPropagation()}>
                     <div className="ml-auto flex w-fit items-center gap-0.5 rounded-full bg-white/90 p-0.5 shadow-sm ring-1 ring-slate-200 dark:bg-zinc-800/90 dark:ring-zinc-700">
-                      <Tooltip label={t('common.edit')}>
+                      <Tooltip label={t('common.edit')} side="left">
                         <button
                           type="button"
                           onClick={(event) => {
@@ -527,7 +682,7 @@ export default function Users() {
                             return (
                               <>
                                 <span className="h-4 w-px bg-slate-200 dark:bg-zinc-700" aria-hidden />
-                                <Tooltip label={t('common.delete')}>
+                                <Tooltip label={canDelete ? t('common.delete') : title} side="left">
                                   <button
                                     type="button"
                                     onClick={(event) => canDelete && requestDeleteUser(event, user)}
@@ -547,6 +702,22 @@ export default function Users() {
               ))}
             </tbody>
           </table>
+        </div>
+        <div className="flex flex-col gap-3 border-t border-border/60 px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-muted shrink-0 text-xs tabular-nums">
+            {t('users.showingRange', {
+              from: localizeDigits(filteredUsers.length === 0 ? 0 : activeUsersPage * USERS_PAGE_SIZE + 1),
+              to: localizeDigits(Math.min((activeUsersPage + 1) * USERS_PAGE_SIZE, filteredUsers.length)),
+              total: localizeDigits(filteredUsers.length),
+            })}
+          </p>
+          <PaginationBar
+            alwaysShow
+            currentPage={activeUsersPage}
+            totalPages={usersPageCount}
+            onPageChange={setUsersPage}
+            className="sm:min-w-[22rem]"
+          />
         </div>
       </div>
 

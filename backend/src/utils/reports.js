@@ -126,7 +126,7 @@ async function buildSalesReport(db, { days } = {}) {
     `
     SELECT
       COALESCE(m.name, oi.item_name, 'Custom item') AS name,
-      COALESCE(m.category, 'Uncategorized') AS category,
+      COALESCE(oi.item_category, m.category, 'Uncategorized') AS category,
       COALESCE(SUM(oi.quantity), 0) AS quantity,
       COALESCE(SUM(oi.quantity * oi.price), 0) AS revenue
     FROM order_items oi
@@ -134,7 +134,7 @@ async function buildSalesReport(db, { days } = {}) {
     LEFT JOIN menu_items m ON m.id = oi.menu_item_id
     WHERE ${COMPLETED_STATUSES}
       AND o.updated_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
-    GROUP BY COALESCE(m.name, oi.item_name, 'Custom item'), COALESCE(m.category, 'Uncategorized')
+    GROUP BY COALESCE(m.name, oi.item_name, 'Custom item'), COALESCE(oi.item_category, m.category, 'Uncategorized')
     ORDER BY revenue DESC, quantity DESC
     LIMIT 10
     `,
@@ -144,7 +144,7 @@ async function buildSalesReport(db, { days } = {}) {
   const [byCategory] = await db.execute(
     `
     SELECT
-      COALESCE(m.category, 'Uncategorized') AS category,
+      COALESCE(oi.item_category, m.category, 'Uncategorized') AS category,
       COALESCE(SUM(oi.quantity), 0) AS quantity,
       COALESCE(SUM(oi.quantity * oi.price), 0) AS revenue
     FROM order_items oi
@@ -152,7 +152,7 @@ async function buildSalesReport(db, { days } = {}) {
     LEFT JOIN menu_items m ON m.id = oi.menu_item_id
     WHERE ${COMPLETED_STATUSES}
       AND o.updated_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
-    GROUP BY COALESCE(m.category, 'Uncategorized')
+    GROUP BY COALESCE(oi.item_category, m.category, 'Uncategorized')
     ORDER BY revenue DESC, category ASC
     `,
     [rangeDays],

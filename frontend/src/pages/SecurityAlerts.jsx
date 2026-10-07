@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ShieldAlert } from 'lucide-react'
+import { Bell, ShieldAlert } from 'lucide-react'
 import { apiFetch } from '../services/apiClient'
 import { useActionBanner } from '../hooks/useActionBanner'
 import AuditLogPanel from '../components/security/AuditLogPanel'
 import Modal from '../components/common/Modal'
 import ModalHeader from '../components/ui/ModalHeader'
+import SettingRow from '../components/ui/SettingRow'
+import SettingToggle from '../components/ui/SettingToggle'
+import { useSettings } from '../context/SettingsContext'
+import { useAuth } from '../context/AuthContext'
+import { isAdminRole } from '../utils/permissions'
 
 function formatWhen(value, language) {
   if (!value) return '—'
@@ -385,6 +390,62 @@ function ActiveSessionsTab() {
   )
 }
 
+function AlertSwitches() {
+  const { t } = useTranslation()
+  const { user } = useAuth()
+  const {
+    lowStockAlertsEnabled,
+    setLowStockAlertsEnabled,
+    loginAlertsEnabled,
+    setLoginAlertsEnabled,
+  } = useSettings()
+
+  const onOff = (enabled) =>
+    enabled ? t('settings.enabled', { defaultValue: 'On' }) : t('settings.disabled', { defaultValue: 'Off' })
+
+  return (
+    <div className="space-y-4">
+      <h4 className="text-muted text-xs font-semibold uppercase tracking-wider">
+        {t('settings.notifications', { defaultValue: 'Alerts' })}
+      </h4>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <SettingRow
+          icon={Bell}
+          label={t('settings.lowStockAlerts', { defaultValue: 'Low stock' })}
+          description={t('settings.lowStockAlertsDesc', { defaultValue: 'Alert when stock is low.' })}
+        >
+          <div className="flex items-center gap-3">
+            <span className="text-muted text-sm">{onOff(lowStockAlertsEnabled)}</span>
+            <SettingToggle
+              enabled={lowStockAlertsEnabled}
+              onChange={setLowStockAlertsEnabled}
+              ariaLabel={t('a11y.toggleLowStockAlerts')}
+            />
+          </div>
+        </SettingRow>
+
+        {isAdminRole(user?.role) ? (
+          <SettingRow
+            icon={ShieldAlert}
+            label={t('settings.loginAlerts', { defaultValue: 'Login alert' })}
+            description={t('settings.loginAlertsDesc', { defaultValue: 'Alert on login lockouts.' })}
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-muted text-sm">{onOff(loginAlertsEnabled)}</span>
+              <SettingToggle
+                enabled={loginAlertsEnabled}
+                onChange={setLoginAlertsEnabled}
+                ariaLabel={t('a11y.toggleLoginAlerts')}
+              />
+            </div>
+          </SettingRow>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
 export default function SecurityAlerts() {
   const { t } = useTranslation()
   const [tab, setTab] = useState('login')
@@ -397,6 +458,8 @@ export default function SecurityAlerts() {
           {t('nav.securityAlerts')}
         </h3>
       </div>
+
+      <AlertSwitches />
 
       <div className="flex flex-wrap gap-2 border-b border-border pb-2">
         <button

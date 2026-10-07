@@ -99,7 +99,41 @@ async function migrateStaffUsersToCashier(db) {
   return result.affectedRows
 }
 
+const HISTORY_TABLES = ['shifts', 'stock_movements', 'audit_logs']
+
+async function findUserIdsWithHistory(db, userIds) {
+  const ids = [...new Set((userIds || []).map(Number).filter((id) => Number.isInteger(id) && id > 0))]
+  const found = new Set()
+  if (!ids.length) return found
+  const placeholders = ids.map(() => '?').join(',')
+  for (const table of HISTORY_TABLES) {
+    try {
+      const [rows] = await db.execute(`SELECT DISTINCT user_id FROM ${table} WHERE user_id IN (${placeholders})`, ids)
+      for (const row of rows) found.add(Number(row.user_id))
+    } catch (error) {
+      if (error.code !== 'ER_NO_SUCH_TABLE') throw error
+    }
+  }
+  return found
+}
+
+const USERNAME_PATTERN = /^[a-z0-9._-]{3,32}$/
+
+function normalizeUsername(value) {
+  return String(value ?? '').trim().toLowerCase().replace(/\s+/g, '')
+}
+
+function displayNameValidationError(value) {
+  const name = typeof value === 'string' ? value.trim() : ''
+  if (!name || name.length > 100) return 'Display name must be 1-100 characters.'
+  return null
+}
+
 module.exports = {
+  displayNameValidationError,
+  findUserIdsWithHistory,
+  normalizeUsername,
+  USERNAME_PATTERN,
   migrateStaffUsersToCashier,
   ensureUsersEmailColumn,
   isAdminAccount,

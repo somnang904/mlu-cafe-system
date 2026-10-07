@@ -21,7 +21,6 @@ import {
   ShieldAlert,
   Settings,
   HardDrive,
-  FolderOpen,
   FileBarChart,
   ChevronDown,
   LogOut,
@@ -56,11 +55,10 @@ const sidebarNavigation = [
   { id: 'reports_analysis', labelKey: 'nav.reports', icon: FileBarChart, roles: WORK_ROLES },
   { id: 'users', labelKey: 'nav.users', icon: Users, roles: ['admin'], adminOnly: true },
   {
-    id: 'more',
-    labelKey: 'nav.others',
-    icon: FolderOpen,
+    id: 'settings_group',
+    labelKey: 'nav.settings',
+    icon: Settings,
     children: [
-      { id: 'settings', labelKey: 'nav.settings', icon: Settings, roles: WORK_ROLES },
       { id: 'security_alerts', labelKey: 'nav.securityAlerts', icon: ShieldAlert, roles: ['admin'], adminOnly: true },
       { id: 'backup_recovery', labelKey: 'nav.backupRecovery', icon: HardDrive, roles: WORK_ROLES },
     ],
@@ -209,7 +207,7 @@ export default function Sidebar({ activePage, onNavigate, mobileOpen = false, on
         if (item.children) {
           const children = item.children.filter((child) => canSeeNavItem(user, child))
           if (children.length === 0) return []
-          // One child only: show it as a top-level item instead of a More group.
+          // One child only: show it as a top-level item instead of a folder.
           if (children.length === 1) return children
           return [{ ...item, children }]
         }

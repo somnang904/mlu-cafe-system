@@ -22,7 +22,6 @@ import SalesHistory from './pages/SalesHistory'
 import InventoryStock from './pages/InventoryStock'
 import ReportsAnalysis from './pages/ReportsAnalysis'
 import Users from './pages/Users'
-import Settings from './pages/Settings'
 import BackupRecovery from './pages/BackupRecovery'
 import SecurityAlerts from './pages/SecurityAlerts'
 
@@ -120,8 +119,6 @@ function AuthenticatedApp() {
         return <ReportsAnalysis />
       case 'users':
         return <Users />
-      case 'settings':
-        return <Settings />
       case 'backup_recovery':
         return <BackupRecovery />
       case 'security_alerts':
