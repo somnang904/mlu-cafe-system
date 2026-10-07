@@ -29,7 +29,7 @@ const {
     tableLockName,
 } = require('./src/utils/orderTargets');
 const { normalizeAllowedRole, passwordPolicyError, assignableRoleError } = require('./src/utils/accountPolicy');
-const { hashPassword } = require('./src/utils/userAccounts');
+const { hashPassword, findUserIdsWithHistory, normalizeUsername, displayNameValidationError, USERNAME_PATTERN } = require('./src/utils/userAccounts');
 const { saveMenuImage } = require('./src/utils/menuImage');
 const { downloadRemoteImage } = require('./src/utils/remoteImage');
 const {
@@ -75,7 +75,15 @@ const {
     normalizeMenuImageUrl,
     normalizeMenuPrices,
     serializeMenuItem,
+    MENU_ITEM_SELECT,
+    loadMenuItemRow,
 } = require('./src/utils/menuItemsSchema');
+const {
+    computeMenuDeleteEligibility,
+    findDuplicateMenuName,
+    normalizeMenuItemName,
+    parseOptionalAvailability,
+} = require('./src/utils/menuLifecycle');
 const { buildSalesReport } = require('./src/utils/reports');
 const { ensureInventorySchema } = require('./src/utils/inventorySchema');
 const { createInventoryItem, editInventoryItem } = require('./src/utils/inventoryItems');
@@ -323,10 +331,11 @@ function permissionListLabel(list) {
 app.get('/api/users', requireAdmin, async (req, res) => {
     try {
         const [rows] = await db.execute(
-            `SELECT id, display_name, username, role, permissions
+            `SELECT id, display_name, username, role, permissions, is_active
              FROM users
              ORDER BY CASE WHEN LOWER(role) = 'admin' THEN 0 ELSE 1 END, display_name ASC`,
         );
+        const withHistory = await findUserIdsWithHistory(db, rows.map((u) => u.id));
 
         // Safely parse the permissions JSON string back into an array for React
         const users = rows.map((u) => ({
@@ -335,6 +344,8 @@ app.get('/api/users', requireAdmin, async (req, res) => {
             username: u.username,
             role: u.role,
             permissions: isAdminRole(u.role) ? [...VALID_PERMISSIONS] : normalizePermissions(u.permissions),
+            is_active: u.is_active == null ? true : Number(u.is_active) === 1,
+            has_history: withHistory.has(Number(u.id)),
         }));
 
         res.status(200).json(users);
@@ -350,6 +361,11 @@ app.post('/api/users', requireAdmin, async (req, res) => {
 
     if (!display_name || !username || !password) {
         return res.status(400).json({ message: "All identification boxes are required" });
+    }
+
+    const createNameError = displayNameValidationError(display_name);
+    if (createNameError) {
+        return res.status(400).json({ message: createNameError });
     }
 
     const trimmedPassword = String(password);
@@ -373,7 +389,12 @@ app.post('/api/users', requireAdmin, async (req, res) => {
     }
 
     try {
-        const normalizedUsername = String(username).trim().toLowerCase();
+        const normalizedUsername = normalizeUsername(username);
+        if (!USERNAME_PATTERN.test(normalizedUsername)) {
+            return res.status(400).json({
+                message: 'Username must be 3-32 characters: letters, numbers, dot, dash or underscore.',
+            });
+        }
         const [existing] = await db.execute('SELECT id FROM users WHERE username = ?', [normalizedUsername]);
         if (existing.length > 0) {
             return res.status(400).json({ message: "Username is already taken" });
@@ -382,7 +403,7 @@ app.post('/api/users', requireAdmin, async (req, res) => {
         const passwordHash = await hashPassword(trimmedPassword);
 
         const [created] = await db.execute(
-            'INSERT INTO users (display_name, username, password_hash, role, permissions) VALUES (?, ?, ?, ?, ?)',
+            'INSERT INTO users (display_name, username, password_hash, role, permissions, must_change_password) VALUES (?, ?, ?, ?, ?, 1)',
             [display_name, normalizedUsername, passwordHash, allowedRole, savedPermissions.json]
         );
 
@@ -394,6 +415,9 @@ app.post('/api/users', requireAdmin, async (req, res) => {
 
         res.status(201).json({ message: "New user profile established securely!", id: created.insertId });
     } catch (error) {
+        if (error.code === 'ER_DUP_ENTRY') {
+            return res.status(400).json({ message: "Username is already taken" });
+        }
         console.error("❌ CREATE USER ERROR:", error.message);
         res.status(500).json({ message: "Failed to build secure user account" });
     }
@@ -402,7 +426,7 @@ app.post('/api/users', requireAdmin, async (req, res) => {
 // 3. UPDATE USER ROLE & PERMISSION GATES IN REAL TIME
 app.put('/api/users/:id', requireAdmin, async (req, res) => {
     const userId = Number.parseInt(req.params.id, 10);
-    const { display_name, role, permissions, password, is_active: isActiveRaw } = req.body ?? {};
+    const { display_name, username: usernameRaw, role, permissions, password, is_active: isActiveRaw } = req.body ?? {};
 
     if (!Number.isInteger(userId) || userId <= 0) {
         return res.status(400).json({ message: 'Invalid user id' });
@@ -410,6 +434,11 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
 
     if (!display_name || !role) {
         return res.status(400).json({ message: 'Display name and role are required' });
+    }
+
+    const displayNameError = displayNameValidationError(display_name);
+    if (displayNameError) {
+        return res.status(400).json({ message: displayNameError });
     }
 
     const allowedRole = normalizeAllowedRole(role);
@@ -469,6 +498,9 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
         let nextActive = previousActive;
         if (isActiveRaw !== undefined) {
             nextActive = !(isActiveRaw === false || isActiveRaw === 0 || isActiveRaw === '0');
+            if (!nextActive && Number(req.user?.id) === userId) {
+                return res.status(400).json({ message: 'You cannot disable your own account.' });
+            }
             if (
                 isAdminRole(previousRole)
                 && previousActive
@@ -484,6 +516,24 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
             return res.status(400).json({ message: savedPermissions.message });
         }
 
+        let nextUsername = existing.username;
+        if (usernameRaw !== undefined && normalizeUsername(usernameRaw) !== existing.username) {
+            nextUsername = normalizeUsername(usernameRaw);
+            if (!USERNAME_PATTERN.test(nextUsername)) {
+                return res.status(400).json({
+                    message: 'Username must be 3-32 characters: letters, numbers, dot, dash or underscore.',
+                });
+            }
+            const [taken] = await db.execute('SELECT id FROM users WHERE username = ? AND id <> ? LIMIT 1', [nextUsername, userId]);
+            if (taken.length > 0) {
+                return res.status(400).json({ message: 'Username is already taken' });
+            }
+        }
+        const usernameChanged = nextUsername !== existing.username;
+        if (usernameChanged) {
+            await invalidateUserTokens(db, userId);
+        }
+
         const nextPassword = password != null ? String(password) : '';
 
         if (nextPassword) {
@@ -496,17 +546,17 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
             await invalidateUserTokens(db, userId);
             await db.execute(
                 `UPDATE users
-                 SET display_name = ?, role = ?, permissions = ?, is_active = ?,
-                     password_hash = ?, must_change_password = 0
+                 SET display_name = ?, username = ?, role = ?, permissions = ?, is_active = ?,
+                     password_hash = ?, must_change_password = ?
                  WHERE id = ?`,
-                [display_name, allowedRole, savedPermissions.json, nextActive ? 1 : 0, passwordHash, userId],
+                [display_name, nextUsername, allowedRole, savedPermissions.json, nextActive ? 1 : 0, passwordHash, Number(req.user?.id) === userId ? 0 : 1, userId],
             );
         } else {
             await db.execute(
                 `UPDATE users
-                 SET display_name = ?, role = ?, permissions = ?, is_active = ?
+                 SET display_name = ?, username = ?, role = ?, permissions = ?, is_active = ?
                  WHERE id = ?`,
-                [display_name, allowedRole, savedPermissions.json, nextActive ? 1 : 0, userId],
+                [display_name, nextUsername, allowedRole, savedPermissions.json, nextActive ? 1 : 0, userId],
             );
         }
 
@@ -527,6 +577,14 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
             must_change_password: Number(updated.must_change_password) === 1,
             is_active: updated.is_active == null ? true : Number(updated.is_active) === 1,
         };
+
+        if (usernameChanged) {
+            await auditFromRequest(db, req, {
+                action: 'user_username_change',
+                module: 'Users',
+                description: `Changed username from ${existing.username} to ${nextUsername}.`,
+            });
+        }
 
         if (normalizeAllowedRole(previousRole) !== allowedRole) {
             await auditFromRequest(db, req, {
@@ -567,7 +625,7 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
             user: updatedUser,
         };
 
-        if (nextPassword && req.user?.id === userId) {
+        if ((nextPassword || usernameChanged) && req.user?.id === userId) {
             const issued = await signSessionToken(db, updatedUser);
             await createUserSession(db, { jti: issued.jti, userId, req });
             response.token = issued.token;
@@ -575,6 +633,9 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
 
         res.status(200).json(response);
     } catch (error) {
+        if (error.code === 'ER_DUP_ENTRY') {
+            return res.status(400).json({ message: 'Username is already taken' });
+        }
         console.error('❌ UPDATE USER ERROR:', error.message);
         res.status(500).json({ message: 'Failed to update user permissions' });
     }
@@ -603,6 +664,14 @@ app.delete('/api/users/:id', requireAdmin, async (req, res) => {
         const target = existingRows[0];
         if (isAdminRole(target.role) && (await countActiveAdmins()) <= 1) {
             return res.status(400).json({ message: 'Cannot delete the last administrator account.' });
+        }
+
+        const withHistory = await findUserIdsWithHistory(db, [userId]);
+        if (withHistory.has(userId)) {
+            return res.status(409).json({
+                message: 'This account has activity history and cannot be deleted. Disable it instead to keep its records.',
+                code: 'USER_HAS_HISTORY',
+            });
         }
 
         try {
@@ -738,7 +807,7 @@ app.put('/api/menu/categories/:name', requirePermission('menu'), async (req, res
         await auditFromRequest(db, req, {
             action: 'menu_category_update',
             module: 'Menu Management',
-            description: `Renamed menu category "${previous}" to "${result.labels[name] ?? name}"`,
+            description: `Renamed menu category "${previous}" to "${result.labels[name] ?? name}". Past sales keep their original category.`,
         });
         res.status(200).json({ category: name, ...result });
     } catch (error) {
@@ -756,9 +825,9 @@ app.delete('/api/menu/categories/:name', requirePermission('menu'), async (req, 
         await auditFromRequest(db, req, {
             action: 'menu_category_delete',
             module: 'Menu Management',
-            description: moved
+            description: (moved
                 ? `Deleted menu category "${key}" and moved its ${moved} items to "${moveTo}"`
-                : `Deleted menu category "${key}"`,
+                : `Deleted menu category "${key}"`) + '. Past sales keep their original category.',
         });
         res.status(200).json({ moved, ...(await getMenuCategories(db)) });
     } catch (error) {
@@ -774,13 +843,13 @@ app.delete('/api/menu/categories/:name', requirePermission('menu'), async (req, 
 app.get('/api/menu', async (req, res) => {
     try {
         const [items] = await db.execute(
-            `SELECT id, name, category, price, hot_price, iced_price, image_url, is_available
-             FROM menu_items
-             ORDER BY ${menuCategoryFieldSql()}, id`,
+            `${MENU_ITEM_SELECT}
+             ORDER BY ${menuCategoryFieldSql('m.category')}, m.id`,
         );
         const stock = await loadMenuStock(db);
+        const now = new Date();
         res.status(200).json(items.map((item) => ({
-            ...serializeMenuItem(item),
+            ...serializeMenuItem(item, now),
             stock_left: stock.get(Number(item.id))?.stock_left ?? null,
             stock_status: stock.get(Number(item.id))?.stock_status ?? null,
         })));
@@ -792,19 +861,33 @@ app.get('/api/menu', async (req, res) => {
 
 // 2. ADD A NEW MENU ITEM (When you click 'Add Item' on your management page)
 app.post('/api/menu', requirePermission('menu'), async (req, res) => {
-    const { name, image_url } = req.body ?? {};
+    const { image_url } = req.body ?? {};
     const category = await resolveMenuCategory(db, req.body?.category).catch(() => null);
     const prices = normalizeMenuPrices(req.body ?? {}, category);
+    const nameCheck = normalizeMenuItemName(req.body?.name);
+    const availability = parseOptionalAvailability(req.body?.is_available);
 
-    if (!name || !category || prices.error) {
+    if (nameCheck.code === 'too_long') {
+        return res.status(400).json({ message: nameCheck.error, code: nameCheck.code });
+    }
+    if (nameCheck.error || !category || prices.error) {
         return res.status(400).json({ message: prices.error || 'Please fill in all fields (Name, Category, Price)' });
     }
+    if (availability.error) {
+        return res.status(400).json({ message: availability.error });
+    }
 
+    const name = nameCheck.name;
+    const isAvailable = availability.value !== false;
     const normalizedImageUrl = normalizeMenuImageUrl(image_url);
 
     try {
+        if (await findDuplicateMenuName(db, name, category)) {
+            return res.status(400).json({ message: 'An item with this name already exists in this category', code: 'duplicate_name' });
+        }
+
         const query =
-            'INSERT INTO menu_items (name, category, price, hot_price, iced_price, image_url, is_available) VALUES (?, ?, ?, ?, ?, ?, TRUE)';
+            `INSERT INTO menu_items (name, category, price, hot_price, iced_price, image_url, is_available, unavailable_since) VALUES (?, ?, ?, ?, ?, ?, ?, ${isAvailable ? 'NULL' : 'NOW()'})`;
         const [result] = await db.execute(query, [
             name,
             category,
@@ -812,26 +895,18 @@ app.post('/api/menu', requirePermission('menu'), async (req, res) => {
             prices.hot_price,
             prices.iced_price,
             normalizedImageUrl,
+            isAvailable ? 1 : 0,
         ]);
 
         await auditFromRequest(db, req, {
             action: 'menu_create',
             module: 'Menu Management',
-            description: `Created menu item "${name}" at $${prices.price.toFixed(2)}`,
+            description: `Created menu item "${name}" at $${prices.price.toFixed(2)}${isAvailable ? '' : ' (off sale)'}`,
         });
 
         res.status(201).json({
             message: 'Item added successfully!',
-            item: serializeMenuItem({
-                id: result.insertId,
-                name,
-                category,
-                price: prices.price,
-                hot_price: prices.hot_price,
-                iced_price: prices.iced_price,
-                image_url: normalizedImageUrl,
-                is_available: true,
-            }),
+            item: serializeMenuItem(await loadMenuItemRow(db, result.insertId)),
         });
     } catch (error) {
         console.error('Error adding menu item:', error);
@@ -842,23 +917,32 @@ app.post('/api/menu', requirePermission('menu'), async (req, res) => {
 // 3. EDIT AN EXISTING MENU ITEM (Fixes your click/modify actions)
 app.put('/api/menu/:id', requirePermission('menu'), async (req, res) => {
     const itemId = Number.parseInt(req.params.id, 10);
-    const { name, image_url } = req.body ?? {};
+    const { image_url } = req.body ?? {};
     const category = await resolveMenuCategory(db, req.body?.category).catch(() => null);
     const prices = normalizeMenuPrices(req.body ?? {}, category);
+    const nameCheck = normalizeMenuItemName(req.body?.name);
+    const availability = parseOptionalAvailability(req.body?.is_available);
 
     if (!Number.isInteger(itemId) || itemId <= 0) {
         return res.status(400).json({ message: 'Invalid menu item id' });
     }
 
-    if (!name || !category || prices.error) {
+    if (nameCheck.code === 'too_long') {
+        return res.status(400).json({ message: nameCheck.error, code: nameCheck.code });
+    }
+    if (nameCheck.error || !category || prices.error) {
         return res.status(400).json({ message: prices.error || 'Please fill in all fields to complete update' });
     }
+    if (availability.error) {
+        return res.status(400).json({ message: availability.error });
+    }
 
+    const name = nameCheck.name;
     const normalizedImageUrl = normalizeMenuImageUrl(image_url);
 
     try {
         const [existingRows] = await db.execute(
-            'SELECT name, price, hot_price, iced_price FROM menu_items WHERE id = ? LIMIT 1',
+            'SELECT name, price, hot_price, iced_price, is_available FROM menu_items WHERE id = ? LIMIT 1',
             [itemId],
         );
         if (!existingRows.length) {
@@ -866,8 +950,20 @@ app.put('/api/menu/:id', requirePermission('menu'), async (req, res) => {
         }
         const previous = existingRows[0];
 
+        if (await findDuplicateMenuName(db, name, category, itemId)) {
+            return res.status(400).json({ message: 'An item with this name already exists in this category', code: 'duplicate_name' });
+        }
+
+        const wasAvailable = !(previous.is_available === 0 || previous.is_available === false);
+        const availabilityChanged = availability.value !== undefined && availability.value !== wasAvailable;
+        const availabilitySql = !availabilityChanged
+            ? ''
+            : availability.value
+                ? ', is_available = 1, unavailable_since = NULL'
+                : ', is_available = 0, unavailable_since = NOW()';
+
         const query =
-            'UPDATE menu_items SET name = ?, category = ?, price = ?, hot_price = ?, iced_price = ?, image_url = ? WHERE id = ?';
+            `UPDATE menu_items SET name = ?, category = ?, price = ?, hot_price = ?, iced_price = ?, image_url = ?${availabilitySql} WHERE id = ?`;
         const [result] = await db.execute(query, [
             name,
             category,
@@ -899,10 +995,60 @@ app.put('/api/menu/:id', requirePermission('menu'), async (req, res) => {
                 : `Updated menu item #${itemId} "${name}" (price $${newPrice.toFixed(2)})`,
         });
 
-        res.status(200).json({ message: 'Item updated successfully!' });
+        if (availabilityChanged) {
+            await auditFromRequest(db, req, {
+                action: 'menu_availability_change',
+                module: 'Menu Management',
+                description: `Menu item "${name}" set ${availability.value ? 'on sale' : 'off sale'}`,
+            });
+        }
+
+        res.status(200).json({
+            message: 'Item updated successfully!',
+            item: serializeMenuItem(await loadMenuItemRow(db, itemId)),
+        });
     } catch (error) {
         console.error('Error modifying menu item:', error);
         res.status(500).json({ message: 'Failed to update item details' });
+    }
+});
+
+app.patch('/api/menu/:id/availability', requirePermission('menu'), async (req, res) => {
+    const itemId = Number.parseInt(req.params.id, 10);
+
+    if (!Number.isInteger(itemId) || itemId <= 0) {
+        return res.status(400).json({ message: 'Invalid menu item id' });
+    }
+    const isAvailable = req.body?.is_available;
+    if (typeof isAvailable !== 'boolean') {
+        return res.status(400).json({ message: 'is_available must be true or false' });
+    }
+
+    try {
+        const [result] = await db.execute(
+            isAvailable
+                ? 'UPDATE menu_items SET is_available = 1, unavailable_since = NULL WHERE id = ?'
+                : 'UPDATE menu_items SET unavailable_since = IF(is_available = 0 AND unavailable_since IS NOT NULL, unavailable_since, NOW()), is_available = 0 WHERE id = ?',
+            [itemId],
+        );
+        if (result.affectedRows === 0 && !(await loadMenuItemRow(db, itemId))) {
+            return res.status(404).json({ message: 'Item not found' });
+        }
+
+        const row = await loadMenuItemRow(db, itemId);
+        await auditFromRequest(db, req, {
+            action: 'menu_availability_change',
+            module: 'Menu Management',
+            description: `Menu item "${row.name}" set ${isAvailable ? 'on sale' : 'off sale'}`,
+        });
+
+        res.status(200).json({
+            message: isAvailable ? 'Item is now on sale' : 'Item is now off sale',
+            item: serializeMenuItem(row),
+        });
+    } catch (error) {
+        console.error('Error changing menu item availability:', error);
+        res.status(500).json({ message: 'Failed to change item availability' });
     }
 });
 
@@ -915,19 +1061,45 @@ app.delete('/api/menu/:id', requirePermission('menu'), async (req, res) => {
     }
 
     try {
-        const [result] = await db.execute('DELETE FROM menu_items WHERE id = ?', [itemId]);
+        const row = await loadMenuItemRow(db, itemId);
+        if (!row) {
+            return res.status(404).json({ message: "Item not found" });
+        }
 
-        if (result.affectedRows === 0) {
+        const eligibility = computeMenuDeleteEligibility({
+            has_sales: Boolean(Number(row.has_sales)),
+            is_available: !(row.is_available === 0 || row.is_available === false),
+            unavailable_since: row.unavailable_since,
+            now: new Date(),
+        });
+        if (!eligibility.can_delete) {
+            const onSale = eligibility.delete_block_reason === 'on_sale';
+            return res.status(409).json({
+                message: onSale
+                    ? 'This item has sales history. Turn it off sale first, then delete it after the waiting period.'
+                    : 'This item was taken off sale recently. It can be deleted once the waiting period ends.',
+                code: onSale ? 'MENU_ITEM_ON_SALE' : 'MENU_ITEM_COOLING_DOWN',
+                delete_available_at: eligibility.delete_available_at,
+            });
+        }
+
+        const { removedStockLinks, affectedRows } = await withTransaction(db, async (conn) => {
+            const [linkResult] = await conn.execute('DELETE FROM menu_item_stock_links WHERE menu_item_id = ?', [itemId]);
+            const [result] = await conn.execute('DELETE FROM menu_items WHERE id = ?', [itemId]);
+            return { removedStockLinks: Number(linkResult.affectedRows), affectedRows: result.affectedRows };
+        });
+
+        if (affectedRows === 0) {
             return res.status(404).json({ message: "Item not found" });
         }
 
         await auditFromRequest(db, req, {
             action: 'menu_delete',
             module: 'Menu Management',
-            description: `Deleted menu item #${itemId}`,
+            description: `Deleted menu item #${itemId} "${row.name}" (${row.category}); removed ${removedStockLinks} stock link${removedStockLinks === 1 ? '' : 's'}`,
         });
 
-        res.status(200).json({ message: "Item deleted successfully" });
+        res.status(200).json({ message: "Item deleted successfully", removed_stock_links: removedStockLinks });
     } catch (error) {
         console.error("Error deleting menu item:", error);
         res.status(500).json({ message: "Failed to delete the item" });
@@ -1347,11 +1519,17 @@ app.post('/api/orders/split-checkout', requirePermission('payment'), async (req,
                 target.sourceType === 'Take Out' ? null : await resolveTableForeignKey(conn, table_id ?? target.tableId);
 
             const [originalLines] = await conn.execute(
-                `SELECT id, menu_item_id, item_name, quantity, price, notes
+                `SELECT id, menu_item_id, item_name, quantity, price, notes, item_category
                  FROM order_items WHERE order_id = ? ORDER BY id ASC FOR UPDATE`,
                 [originalOrderId],
             );
             const plan = planSplitCheckout(originalLines, items);
+            const snapshotCategories = new Map();
+            for (const original of originalLines) {
+                if (original.menu_item_id != null && !snapshotCategories.has(original.menu_item_id)) {
+                    snapshotCategories.set(original.menu_item_id, original.item_category ?? null);
+                }
+            }
             const splitTotal = plan.splitTotal;
 
             const invoiceId = await allocateNextInvoiceId(conn);
@@ -1398,9 +1576,18 @@ app.post('/api/orders/split-checkout', requirePermission('payment'), async (req,
 
             for (const line of plan.splitLines) {
                 await conn.execute(
-                    `INSERT INTO order_items (order_id, menu_item_id, item_name, quantity, price, subtotal, notes)
-                     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                    [splitOrderId, line.menu_item_id, line.item_name, line.quantity, line.price, line.quantity * line.price, line.notes],
+                    `INSERT INTO order_items (order_id, menu_item_id, item_name, quantity, price, subtotal, notes, item_category)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [
+                        splitOrderId,
+                        line.menu_item_id,
+                        line.item_name,
+                        line.quantity,
+                        line.price,
+                        line.quantity * line.price,
+                        line.notes,
+                        snapshotCategories.get(line.menu_item_id) ?? null,
+                    ],
                 );
             }
             for (const update of plan.lineUpdates) {

@@ -32,11 +32,14 @@ import { cacheMenuItems, getMenuFallback } from '../utils/offlineFallbacks'
 import MenuItemImage from '../components/menu/MenuItemImage'
 import AddCategoryButton from '../components/menu/AddCategoryButton'
 import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal'
+import MenuDeleteBlockedModal from '../components/menu/MenuDeleteBlockedModal'
+import Switch from '../components/ui/Switch'
 import ModalHeader from '../components/ui/ModalHeader'
 import IconSelect from '../components/ui/IconSelect'
 import Tooltip from '../components/ui/Tooltip'
 import ScrollRow from '../components/ui/ScrollRow'
 import PaginationBar from '../components/ui/PaginationBar'
+import { localizeDigits } from '../utils/dateTimeFormat'
 import { usePagedGrid } from '../hooks/usePagedGrid'
 import TruncatedText from '../components/ui/TruncatedText'
 import { useModalKeyboard } from '../hooks/useModalKeyboard'
@@ -83,6 +86,7 @@ const EMPTY_FORM = {
   iced_price: '',
   image_url: '',
   use_servings: false,
+  is_available: true,
 }
 
 // `labels` holds the names given to renamed built-in categories; they win over the translation.
@@ -131,6 +135,7 @@ export default function MenuManagement() {
   const [isEditing, setIsEditing] = useState(false)
   const [editingId, setEditingId] = useState(null)
   const [menuDeleteTarget, setMenuDeleteTarget] = useState(null)
+  const [menuDeleteBlocked, setMenuDeleteBlocked] = useState(null)
 
   const [form, setForm] = useState(EMPTY_FORM)
 
@@ -310,7 +315,7 @@ export default function MenuManagement() {
 
   const gridRef = useRef(null)
   const filterKey = `${activeCategory}|${search.trim().toLowerCase()}`
-  const { pageItems, currentPage, totalPages, goToPage } = usePagedGrid(gridRef, filtered, filterKey)
+  const { pageItems, currentPage, totalPages, pageSize, goToPage } = usePagedGrid(gridRef, filtered, filterKey)
 
   const changePage = (page) => {
     goToPage(page)
@@ -328,6 +333,7 @@ export default function MenuManagement() {
       iced_price: item.iced_price != null ? String(item.iced_price) : '',
       image_url: item.image_url || '',
       use_servings: item.hot_price != null || item.iced_price != null,
+      is_available: item.is_available !== false,
     })
     setImageMode(item.image_url && !item.image_url.startsWith('/api/uploads') && item.image_url.startsWith('http') ? 'link' : 'upload')
     setUploadError('')
@@ -350,6 +356,7 @@ export default function MenuManagement() {
       name: form.name,
       category: form.category,
       image_url: form.image_url.trim() || null,
+      is_available: form.is_available,
     }
 
     if (drink) {
@@ -405,11 +412,17 @@ export default function MenuManagement() {
       const response = await apiFetch(`/menu/${id}`, {
         method: 'DELETE',
       })
+      const data = await response.json().catch(() => ({}))
 
       if (response.ok) {
         setItems((prev) => prev.filter((item) => item.id !== id))
+        if (data.removed_stock_links > 0) {
+          showToast(t('menuAdmin.deletedWithStockLinks', { count: data.removed_stock_links }))
+        }
+      } else if (response.status === 409) {
+        fetchMenu()
+        alert(data.message || t('menuAdmin.errors.delete'))
       } else {
-        const data = await response.json()
         alert(data.message || t('menuAdmin.errors.delete'))
       }
     } catch (error) {
@@ -417,11 +430,50 @@ export default function MenuManagement() {
     }
   }
 
+  const handleToggleAvailability = async (item, nextValue) => {
+    const previous = items
+    setItems((prev) =>
+      prev.map((entry) =>
+        entry.id === item.id
+          ? { ...entry, is_available: nextValue, unavailable_since: nextValue ? null : new Date().toISOString() }
+          : entry,
+      ),
+    )
+    try {
+      const response = await apiFetch(`/menu/${item.id}/availability`, {
+        method: 'PATCH',
+        body: JSON.stringify({ is_available: nextValue }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.message || t('menuAdmin.errors.save'))
+      if (data.item) {
+        setItems((prev) => prev.map((entry) => (entry.id === item.id ? { ...entry, ...data.item } : entry)))
+      }
+    } catch (error) {
+      setItems(previous)
+      alert(error.message || t('menuAdmin.errors.save'))
+    }
+  }
+
   const requestDeleteMenuItem = (item) => {
-    setMenuDeleteTarget({
-      id: item.id,
-      name: translateMenuName(item.name, i18n.language, t),
-    })
+    const name = translateMenuName(item.name, i18n.language, t)
+    if (item.can_delete === false) {
+      setMenuDeleteBlocked({
+        id: item.id,
+        name,
+        reason: item.delete_block_reason,
+        availableAt: item.delete_available_at,
+      })
+      return
+    }
+    setMenuDeleteTarget({ id: item.id, name, hasSales: item.has_sales === true })
+  }
+
+  const turnOffBlockedItem = async () => {
+    const target = menuDeleteBlocked
+    setMenuDeleteBlocked(null)
+    const item = items.find((entry) => entry.id === target?.id)
+    if (item) await handleToggleAvailability(item, false)
   }
 
   const confirmDeleteMenuItem = async () => {
@@ -677,11 +729,44 @@ export default function MenuManagement() {
               <p className="mt-auto text-lg font-bold tabular-nums text-forest-600 dark:text-forest-400">
                 {formatMenuPrice(item)}
               </p>
+              <div className="mt-3 flex w-full items-center justify-between gap-3 border-t border-border/60 pt-3">
+                <span
+                  className={`text-xs font-semibold ${
+                    item.is_available === false ? 'text-slate-500 dark:text-zinc-400' : 'text-emerald-700 dark:text-emerald-400'
+                  }`}
+                >
+                  {item.is_available === false ? t('menuAdmin.offSale') : t('menuAdmin.onSale')}
+                </span>
+                <Switch
+                  checked={item.is_available !== false}
+                  onChange={(next) => handleToggleAvailability(item, next)}
+                  label={item.is_available === false ? t('menuAdmin.turnOn') : t('menuAdmin.turnOff')}
+                />
+              </div>
             </div>
         ))}
       </div>
 
-      <PaginationBar currentPage={currentPage} totalPages={totalPages} onPageChange={changePage} />
+      {filtered.length > 0 ? (
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-muted shrink-0 text-xs tabular-nums">
+            {t('menuAdmin.showingRange', {
+              from: localizeDigits(currentPage * pageSize + 1),
+              to: localizeDigits(Math.min((currentPage + 1) * pageSize, filtered.length)),
+              total: localizeDigits(filtered.length),
+            })}
+            {filtered.length !== items.length
+              ? ` ${t('menuAdmin.ofTotalItems', { total: localizeDigits(items.length) })}`
+              : ''}
+          </p>
+          <PaginationBar
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={changePage}
+            className="sm:min-w-[22rem]"
+          />
+        </div>
+      ) : null}
 
       {isLoadingMenu && items.length === 0 && (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
@@ -980,6 +1065,20 @@ export default function MenuManagement() {
                 <p className="text-muted mt-1.5 text-xs">{t('menuAdmin.imageHelp')}</p>
               </div>
 
+              <div className="flex items-center justify-between gap-4 rounded-xl border border-stone-200 px-3 py-2.5 dark:border-zinc-700">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">{t('menuAdmin.availableForSale')}</p>
+                  <p className="text-muted mt-0.5 text-2xs leading-snug">
+                    {form.is_available ? t('menuAdmin.availableHintOn') : t('menuAdmin.availableHintOff')}
+                  </p>
+                </div>
+                <Switch
+                  checked={form.is_available}
+                  onChange={(next) => setForm((prev) => ({ ...prev, is_available: next }))}
+                  label={t('menuAdmin.availableForSale')}
+                />
+              </div>
+
               <div className="flex gap-3 pt-2">
                 <button type="button" onClick={handleCloseDetailsModal} className="btn-secondary flex-1 py-2.5 text-sm">
                   {t('common.cancel')}
@@ -996,11 +1095,21 @@ export default function MenuManagement() {
       <ConfirmDeleteModal
         isOpen={Boolean(menuDeleteTarget)}
         title={t('menuAdmin.deleteTitle')}
-        message={t('menuAdmin.deleteMessage')}
+        message={
+          menuDeleteTarget?.hasSales
+            ? `${t('menuAdmin.deleteMessage')} ${t('menuAdmin.deleteKeepsSales')}`
+            : t('menuAdmin.deleteMessage')
+        }
         itemName={menuDeleteTarget?.name}
         onCancel={() => setMenuDeleteTarget(null)}
         onConfirm={confirmDeleteMenuItem}
         confirmLabel={t('common.deleteConfirm')}
+      />
+
+      <MenuDeleteBlockedModal
+        target={menuDeleteBlocked}
+        onClose={() => setMenuDeleteBlocked(null)}
+        onTurnOff={turnOffBlockedItem}
       />
 
       <ConfirmDeleteModal
