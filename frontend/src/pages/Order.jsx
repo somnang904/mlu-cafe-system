@@ -287,6 +287,32 @@ export default function Order() {
     })
   }, [menuItems, activeCategory, searchQuery, i18n.language, t, menuCategories.labels])
 
+  function stockLeftFor(menuItemId) {
+    const linked = stockByMenu[menuItemId] || []
+    if (!linked.length) return Infinity
+    return Math.min(...linked.map((st) => Number(st.stock)))
+  }
+
+  function hasStockFor(menuItemId, extra) {
+    const left = stockLeftFor(menuItemId)
+    if (left === Infinity) return true
+    const inCart = cart
+      .filter((line) => Number(line.menu_item_id) === Number(menuItemId))
+      .reduce((sum, line) => sum + Number(line.quantity || 0), 0)
+    return inCart + extra <= left
+  }
+
+  function warnNoStock(name, menuItemId) {
+    const left = Math.max(0, stockLeftFor(menuItemId))
+    playAlertSound('critical')
+    pushBanner({
+      title: `${name} — ${left > 0 ? t('order.notEnoughStock') : t('order.outOfStock')}`,
+      message: t('order.stockLeft', { count: left }),
+      tone: 'error',
+      durationMs: 4000,
+    })
+  }
+
   const addToCart = (item, options = {}) => {
     const notes = options.notes != null ? String(options.notes) : item.notes || ''
     const originalName = item.originalName || item.name
@@ -309,18 +335,13 @@ export default function Order() {
     setSentConfirmation(null)
 
     const linkedStock = stockByMenu[menuItemId] || []
-    const outOfStock = linkedStock.find((st) => Number(st.stock) <= 0)
     const lowStock = linkedStock.find((st) => Number(st.stock) > 0 && st.status === 'LOW_STOCK')
 
-    if (outOfStock) {
-      playAlertSound('critical')
-      pushBanner({
-        title: `${item.name} — ${t('order.outOfStock') || 'Out of stock'}`,
-        message: `${outOfStock.name} (0 in stock)`,
-        tone: 'error',
-        durationMs: 4000,
-      })
-    } else if (lowStock) {
+    if (!hasStockFor(menuItemId, 1)) {
+      warnNoStock(item.name, menuItemId)
+      return
+    }
+    if (lowStock) {
       playAlertSound('warning')
       pushBanner({
         title: `${item.name} — ${t('order.lowStock') || 'Low stock'}`,
@@ -539,6 +560,13 @@ export default function Order() {
   }, [highlightedId, highlightIndex, pageSize, filterKey])
 
   const updateQuantity = (id, delta) => {
+    if (delta > 0) {
+      const line = cart.find((item) => item.id === id)
+      if (line && !hasStockFor(line.menu_item_id, delta)) {
+        warnNoStock(line.name, line.menu_item_id)
+        return
+      }
+    }
     setSentConfirmation(null)
     setCart((prev) =>
       prev

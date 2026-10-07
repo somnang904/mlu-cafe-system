@@ -360,11 +360,15 @@ async function run() {
     check('quantity 14 with low_threshold 5 reports IN_STOCK', okRow?.stock_status === 'IN_STOCK', okRow);
 
     const over = await sell(id, name, 20);
-    console.log(`INFO  oversell of 20 against 14: placed ${over.placed.status} ${JSON.stringify(over.placed.body)}, paid ${over.paid?.status}`);
-    check('oversell does not crash the server (no 5xx)', over.placed.status < 500 && (over.paid?.status ?? 0) < 500, { placed: over.placed, paid: over.paid });
+    check('ordering 20 when only 14 are left is refused with 409 insufficient_stock', over.placed.status === 409 && over.placed.body?.code === 'insufficient_stock', over.placed);
     const afterOver = await stockRow(id);
-    console.log(`INFO  after oversell quantity ${afterOver?.stock_quantity} status ${afterOver?.stock_status}`);
-    check('oversold item reports OUT_OF_STOCK', Number(afterOver?.stock_quantity) > 0 || afterOver?.stock_status === 'OUT_OF_STOCK', afterOver);
+    check('a refused order leaves the stock at 14', Number(afterOver?.stock_quantity) === 14, afterOver);
+    const exact = await sell(id, name, 14);
+    check('ordering exactly the 14 left is accepted', exact.placed.status === 201 && exact.paid?.status === 200, exact);
+    const afterExact = await stockRow(id);
+    check('selling the last 14 leaves 0 and OUT_OF_STOCK', Number(afterExact?.stock_quantity) === 0 && afterExact?.stock_status === 'OUT_OF_STOCK', afterExact);
+    const none = await sell(id, name, 1);
+    check('ordering 1 when 0 are left is refused with 409', none.placed.status === 409, none.placed);
     await restock(id, { mode: 'set', quantity: 9 });
 
     const [invRow] = await conn.query('SELECT archived_at FROM inventory WHERE id = ?', [inventoryId]);

@@ -1298,7 +1298,7 @@ app.post('/api/orders', requireOrderWriteAccess, async (req, res) => {
                 'SELECT menu_item_id, quantity FROM order_items WHERE order_id = ?',
                 [id],
             );
-            await reconcileOrderStock(conn, id, lines, req.user?.id ?? null);
+            await reconcileOrderStock(conn, id, lines, req.user?.id ?? null, { blockShortage: true });
             return { orderId: id, savedLines: await readOrderLines(conn, id, target.key) };
         }, { locks: [pendingOrderLockName(target)] });
 
@@ -1317,7 +1317,7 @@ app.post('/api/orders', requireOrderWriteAccess, async (req, res) => {
         });
     } catch (error) {
         if ([400, 403, 404, 409].includes(error.status)) {
-            return res.status(error.status).json({ message: error.message });
+            return res.status(error.status).json({ message: error.message, code: error.code });
         }
         logOrderError('DATABASE ERROR IN POST /api/orders', error, {
             target_id,
@@ -1927,7 +1927,7 @@ app.put('/api/orders/items', requireOrderWriteAccess, async (req, res) => {
                 'SELECT menu_item_id, quantity FROM order_items WHERE order_id = ?',
                 [id],
             );
-            await reconcileOrderStock(conn, id, stockLines, req.user?.id ?? null);
+            await reconcileOrderStock(conn, id, stockLines, req.user?.id ?? null, { blockShortage: true });
 
             if (items.length === 0) {
                 await conn.execute(

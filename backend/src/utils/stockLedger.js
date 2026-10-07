@@ -56,7 +56,7 @@ function planStockDeltas(lines, links, takenByInventory) {
   return deltas
 }
 
-async function applyStockChange(conn, { inventoryId, change, reason, orderId = null, userId = null, note = null }) {
+async function applyStockChange(conn, { inventoryId, change, reason, orderId = null, userId = null, note = null, allowNegative = true }) {
   const amount = roundStock(change)
   if (amount == null || amount === 0) {
     throw httpError(400, 'Stock change must be a non-zero number')
@@ -74,6 +74,14 @@ async function applyStockChange(conn, { inventoryId, change, reason, orderId = n
 
   const current = Number(rows[0].stock_quantity)
   const next = roundStock(current + amount)
+  if (!allowNegative && amount < 0 && next < 0) {
+    const left = Math.max(0, current)
+    const error = httpError(409, `Not enough stock for ${rows[0].item_name}: only ${left} ${rows[0].unit_label || 'left'} left`)
+    error.code = 'insufficient_stock'
+    error.item = rows[0].item_name
+    error.available = left
+    throw error
+  }
   if (amount > 0 && next > MAX_STOCK_QUANTITY) {
     throw httpError(400, `Stock cannot be more than ${MAX_STOCK_QUANTITY.toLocaleString('en-US')}`)
   }
@@ -130,7 +138,7 @@ async function loadNetTaken(conn, orderId) {
   return taken
 }
 
-async function reconcileOrderStock(conn, orderId, lines, userId) {
+async function reconcileOrderStock(conn, orderId, lines, userId, { blockShortage = false } = {}) {
   const [locked] = await conn.execute('SELECT id FROM orders WHERE id = ? FOR UPDATE', [orderId])
   if (!locked.length) throw httpError(404, 'Order not found')
 
@@ -151,6 +159,7 @@ async function reconcileOrderStock(conn, orderId, lines, userId) {
       reason: entry.delta > 0 ? 'sale' : 'cancel',
       orderId,
       userId,
+      allowNegative: !(blockShortage && entry.delta > 0),
     })
     if (result && (result.status === 'LOW_STOCK' || result.status === 'OUT_OF_STOCK' || result.isCritical)) {
       lowStockWarnings.push(result)
