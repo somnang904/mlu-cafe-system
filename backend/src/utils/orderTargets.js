@@ -111,7 +111,11 @@ function logOrderError(context, error, meta = {}) {
   })
 }
 
+const { registerSchemaReset } = require('./schemaReset')
 let orderItemsSchemaReadyPromise = null
+registerSchemaReset(() => {
+  orderItemsSchemaReadyPromise = null
+})
 let orderItemsHasNameColumn = null
 let orderItemsHasNotesColumn = null
 let orderItemsHasCategoryColumn = null

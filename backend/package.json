@@ -18,7 +18,8 @@
     "test:users-api": "node test/usersApi.e2e.cjs",
     "test:menu-api": "node test/menuApi.e2e.cjs",
     "test:menu-stock-api": "node test/menuStockApi.e2e.cjs",
-    "test:ingredients-api": "node test/ingredientsApi.e2e.cjs"
+    "test:ingredients-api": "node test/ingredientsApi.e2e.cjs",
+    "test:restore-api": "node test/restoreApi.e2e.cjs"
   },
   "keywords": [],
   "author": "",

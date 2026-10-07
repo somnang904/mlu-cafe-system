@@ -15,7 +15,11 @@ const {
 const USER_WIDE_IP = '*'
 const IP_WIDE_USER = '*'
 
+const { registerSchemaReset } = require('./schemaReset')
 let schemaReadyPromise = null
+registerSchemaReset(() => {
+  schemaReadyPromise = null
+})
 
 async function ensureLoginSecuritySchema(database = db) {
   if (!schemaReadyPromise) {

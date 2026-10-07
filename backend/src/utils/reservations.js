@@ -23,7 +23,11 @@ const FLOOR_TABLES = [
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/
 
+const { registerSchemaReset } = require('./schemaReset')
 let schemaReadyPromise = null
+registerSchemaReset(() => {
+  schemaReadyPromise = null
+})
 
 async function columnExists(db, table, column) {
   const [rows] = await db.execute(

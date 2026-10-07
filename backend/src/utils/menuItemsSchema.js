@@ -1,6 +1,10 @@
 const { computeMenuDeleteEligibility, toIso } = require('./menuLifecycle')
 
+const { registerSchemaReset } = require('./schemaReset')
 let menuItemsSchemaReadyPromise = null
+registerSchemaReset(() => {
+  menuItemsSchemaReadyPromise = null
+})
 
 const MENU_CATEGORIES = ['Coffee', 'Tea', 'Cold Drinks', 'Beer', 'Starters', 'Mains', 'Soup', 'Vegetable', 'Dessert']
 // ENUM storage order must stay stable. New values are appended only.

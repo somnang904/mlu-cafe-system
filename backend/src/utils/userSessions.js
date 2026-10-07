@@ -4,7 +4,11 @@ const { getClientIp } = require('./clientIp')
 const SESSION_RETENTION_DAYS = 90
 const LAST_SEEN_MIN_INTERVAL_MS = 60 * 1000
 
+const { registerSchemaReset } = require('./schemaReset')
 let schemaReady = null
+registerSchemaReset(() => {
+  schemaReady = null
+})
 
 async function ensureUserSessionsSchema(db) {
   if (!schemaReady) {

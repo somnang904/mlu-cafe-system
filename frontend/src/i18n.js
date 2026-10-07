@@ -951,7 +951,7 @@ const resources = {
         cancel: 'Cancel',
         selectedFile: 'Selected file: {{filename}} ({{size}})',
         restoreSuccessDetail:
-          'Restored {{count}} tables. Safety backup {{file}} is in the server backup folder. Signing out.',
+          'Restored {{count}} tables. Safety backup {{file}} is in the server backup folder. Everyone is signed out. After signing in again, check the Users page: an older backup can bring back old accounts or passwords.',
         chooseFileFirst: 'Please choose a .sql backup file first',
         restoring: 'Restoring…',
         restoreFromSql: 'Restore from SQL File',
@@ -2526,7 +2526,7 @@ const resources = {
         cancel: 'បោះបង់',
         selectedFile: 'ឯកសារដែលបានជ្រើស៖ {{filename}} ({{size}})',
         restoreSuccessDetail:
-          'បានស្តារ {{count}} តារាង។ ការបម្រុងទុកសុវត្ថិភាព {{file}} ស្ថិតក្នុងថតបម្រុងទុកលើម៉ាស៊ីនមេ។ កំពុងចេញ។',
+          'បានស្តារ {{count}} តារាង។ ការបម្រុងទុកសុវត្ថិភាព {{file}} ស្ថិតក្នុងថតបម្រុងទុកលើម៉ាស៊ីនមេ។ អ្នកទាំងអស់ត្រូវបានចេញ។ បន្ទាប់ពីចូលម្តងទៀត សូមពិនិត្យទំព័រអ្នកប្រើប្រាស់៖ ការបម្រុងទុកចាស់អាចនាំគណនី ឬពាក្យសម្ងាត់ចាស់ត្រឡប់មកវិញ។',
         chooseFileFirst: 'សូមជ្រើសឯកសារបម្រុងទុក .sql ជាមុនសិន',
         restoring: 'កំពុងស្តារ…',
         restoreFromSql: 'ស្តារពីឯកសារ SQL',

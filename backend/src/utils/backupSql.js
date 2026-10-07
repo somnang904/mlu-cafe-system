@@ -274,11 +274,18 @@ async function restoreDatabaseFromFile(db, filePath, options = {}) {
     const mysqlPath = resolveCliTool('mysql')
     await runCliFromFile(mysqlPath, [...buildMysqlArgs(), database], filePath)
     if (live && typeof options.afterRestore === 'function') {
-      await options.afterRestore()
+      try {
+        await options.afterRestore()
+      } catch (error) {
+        throw publicError(
+          500,
+          `The backup data WAS restored, but updating the database structure afterwards failed (${clientSafeDetail(error)}). Restart the server so it can finish the update, then sign in again and check the Users page.`,
+        )
+      }
     }
     const tables = await countTables(database)
     return {
-      message: `Database restored. ${tables} tables restored.`,
+      message: `Database restored. ${tables} tables restored. Everyone has been signed out. After signing in again, check the Users page: an older backup can bring back old accounts, passwords or disabled users.`,
       tables,
       safetyBackup: safety?.filename || null,
       safetyLocation: safety ? 'server backup folder' : null,
