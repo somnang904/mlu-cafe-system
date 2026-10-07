@@ -40,8 +40,8 @@ function planSplitCheckout(originalLines, requested) {
 
   for (const request of requested) {
     const qty = Number(request.qty ?? request.quantity ?? 1)
-    if (!Number.isInteger(qty) || qty <= 0) {
-      throw httpError(400, 'Split quantities must be whole numbers above zero')
+    if (!Number.isInteger(qty) || qty <= 0 || qty > 999) {
+      throw httpError(400, 'Split quantities must be whole numbers from 1 to 999')
     }
 
     let remaining = qty

@@ -16,6 +16,9 @@ const {
     createPendingOrder,
     insertOrderItem,
     validateOrderLine,
+    withLineQuantities,
+    assertItemsOnSale,
+    INVOICE_LOCK_NAME,
     logOrderError,
     pendingOrderWhereClause,
     resolveTableForeignKey,
@@ -1222,6 +1225,11 @@ async function assertTableNotMerged(conn, target) {
     } catch {
         return;
     }
+    if (!rows[0]) {
+        const error = new Error(`Table ${target.tableId} does not exist`);
+        error.status = 404;
+        throw error;
+    }
     if (rows[0]?.merged_into != null) {
         const error = new Error(`${rows[0].table_name} is merged into table #${rows[0].merged_into}. Add the order there.`);
         error.status = 409;
@@ -1232,17 +1240,19 @@ async function assertTableNotMerged(conn, target) {
 // 2. DISPATCH/MERGE ORDER ITEMS INTO TARGET TICKETS
 app.post('/api/orders', requireOrderWriteAccess, async (req, res) => {
     if (rejectIfMaintenance(res)) return;
-    const { target_id, items, table_id } = req.body ?? {};
+    const { target_id, table_id } = req.body ?? {};
+    const rawItems = req.body?.items;
 
-    if (!target_id || !Array.isArray(items) || !items.length) {
+    if (!target_id || !Array.isArray(rawItems) || !rawItems.length) {
         return res.status(400).json({ message: 'Missing table target or checkout lines' });
     }
 
-    const lineError = items.map((item) => validateOrderLine(item, { isAdmin: isAdminRole(req.user?.role) })).find(Boolean);
+    const lineError = rawItems.map((item) => validateOrderLine(item, { isAdmin: isAdminRole(req.user?.role) })).find(Boolean);
     if (lineError) {
         const status = lineError.startsWith('Only an administrator') ? 403 : 400;
         return res.status(status).json({ message: lineError });
     }
+    const items = withLineQuantities(rawItems);
 
     let target;
     try {
@@ -1259,6 +1269,7 @@ app.post('/api/orders', requireOrderWriteAccess, async (req, res) => {
                 await assertTableNotMerged(conn, target);
                 id = await createPendingOrder(conn, target, table_id, req.user);
             }
+            await assertItemsOnSale(conn, items);
             for (const item of items) {
                 await insertOrderItem(conn, id, item);
             }
@@ -1461,7 +1472,7 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
                 change_khr: chgKhr,
                 exchange_rate: exRate,
             };
-        }, { locks: [pendingOrderLockName(target)] });
+        }, { locks: [pendingOrderLockName(target), INVOICE_LOCK_NAME] });
 
         await auditFromRequest(db, req, {
             action: 'payment_process',
@@ -1674,7 +1685,7 @@ app.post('/api/orders/split-checkout', requirePermission('payment'), async (req,
                 tableStatus,
                 lowStockItems: stockOutcome?.lowStockWarnings || [],
             };
-        }, { locks: [pendingOrderLockName(target)] });
+        }, { locks: [pendingOrderLockName(target), INVOICE_LOCK_NAME] });
 
         await auditFromRequest(db, req, {
             action: 'split_payment_process',
@@ -1826,14 +1837,15 @@ app.post('/api/orders/bill-requested', requirePosFloorAccess, async (req, res) =
 // 5. SYNC UPDATED BILL LINE ITEMS BEFORE CHECKOUT
 app.put('/api/orders/items', requireOrderWriteAccess, async (req, res) => {
     if (rejectIfMaintenance(res)) return;
-    const { target_id, items, table_id } = req.body ?? {};
+    const { target_id, table_id } = req.body ?? {};
+    const rawItems = req.body?.items;
 
-    if (!target_id || !Array.isArray(items)) {
+    if (!target_id || !Array.isArray(rawItems)) {
         return res.status(400).json({ message: 'Missing target_id or items array' });
     }
 
-    if (items.length > 0) {
-        const lineError = items
+    if (rawItems.length > 0) {
+        const lineError = rawItems
             .map((item) => validateOrderLine(item, { isAdmin: isAdminRole(req.user?.role) }))
             .find(Boolean);
         if (lineError) {
@@ -1841,6 +1853,7 @@ app.put('/api/orders/items', requireOrderWriteAccess, async (req, res) => {
             return res.status(status).json({ message: lineError });
         }
     }
+    const items = withLineQuantities(rawItems);
 
     let target;
     try {
@@ -1877,6 +1890,7 @@ app.put('/api/orders/items', requireOrderWriteAccess, async (req, res) => {
                 await assertTableNotMerged(conn, target);
                 id = await createPendingOrder(conn, target, table_id, req.user);
             }
+            await assertItemsOnSale(conn, items, id);
             const prices = await pickLinePrices(conn, id, items, { isAdmin: isAdminRole(req.user?.role) });
             await reconcileOrderStock(conn, id, items, req.user?.id ?? null);
             await conn.execute('DELETE FROM order_items WHERE order_id = ?', [id]);
@@ -3246,13 +3260,17 @@ app.post('/api/tables/transfer', requirePosFloorAccess, async (req, res) => {
                 [fromId, fromId],
             );
 
-            if (sourceOrders.length > 0) {
-                const orderId = sourceOrders[0].id;
-                await conn.execute(
-                    'UPDATE orders SET target_id = ?, table_id = ?, updated_at = NOW() WHERE id = ?',
-                    [toId, toId, orderId],
-                );
+            if (sourceOrders.length === 0) {
+                const err = new Error('Source table has no active order');
+                err.status = 400;
+                throw err;
             }
+
+            const orderId = sourceOrders[0].id;
+            await conn.execute(
+                'UPDATE orders SET target_id = ?, table_id = ?, updated_at = NOW() WHERE id = ?',
+                [toId, toId, orderId],
+            );
 
             await conn.execute(
                 `UPDATE reservations
