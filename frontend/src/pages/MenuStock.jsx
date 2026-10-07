@@ -20,6 +20,7 @@ import {
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { apiFetch } from '../services/apiClient'
+import MenuItemImage from '../components/menu/MenuItemImage'
 import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal'
 import FieldLabel from '../components/ui/FieldLabel'
 import IconSelect from '../components/ui/IconSelect'
@@ -905,8 +906,19 @@ export default function MenuStock() {
                   return (
                     <tr key={item.menu_item_id} className="table-row hover:bg-stone-50/50 dark:hover:bg-obsidian-900/20">
                       <td className="px-6 py-4">
-                        <p className="text-heading text-sm font-semibold">{nameOf(item)}</p>
-                        {item.category ? <span className="badge-olive mt-1 inline-block">{item.category}</span> : null}
+                        <div className="flex items-center gap-3">
+                          <MenuItemImage
+                            imageUrl={item.image_url}
+                            alt=""
+                            className="h-12 w-12 shrink-0 rounded-xl border border-slate-100 object-cover shadow-sm ring-1 ring-border dark:border-zinc-800"
+                            fallbackClassName="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-slate-100 bg-slate-50 text-slate-400 ring-1 ring-border dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-500"
+                            iconClassName="h-5 w-5"
+                          />
+                          <div className="min-w-0">
+                            <p className="text-heading text-sm font-semibold">{nameOf(item)}</p>
+                            {item.category ? <span className="badge-olive mt-1 inline-block">{item.category}</span> : null}
+                          </div>
+                        </div>
                       </td>
                       <td className="px-6 py-4">
                         <Pill
@@ -936,7 +948,7 @@ export default function MenuStock() {
                             {t(tone.key)}
                           </Pill>
                         ) : (
-                          <span className="text-stone-400">—</span>
+                          <span className="text-xs font-medium text-slate-500 dark:text-zinc-400">{t('menuStock.unlimited')}</span>
                         )}
                       </td>
                       <td className="px-6 py-4">

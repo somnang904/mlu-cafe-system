@@ -155,6 +155,7 @@ function serializeMenuStockRow(menu, stock) {
     menu_item_id: Number(menu.id ?? menu.menu_item_id),
     name: menu.name,
     category: menu.category,
+    image_url: menu.image_url ?? null,
     is_available: isAvailable,
   }
   if (!stock) {
@@ -217,7 +218,7 @@ async function loadTrackedRows(conn, menuItemId = null, { lock = false } = {}) {
 
 async function listMenuStock(db) {
   const [menus] = await db.execute(
-    'SELECT id, name, category, is_available FROM menu_items ORDER BY category, name',
+    'SELECT id, name, category, image_url, is_available FROM menu_items ORDER BY category, name',
   )
   const tracked = await loadTrackedRows(db)
   const items = menus.map((menu) => serializeMenuStockRow(menu, tracked.get(Number(menu.id))))
@@ -226,7 +227,7 @@ async function listMenuStock(db) {
 
 async function loadMenuStockItem(conn, menuItemId) {
   const [menus] = await conn.execute(
-    'SELECT id, name, category, is_available FROM menu_items WHERE id = ? LIMIT 1',
+    'SELECT id, name, category, image_url, is_available FROM menu_items WHERE id = ? LIMIT 1',
     [menuItemId],
   )
   if (!menus.length) return null

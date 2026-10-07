@@ -119,6 +119,7 @@ test('rows serialize as tracked or untracked', () => {
     menu_item_id: 5,
     name: 'Latte',
     category: 'Coffee',
+    image_url: null,
     is_available: true,
     tracked: false,
     inventory_id: null,
