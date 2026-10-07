@@ -75,7 +75,15 @@ const {
     normalizeMenuImageUrl,
     normalizeMenuPrices,
     serializeMenuItem,
+    MENU_ITEM_SELECT,
+    loadMenuItemRow,
 } = require('./src/utils/menuItemsSchema');
+const {
+    computeMenuDeleteEligibility,
+    findDuplicateMenuName,
+    normalizeMenuItemName,
+    parseOptionalAvailability,
+} = require('./src/utils/menuLifecycle');
 const { buildSalesReport } = require('./src/utils/reports');
 const { ensureInventorySchema } = require('./src/utils/inventorySchema');
 const { createInventoryItem, editInventoryItem } = require('./src/utils/inventoryItems');
@@ -799,7 +807,7 @@ app.put('/api/menu/categories/:name', requirePermission('menu'), async (req, res
         await auditFromRequest(db, req, {
             action: 'menu_category_update',
             module: 'Menu Management',
-            description: `Renamed menu category "${previous}" to "${result.labels[name] ?? name}"`,
+            description: `Renamed menu category "${previous}" to "${result.labels[name] ?? name}". Past sales keep their original category.`,
         });
         res.status(200).json({ category: name, ...result });
     } catch (error) {
@@ -817,9 +825,9 @@ app.delete('/api/menu/categories/:name', requirePermission('menu'), async (req, 
         await auditFromRequest(db, req, {
             action: 'menu_category_delete',
             module: 'Menu Management',
-            description: moved
+            description: (moved
                 ? `Deleted menu category "${key}" and moved its ${moved} items to "${moveTo}"`
-                : `Deleted menu category "${key}"`,
+                : `Deleted menu category "${key}"`) + '. Past sales keep their original category.',
         });
         res.status(200).json({ moved, ...(await getMenuCategories(db)) });
     } catch (error) {
@@ -835,13 +843,13 @@ app.delete('/api/menu/categories/:name', requirePermission('menu'), async (req, 
 app.get('/api/menu', async (req, res) => {
     try {
         const [items] = await db.execute(
-            `SELECT id, name, category, price, hot_price, iced_price, image_url, is_available
-             FROM menu_items
-             ORDER BY ${menuCategoryFieldSql()}, id`,
+            `${MENU_ITEM_SELECT}
+             ORDER BY ${menuCategoryFieldSql('m.category')}, m.id`,
         );
         const stock = await loadMenuStock(db);
+        const now = new Date();
         res.status(200).json(items.map((item) => ({
-            ...serializeMenuItem(item),
+            ...serializeMenuItem(item, now),
             stock_left: stock.get(Number(item.id))?.stock_left ?? null,
             stock_status: stock.get(Number(item.id))?.stock_status ?? null,
         })));
@@ -853,19 +861,33 @@ app.get('/api/menu', async (req, res) => {
 
 // 2. ADD A NEW MENU ITEM (When you click 'Add Item' on your management page)
 app.post('/api/menu', requirePermission('menu'), async (req, res) => {
-    const { name, image_url } = req.body ?? {};
+    const { image_url } = req.body ?? {};
     const category = await resolveMenuCategory(db, req.body?.category).catch(() => null);
     const prices = normalizeMenuPrices(req.body ?? {}, category);
+    const nameCheck = normalizeMenuItemName(req.body?.name);
+    const availability = parseOptionalAvailability(req.body?.is_available);
 
-    if (!name || !category || prices.error) {
+    if (nameCheck.code === 'too_long') {
+        return res.status(400).json({ message: nameCheck.error, code: nameCheck.code });
+    }
+    if (nameCheck.error || !category || prices.error) {
         return res.status(400).json({ message: prices.error || 'Please fill in all fields (Name, Category, Price)' });
     }
+    if (availability.error) {
+        return res.status(400).json({ message: availability.error });
+    }
 
+    const name = nameCheck.name;
+    const isAvailable = availability.value !== false;
     const normalizedImageUrl = normalizeMenuImageUrl(image_url);
 
     try {
+        if (await findDuplicateMenuName(db, name, category)) {
+            return res.status(400).json({ message: 'An item with this name already exists in this category', code: 'duplicate_name' });
+        }
+
         const query =
-            'INSERT INTO menu_items (name, category, price, hot_price, iced_price, image_url, is_available) VALUES (?, ?, ?, ?, ?, ?, TRUE)';
+            `INSERT INTO menu_items (name, category, price, hot_price, iced_price, image_url, is_available, unavailable_since) VALUES (?, ?, ?, ?, ?, ?, ?, ${isAvailable ? 'NULL' : 'NOW()'})`;
         const [result] = await db.execute(query, [
             name,
             category,
@@ -873,26 +895,18 @@ app.post('/api/menu', requirePermission('menu'), async (req, res) => {
             prices.hot_price,
             prices.iced_price,
             normalizedImageUrl,
+            isAvailable ? 1 : 0,
         ]);
 
         await auditFromRequest(db, req, {
             action: 'menu_create',
             module: 'Menu Management',
-            description: `Created menu item "${name}" at $${prices.price.toFixed(2)}`,
+            description: `Created menu item "${name}" at $${prices.price.toFixed(2)}${isAvailable ? '' : ' (off sale)'}`,
         });
 
         res.status(201).json({
             message: 'Item added successfully!',
-            item: serializeMenuItem({
-                id: result.insertId,
-                name,
-                category,
-                price: prices.price,
-                hot_price: prices.hot_price,
-                iced_price: prices.iced_price,
-                image_url: normalizedImageUrl,
-                is_available: true,
-            }),
+            item: serializeMenuItem(await loadMenuItemRow(db, result.insertId)),
         });
     } catch (error) {
         console.error('Error adding menu item:', error);
@@ -903,23 +917,32 @@ app.post('/api/menu', requirePermission('menu'), async (req, res) => {
 // 3. EDIT AN EXISTING MENU ITEM (Fixes your click/modify actions)
 app.put('/api/menu/:id', requirePermission('menu'), async (req, res) => {
     const itemId = Number.parseInt(req.params.id, 10);
-    const { name, image_url } = req.body ?? {};
+    const { image_url } = req.body ?? {};
     const category = await resolveMenuCategory(db, req.body?.category).catch(() => null);
     const prices = normalizeMenuPrices(req.body ?? {}, category);
+    const nameCheck = normalizeMenuItemName(req.body?.name);
+    const availability = parseOptionalAvailability(req.body?.is_available);
 
     if (!Number.isInteger(itemId) || itemId <= 0) {
         return res.status(400).json({ message: 'Invalid menu item id' });
     }
 
-    if (!name || !category || prices.error) {
+    if (nameCheck.code === 'too_long') {
+        return res.status(400).json({ message: nameCheck.error, code: nameCheck.code });
+    }
+    if (nameCheck.error || !category || prices.error) {
         return res.status(400).json({ message: prices.error || 'Please fill in all fields to complete update' });
     }
+    if (availability.error) {
+        return res.status(400).json({ message: availability.error });
+    }
 
+    const name = nameCheck.name;
     const normalizedImageUrl = normalizeMenuImageUrl(image_url);
 
     try {
         const [existingRows] = await db.execute(
-            'SELECT name, price, hot_price, iced_price FROM menu_items WHERE id = ? LIMIT 1',
+            'SELECT name, price, hot_price, iced_price, is_available FROM menu_items WHERE id = ? LIMIT 1',
             [itemId],
         );
         if (!existingRows.length) {
@@ -927,8 +950,20 @@ app.put('/api/menu/:id', requirePermission('menu'), async (req, res) => {
         }
         const previous = existingRows[0];
 
+        if (await findDuplicateMenuName(db, name, category, itemId)) {
+            return res.status(400).json({ message: 'An item with this name already exists in this category', code: 'duplicate_name' });
+        }
+
+        const wasAvailable = !(previous.is_available === 0 || previous.is_available === false);
+        const availabilityChanged = availability.value !== undefined && availability.value !== wasAvailable;
+        const availabilitySql = !availabilityChanged
+            ? ''
+            : availability.value
+                ? ', is_available = 1, unavailable_since = NULL'
+                : ', is_available = 0, unavailable_since = NOW()';
+
         const query =
-            'UPDATE menu_items SET name = ?, category = ?, price = ?, hot_price = ?, iced_price = ?, image_url = ? WHERE id = ?';
+            `UPDATE menu_items SET name = ?, category = ?, price = ?, hot_price = ?, iced_price = ?, image_url = ?${availabilitySql} WHERE id = ?`;
         const [result] = await db.execute(query, [
             name,
             category,
@@ -960,10 +995,60 @@ app.put('/api/menu/:id', requirePermission('menu'), async (req, res) => {
                 : `Updated menu item #${itemId} "${name}" (price $${newPrice.toFixed(2)})`,
         });
 
-        res.status(200).json({ message: 'Item updated successfully!' });
+        if (availabilityChanged) {
+            await auditFromRequest(db, req, {
+                action: 'menu_availability_change',
+                module: 'Menu Management',
+                description: `Menu item "${name}" set ${availability.value ? 'on sale' : 'off sale'}`,
+            });
+        }
+
+        res.status(200).json({
+            message: 'Item updated successfully!',
+            item: serializeMenuItem(await loadMenuItemRow(db, itemId)),
+        });
     } catch (error) {
         console.error('Error modifying menu item:', error);
         res.status(500).json({ message: 'Failed to update item details' });
+    }
+});
+
+app.patch('/api/menu/:id/availability', requirePermission('menu'), async (req, res) => {
+    const itemId = Number.parseInt(req.params.id, 10);
+
+    if (!Number.isInteger(itemId) || itemId <= 0) {
+        return res.status(400).json({ message: 'Invalid menu item id' });
+    }
+    const isAvailable = req.body?.is_available;
+    if (typeof isAvailable !== 'boolean') {
+        return res.status(400).json({ message: 'is_available must be true or false' });
+    }
+
+    try {
+        const [result] = await db.execute(
+            isAvailable
+                ? 'UPDATE menu_items SET is_available = 1, unavailable_since = NULL WHERE id = ?'
+                : 'UPDATE menu_items SET unavailable_since = IF(is_available = 0 AND unavailable_since IS NOT NULL, unavailable_since, NOW()), is_available = 0 WHERE id = ?',
+            [itemId],
+        );
+        if (result.affectedRows === 0 && !(await loadMenuItemRow(db, itemId))) {
+            return res.status(404).json({ message: 'Item not found' });
+        }
+
+        const row = await loadMenuItemRow(db, itemId);
+        await auditFromRequest(db, req, {
+            action: 'menu_availability_change',
+            module: 'Menu Management',
+            description: `Menu item "${row.name}" set ${isAvailable ? 'on sale' : 'off sale'}`,
+        });
+
+        res.status(200).json({
+            message: isAvailable ? 'Item is now on sale' : 'Item is now off sale',
+            item: serializeMenuItem(row),
+        });
+    } catch (error) {
+        console.error('Error changing menu item availability:', error);
+        res.status(500).json({ message: 'Failed to change item availability' });
     }
 });
 
@@ -976,19 +1061,45 @@ app.delete('/api/menu/:id', requirePermission('menu'), async (req, res) => {
     }
 
     try {
-        const [result] = await db.execute('DELETE FROM menu_items WHERE id = ?', [itemId]);
+        const row = await loadMenuItemRow(db, itemId);
+        if (!row) {
+            return res.status(404).json({ message: "Item not found" });
+        }
 
-        if (result.affectedRows === 0) {
+        const eligibility = computeMenuDeleteEligibility({
+            has_sales: Boolean(Number(row.has_sales)),
+            is_available: !(row.is_available === 0 || row.is_available === false),
+            unavailable_since: row.unavailable_since,
+            now: new Date(),
+        });
+        if (!eligibility.can_delete) {
+            const onSale = eligibility.delete_block_reason === 'on_sale';
+            return res.status(409).json({
+                message: onSale
+                    ? 'This item has sales history. Turn it off sale first, then delete it after the waiting period.'
+                    : 'This item was taken off sale recently. It can be deleted once the waiting period ends.',
+                code: onSale ? 'MENU_ITEM_ON_SALE' : 'MENU_ITEM_COOLING_DOWN',
+                delete_available_at: eligibility.delete_available_at,
+            });
+        }
+
+        const { removedStockLinks, affectedRows } = await withTransaction(db, async (conn) => {
+            const [linkResult] = await conn.execute('DELETE FROM menu_item_stock_links WHERE menu_item_id = ?', [itemId]);
+            const [result] = await conn.execute('DELETE FROM menu_items WHERE id = ?', [itemId]);
+            return { removedStockLinks: Number(linkResult.affectedRows), affectedRows: result.affectedRows };
+        });
+
+        if (affectedRows === 0) {
             return res.status(404).json({ message: "Item not found" });
         }
 
         await auditFromRequest(db, req, {
             action: 'menu_delete',
             module: 'Menu Management',
-            description: `Deleted menu item #${itemId}`,
+            description: `Deleted menu item #${itemId} "${row.name}" (${row.category}); removed ${removedStockLinks} stock link${removedStockLinks === 1 ? '' : 's'}`,
         });
 
-        res.status(200).json({ message: "Item deleted successfully" });
+        res.status(200).json({ message: "Item deleted successfully", removed_stock_links: removedStockLinks });
     } catch (error) {
         console.error("Error deleting menu item:", error);
         res.status(500).json({ message: "Failed to delete the item" });
@@ -1387,11 +1498,17 @@ app.post('/api/orders/split-checkout', requirePermission('payment'), async (req,
                 target.sourceType === 'Take Out' ? null : await resolveTableForeignKey(conn, table_id ?? target.tableId);
 
             const [originalLines] = await conn.execute(
-                `SELECT id, menu_item_id, item_name, quantity, price, notes
+                `SELECT id, menu_item_id, item_name, quantity, price, notes, item_category
                  FROM order_items WHERE order_id = ? ORDER BY id ASC FOR UPDATE`,
                 [originalOrderId],
             );
             const plan = planSplitCheckout(originalLines, items);
+            const snapshotCategories = new Map();
+            for (const original of originalLines) {
+                if (original.menu_item_id != null && !snapshotCategories.has(original.menu_item_id)) {
+                    snapshotCategories.set(original.menu_item_id, original.item_category ?? null);
+                }
+            }
             const splitTotal = plan.splitTotal;
 
             const invoiceId = await allocateNextInvoiceId(conn);
@@ -1437,9 +1554,18 @@ app.post('/api/orders/split-checkout', requirePermission('payment'), async (req,
 
             for (const line of plan.splitLines) {
                 await conn.execute(
-                    `INSERT INTO order_items (order_id, menu_item_id, item_name, quantity, price, subtotal, notes)
-                     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                    [splitOrderId, line.menu_item_id, line.item_name, line.quantity, line.price, line.quantity * line.price, line.notes],
+                    `INSERT INTO order_items (order_id, menu_item_id, item_name, quantity, price, subtotal, notes, item_category)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [
+                        splitOrderId,
+                        line.menu_item_id,
+                        line.item_name,
+                        line.quantity,
+                        line.price,
+                        line.quantity * line.price,
+                        line.notes,
+                        snapshotCategories.get(line.menu_item_id) ?? null,
+                    ],
                 );
             }
             for (const update of plan.lineUpdates) {

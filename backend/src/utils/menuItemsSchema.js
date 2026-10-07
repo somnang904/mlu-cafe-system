@@ -1,3 +1,5 @@
+const { computeMenuDeleteEligibility, toIso } = require('./menuLifecycle')
+
 let menuItemsSchemaReadyPromise = null
 
 const MENU_CATEGORIES = ['Coffee', 'Tea', 'Cold Drinks', 'Beer', 'Starters', 'Mains', 'Soup', 'Vegetable', 'Dessert']
@@ -246,7 +248,8 @@ function normalizeMenuPrices(body, category) {
   return { price, hot_price: null, iced_price: null }
 }
 
-function serializeMenuItem(row) {
+function serializeMenuItem(row, now = new Date()) {
+  const hasSales = Boolean(Number(row?.has_sales))
   const rawPrice = Number.parseFloat(row?.price)
   const hot = parseOptionalMoney(row?.hot_price)
   const iced = parseOptionalMoney(row?.iced_price)
@@ -262,7 +265,25 @@ function serializeMenuItem(row) {
     iced_price: iced,
     image_url: normalizeMenuImageUrl(row.image_url),
     is_available: row.is_available === 0 || row.is_available === false ? false : true,
+    unavailable_since: toIso(row.unavailable_since),
+    has_sales: hasSales,
+    ...computeMenuDeleteEligibility({
+      has_sales: hasSales,
+      is_available: row.is_available === 0 || row.is_available === false ? false : true,
+      unavailable_since: row.unavailable_since,
+      now,
+    }),
   }
+}
+
+const MENU_ITEM_SELECT = `SELECT m.id, m.name, m.category, m.price, m.hot_price, m.iced_price, m.image_url, m.is_available,
+       m.unavailable_since,
+       EXISTS (SELECT 1 FROM order_items oi WHERE oi.menu_item_id = m.id) AS has_sales
+FROM menu_items m`
+
+async function loadMenuItemRow(db, id) {
+  const [rows] = await db.execute(`${MENU_ITEM_SELECT} WHERE m.id = ? LIMIT 1`, [id])
+  return rows[0] ?? null
 }
 
 async function ensureMenuItemsSchema(db) {
@@ -286,6 +307,23 @@ async function ensureMenuItemsSchema(db) {
       if (!hasIcedPrice) {
         await db.execute(
           'ALTER TABLE menu_items ADD COLUMN iced_price DECIMAL(10,2) NULL AFTER hot_price',
+        )
+      }
+
+      if (!(await columnExists(db, 'menu_items', 'unavailable_since'))) {
+        await db.execute('ALTER TABLE menu_items ADD COLUMN unavailable_since DATETIME NULL')
+      }
+      await db.execute(
+        'UPDATE menu_items SET unavailable_since = NOW() WHERE is_available = 0 AND unavailable_since IS NULL',
+      )
+
+      if (!(await columnExists(db, 'order_items', 'item_category'))) {
+        await db.execute('ALTER TABLE order_items ADD COLUMN item_category VARCHAR(100) NULL')
+        await db.execute(
+          `UPDATE order_items oi
+           JOIN menu_items m ON m.id = oi.menu_item_id
+           SET oi.item_category = m.category
+           WHERE oi.item_category IS NULL AND oi.menu_item_id IS NOT NULL`,
         )
       }
 
@@ -344,6 +382,8 @@ module.exports = {
   listMenuCategories,
   resolveMenuCategory,
   menuCategoryFieldSql,
+  MENU_ITEM_SELECT,
+  loadMenuItemRow,
   ensureMenuItemsSchema,
   ensureMenuItemsImageSchema: ensureMenuItemsSchema,
   normalizeMenuImageUrl,

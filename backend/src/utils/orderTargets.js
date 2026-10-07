@@ -107,6 +107,7 @@ function logOrderError(context, error, meta = {}) {
 let orderItemsSchemaReadyPromise = null
 let orderItemsHasNameColumn = null
 let orderItemsHasNotesColumn = null
+let orderItemsHasCategoryColumn = null
 
 function formatOrderLineName(baseName, notes) {
   const name = String(baseName || '').trim() || 'Custom item'
@@ -323,14 +324,14 @@ async function resolveLinePrice(db, item) {
   return price
 }
 
-async function resolveMenuItemIdForInsert(db, item) {
+async function resolveMenuItemForInsert(db, item) {
   const parsed = parseMenuItemIdFromItem(item)
   if (parsed == null) {
-    return null
+    return { id: null, category: null }
   }
 
-  const [rows] = await db.execute('SELECT id FROM menu_items WHERE id = ? LIMIT 1', [parsed])
-  return rows.length > 0 ? parsed : null
+  const [rows] = await db.execute('SELECT id, category FROM menu_items WHERE id = ? LIMIT 1', [parsed])
+  return rows.length > 0 ? { id: parsed, category: rows[0].category ?? null } : { id: null, category: null }
 }
 
 /**
@@ -341,7 +342,7 @@ async function insertOrderItem(db, orderId, item, { price: presetPrice = null } 
   const quantity = Number(item.quantity)
   const price = presetPrice != null ? presetPrice : await resolveLinePrice(db, item)
   const subtotal = quantity * price
-  const menuItemId = await resolveMenuItemIdForInsert(db, item)
+  const { id: menuItemId, category: menuItemCategory } = await resolveMenuItemForInsert(db, item)
   const itemName =
     item.name != null && String(item.name).trim() !== ''
       ? String(item.name).trim()
@@ -370,23 +371,35 @@ async function insertOrderItem(db, orderId, item, { price: presetPrice = null } 
     orderItemsHasNotesColumn = hasNotes
   }
 
-  let result
-  if (hasItemName && hasNotes) {
-    ;[result] = await db.execute(
-      'INSERT INTO order_items (order_id, menu_item_id, item_name, notes, quantity, price, subtotal) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [orderId, menuItemId, itemName, notes, quantity, price, subtotal],
-    )
-  } else if (hasItemName) {
-    ;[result] = await db.execute(
-      'INSERT INTO order_items (order_id, menu_item_id, item_name, quantity, price, subtotal) VALUES (?, ?, ?, ?, ?, ?)',
-      [orderId, menuItemId, itemName, quantity, price, subtotal],
-    )
-  } else {
-    ;[result] = await db.execute(
-      'INSERT INTO order_items (order_id, menu_item_id, quantity, price, subtotal) VALUES (?, ?, ?, ?, ?)',
-      [orderId, menuItemId, quantity, price, subtotal],
-    )
+  const hasItemCategory =
+    orderItemsHasCategoryColumn === true ||
+    (orderItemsHasCategoryColumn === null && (await columnExists(db, 'order_items', 'item_category')))
+
+  if (orderItemsHasCategoryColumn === null) {
+    orderItemsHasCategoryColumn = hasItemCategory
   }
+
+  const columns = ['order_id', 'menu_item_id']
+  const values = [orderId, menuItemId]
+  if (hasItemName) {
+    columns.push('item_name')
+    values.push(itemName)
+  }
+  if (hasItemName && hasNotes) {
+    columns.push('notes')
+    values.push(notes)
+  }
+  columns.push('quantity', 'price', 'subtotal')
+  values.push(quantity, price, subtotal)
+  if (hasItemCategory) {
+    columns.push('item_category')
+    values.push(menuItemCategory)
+  }
+
+  const [result] = await db.execute(
+    `INSERT INTO order_items (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`,
+    values,
+  )
 
   return {
     orderItemId: result.insertId,
