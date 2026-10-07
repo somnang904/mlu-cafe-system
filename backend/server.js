@@ -29,7 +29,7 @@ const {
     tableLockName,
 } = require('./src/utils/orderTargets');
 const { normalizeAllowedRole, passwordPolicyError, assignableRoleError } = require('./src/utils/accountPolicy');
-const { hashPassword } = require('./src/utils/userAccounts');
+const { hashPassword, findUserIdsWithHistory, normalizeUsername, displayNameValidationError, USERNAME_PATTERN } = require('./src/utils/userAccounts');
 const { saveMenuImage } = require('./src/utils/menuImage');
 const { downloadRemoteImage } = require('./src/utils/remoteImage');
 const {
@@ -323,10 +323,11 @@ function permissionListLabel(list) {
 app.get('/api/users', requireAdmin, async (req, res) => {
     try {
         const [rows] = await db.execute(
-            `SELECT id, display_name, username, role, permissions
+            `SELECT id, display_name, username, role, permissions, is_active
              FROM users
              ORDER BY CASE WHEN LOWER(role) = 'admin' THEN 0 ELSE 1 END, display_name ASC`,
         );
+        const withHistory = await findUserIdsWithHistory(db, rows.map((u) => u.id));
 
         // Safely parse the permissions JSON string back into an array for React
         const users = rows.map((u) => ({
@@ -335,6 +336,8 @@ app.get('/api/users', requireAdmin, async (req, res) => {
             username: u.username,
             role: u.role,
             permissions: isAdminRole(u.role) ? [...VALID_PERMISSIONS] : normalizePermissions(u.permissions),
+            is_active: u.is_active == null ? true : Number(u.is_active) === 1,
+            has_history: withHistory.has(Number(u.id)),
         }));
 
         res.status(200).json(users);
@@ -350,6 +353,11 @@ app.post('/api/users', requireAdmin, async (req, res) => {
 
     if (!display_name || !username || !password) {
         return res.status(400).json({ message: "All identification boxes are required" });
+    }
+
+    const createNameError = displayNameValidationError(display_name);
+    if (createNameError) {
+        return res.status(400).json({ message: createNameError });
     }
 
     const trimmedPassword = String(password);
@@ -373,7 +381,12 @@ app.post('/api/users', requireAdmin, async (req, res) => {
     }
 
     try {
-        const normalizedUsername = String(username).trim().toLowerCase();
+        const normalizedUsername = normalizeUsername(username);
+        if (!USERNAME_PATTERN.test(normalizedUsername)) {
+            return res.status(400).json({
+                message: 'Username must be 3-32 characters: letters, numbers, dot, dash or underscore.',
+            });
+        }
         const [existing] = await db.execute('SELECT id FROM users WHERE username = ?', [normalizedUsername]);
         if (existing.length > 0) {
             return res.status(400).json({ message: "Username is already taken" });
@@ -382,7 +395,7 @@ app.post('/api/users', requireAdmin, async (req, res) => {
         const passwordHash = await hashPassword(trimmedPassword);
 
         const [created] = await db.execute(
-            'INSERT INTO users (display_name, username, password_hash, role, permissions) VALUES (?, ?, ?, ?, ?)',
+            'INSERT INTO users (display_name, username, password_hash, role, permissions, must_change_password) VALUES (?, ?, ?, ?, ?, 1)',
             [display_name, normalizedUsername, passwordHash, allowedRole, savedPermissions.json]
         );
 
@@ -394,6 +407,9 @@ app.post('/api/users', requireAdmin, async (req, res) => {
 
         res.status(201).json({ message: "New user profile established securely!", id: created.insertId });
     } catch (error) {
+        if (error.code === 'ER_DUP_ENTRY') {
+            return res.status(400).json({ message: "Username is already taken" });
+        }
         console.error("❌ CREATE USER ERROR:", error.message);
         res.status(500).json({ message: "Failed to build secure user account" });
     }
@@ -402,7 +418,7 @@ app.post('/api/users', requireAdmin, async (req, res) => {
 // 3. UPDATE USER ROLE & PERMISSION GATES IN REAL TIME
 app.put('/api/users/:id', requireAdmin, async (req, res) => {
     const userId = Number.parseInt(req.params.id, 10);
-    const { display_name, role, permissions, password, is_active: isActiveRaw } = req.body ?? {};
+    const { display_name, username: usernameRaw, role, permissions, password, is_active: isActiveRaw } = req.body ?? {};
 
     if (!Number.isInteger(userId) || userId <= 0) {
         return res.status(400).json({ message: 'Invalid user id' });
@@ -410,6 +426,11 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
 
     if (!display_name || !role) {
         return res.status(400).json({ message: 'Display name and role are required' });
+    }
+
+    const displayNameError = displayNameValidationError(display_name);
+    if (displayNameError) {
+        return res.status(400).json({ message: displayNameError });
     }
 
     const allowedRole = normalizeAllowedRole(role);
@@ -469,6 +490,9 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
         let nextActive = previousActive;
         if (isActiveRaw !== undefined) {
             nextActive = !(isActiveRaw === false || isActiveRaw === 0 || isActiveRaw === '0');
+            if (!nextActive && Number(req.user?.id) === userId) {
+                return res.status(400).json({ message: 'You cannot disable your own account.' });
+            }
             if (
                 isAdminRole(previousRole)
                 && previousActive
@@ -484,6 +508,24 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
             return res.status(400).json({ message: savedPermissions.message });
         }
 
+        let nextUsername = existing.username;
+        if (usernameRaw !== undefined && normalizeUsername(usernameRaw) !== existing.username) {
+            nextUsername = normalizeUsername(usernameRaw);
+            if (!USERNAME_PATTERN.test(nextUsername)) {
+                return res.status(400).json({
+                    message: 'Username must be 3-32 characters: letters, numbers, dot, dash or underscore.',
+                });
+            }
+            const [taken] = await db.execute('SELECT id FROM users WHERE username = ? AND id <> ? LIMIT 1', [nextUsername, userId]);
+            if (taken.length > 0) {
+                return res.status(400).json({ message: 'Username is already taken' });
+            }
+        }
+        const usernameChanged = nextUsername !== existing.username;
+        if (usernameChanged) {
+            await invalidateUserTokens(db, userId);
+        }
+
         const nextPassword = password != null ? String(password) : '';
 
         if (nextPassword) {
@@ -496,17 +538,17 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
             await invalidateUserTokens(db, userId);
             await db.execute(
                 `UPDATE users
-                 SET display_name = ?, role = ?, permissions = ?, is_active = ?,
-                     password_hash = ?, must_change_password = 0
+                 SET display_name = ?, username = ?, role = ?, permissions = ?, is_active = ?,
+                     password_hash = ?, must_change_password = ?
                  WHERE id = ?`,
-                [display_name, allowedRole, savedPermissions.json, nextActive ? 1 : 0, passwordHash, userId],
+                [display_name, nextUsername, allowedRole, savedPermissions.json, nextActive ? 1 : 0, passwordHash, Number(req.user?.id) === userId ? 0 : 1, userId],
             );
         } else {
             await db.execute(
                 `UPDATE users
-                 SET display_name = ?, role = ?, permissions = ?, is_active = ?
+                 SET display_name = ?, username = ?, role = ?, permissions = ?, is_active = ?
                  WHERE id = ?`,
-                [display_name, allowedRole, savedPermissions.json, nextActive ? 1 : 0, userId],
+                [display_name, nextUsername, allowedRole, savedPermissions.json, nextActive ? 1 : 0, userId],
             );
         }
 
@@ -527,6 +569,14 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
             must_change_password: Number(updated.must_change_password) === 1,
             is_active: updated.is_active == null ? true : Number(updated.is_active) === 1,
         };
+
+        if (usernameChanged) {
+            await auditFromRequest(db, req, {
+                action: 'user_username_change',
+                module: 'Users',
+                description: `Changed username from ${existing.username} to ${nextUsername}.`,
+            });
+        }
 
         if (normalizeAllowedRole(previousRole) !== allowedRole) {
             await auditFromRequest(db, req, {
@@ -567,7 +617,7 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
             user: updatedUser,
         };
 
-        if (nextPassword && req.user?.id === userId) {
+        if ((nextPassword || usernameChanged) && req.user?.id === userId) {
             const issued = await signSessionToken(db, updatedUser);
             await createUserSession(db, { jti: issued.jti, userId, req });
             response.token = issued.token;
@@ -575,6 +625,9 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
 
         res.status(200).json(response);
     } catch (error) {
+        if (error.code === 'ER_DUP_ENTRY') {
+            return res.status(400).json({ message: 'Username is already taken' });
+        }
         console.error('❌ UPDATE USER ERROR:', error.message);
         res.status(500).json({ message: 'Failed to update user permissions' });
     }
@@ -603,6 +656,14 @@ app.delete('/api/users/:id', requireAdmin, async (req, res) => {
         const target = existingRows[0];
         if (isAdminRole(target.role) && (await countActiveAdmins()) <= 1) {
             return res.status(400).json({ message: 'Cannot delete the last administrator account.' });
+        }
+
+        const withHistory = await findUserIdsWithHistory(db, [userId]);
+        if (withHistory.has(userId)) {
+            return res.status(409).json({
+                message: 'This account has activity history and cannot be deleted. Disable it instead to keep its records.',
+                code: 'USER_HAS_HISTORY',
+            });
         }
 
         try {
