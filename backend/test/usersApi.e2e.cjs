@@ -133,19 +133,30 @@ async function run() {
 
     const c1Login = await login('wrongname_tmp', CASHIER_PASS);
     check(
-      'new account login reports must_change_password true',
-      c1Login.status === 200 && c1Login.body?.user?.must_change_password === true,
+      'new cashier signs straight in: login reports must_change_password false',
+      c1Login.status === 200 && c1Login.body?.user?.must_change_password === false,
       c1Login,
     );
     let c1Token = c1Login.body?.token;
 
-    const mustChange = (r) => r.status === 403 && r.body?.code === 'PASSWORD_CHANGE_REQUIRED';
-    const blockedUsers = await call('GET', '/users', { token: c1Token });
-    check('must-change account: GET /users is 403 PASSWORD_CHANGE_REQUIRED', mustChange(blockedUsers), blockedUsers);
-    const blockedMenu = await call('GET', '/menu', { token: c1Token });
-    check('must-change account: GET /menu is 403 PASSWORD_CHANGE_REQUIRED', mustChange(blockedMenu), blockedMenu);
-    const blockedOrders = await call('GET', '/orders', { token: c1Token });
-    check('must-change account: GET /orders is 403 PASSWORD_CHANGE_REQUIRED', mustChange(blockedOrders), blockedOrders);
+    const heldOnPasswordScreen = (r) => r.status === 403 && r.body?.code === 'PASSWORD_CHANGE_REQUIRED';
+    const newUsers = await call('GET', '/users', { token: c1Token });
+    check('new cashier: GET /users is not held on the change-password screen', !heldOnPasswordScreen(newUsers), newUsers);
+    const newMenu = await call('GET', '/menu', { token: c1Token });
+    check('new cashier: GET /menu is not held on the change-password screen', !heldOnPasswordScreen(newMenu), newMenu);
+    const newOrders = await call('GET', '/orders', { token: c1Token });
+    check('new cashier: GET /orders is not held on the change-password screen', !heldOnPasswordScreen(newOrders), newOrders);
+
+    // A flag left on a cashier row by an older version must not hold them either.
+    await conn.execute('UPDATE users SET must_change_password = 1 WHERE id = ?', [c1Id]);
+    const legacyLogin = await login('wrongname_tmp', CASHIER_PASS);
+    check(
+      'a cashier row with a stale flag still signs straight in',
+      legacyLogin.status === 200 && legacyLogin.body?.user?.must_change_password === false,
+      legacyLogin,
+    );
+    const legacyMenu = await call('GET', '/menu', { token: legacyLogin.body?.token });
+    check('a cashier row with a stale flag is not held on the change-password screen', !heldOnPasswordScreen(legacyMenu), legacyMenu);
 
     const changed = await call('POST', '/auth/change-password', {
       token: c1Token,

@@ -102,7 +102,7 @@ export default function DashboardLayout({ children, activePage, onNavigate }) {
               </p>
             ) : null}
             <InstallAppButton />
-            <ExchangeRateChip />
+            {activePage !== 'payment' ? <ExchangeRateChip /> : null}
             <NotificationBell onNavigate={onNavigate} />
             <LanguageToggle />
             <ThemeToggle variant="icon" />

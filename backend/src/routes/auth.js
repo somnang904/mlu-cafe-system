@@ -22,6 +22,7 @@ const {
   getDatabaseErrorMessage,
 } = require('../utils/dbErrors')
 const { writeAuditLog } = require('../utils/auditLog')
+const { mustChangePassword } = require('../utils/accountPolicy')
 const { logError, logSecurity } = require('../utils/logger')
 const { sendSecurityAlertEmail } = require('../utils/mailer')
 const { hashPassword } = require('../utils/userAccounts')
@@ -131,7 +132,7 @@ async function handleLogin(req, res) {
         username: user.username,
         role: user.role,
         permissions: userPermissions,
-        must_change_password: Number(user.must_change_password) === 1,
+        must_change_password: mustChangePassword(user),
       },
     })
   } catch (error) {

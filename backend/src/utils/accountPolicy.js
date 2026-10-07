@@ -1,3 +1,5 @@
+const { isAdminRole } = require('../constants/permissions')
+
 const ALLOWED_ROLES = ['Admin', 'Cashier', 'Staff']
 /** Roles that may be assigned when creating or editing users through the API/UI. */
 const ASSIGNABLE_ROLES = ['Cashier']
@@ -40,7 +42,20 @@ function passwordPolicyError(password) {
   return 'Password must be at least 8 characters and include at least one letter and one number.'
 }
 
+/**
+ * Whether a signed-in user is held on the "choose a new password" screen.
+ *
+ * Only the Admin can be. The admin-reset recovery script sets the flag on purpose, but a
+ * cashier an admin created or gave a password to signs straight in: the admin hands over
+ * the password and the cashier keeps using it. Flags already stored on cashier rows are
+ * ignored here rather than migrated, so production needs no data fix.
+ */
+function mustChangePassword(row) {
+  return Number(row?.must_change_password) === 1 && isAdminRole(row?.role)
+}
+
 module.exports = {
+  mustChangePassword,
   ALLOWED_ROLES,
   ASSIGNABLE_ROLES,
   normalizeAllowedRole,

@@ -28,7 +28,7 @@ const {
     pendingOrderLockName,
     tableLockName,
 } = require('./src/utils/orderTargets');
-const { normalizeAllowedRole, passwordPolicyError, assignableRoleError } = require('./src/utils/accountPolicy');
+const { normalizeAllowedRole, passwordPolicyError, assignableRoleError, mustChangePassword } = require('./src/utils/accountPolicy');
 const { hashPassword, findUserIdsWithHistory, normalizeUsername, displayNameValidationError, USERNAME_PATTERN } = require('./src/utils/userAccounts');
 const { saveMenuImage } = require('./src/utils/menuImage');
 const { downloadRemoteImage } = require('./src/utils/remoteImage');
@@ -403,7 +403,7 @@ app.post('/api/users', requireAdmin, async (req, res) => {
         const passwordHash = await hashPassword(trimmedPassword);
 
         const [created] = await db.execute(
-            'INSERT INTO users (display_name, username, password_hash, role, permissions, must_change_password) VALUES (?, ?, ?, ?, ?, 1)',
+            'INSERT INTO users (display_name, username, password_hash, role, permissions, must_change_password) VALUES (?, ?, ?, ?, ?, 0)',
             [display_name, normalizedUsername, passwordHash, allowedRole, savedPermissions.json]
         );
 
@@ -547,9 +547,9 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
             await db.execute(
                 `UPDATE users
                  SET display_name = ?, username = ?, role = ?, permissions = ?, is_active = ?,
-                     password_hash = ?, must_change_password = ?
+                     password_hash = ?, must_change_password = 0
                  WHERE id = ?`,
-                [display_name, nextUsername, allowedRole, savedPermissions.json, nextActive ? 1 : 0, passwordHash, Number(req.user?.id) === userId ? 0 : 1, userId],
+                [display_name, nextUsername, allowedRole, savedPermissions.json, nextActive ? 1 : 0, passwordHash, userId],
             );
         } else {
             await db.execute(
@@ -574,7 +574,7 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
             permissions: isAdminRole(updated.role)
                 ? [...VALID_PERMISSIONS]
                 : normalizePermissions(updated.permissions),
-            must_change_password: Number(updated.must_change_password) === 1,
+            must_change_password: mustChangePassword(updated),
             is_active: updated.is_active == null ? true : Number(updated.is_active) === 1,
         };
 

@@ -6,6 +6,7 @@ const {
   userHasPermission,
   normalizePermissions,
 } = require('../constants/permissions')
+const { mustChangePassword } = require('../utils/accountPolicy')
 const {
   ensureSessionSecuritySchema,
   isJtiRevoked,
@@ -60,7 +61,7 @@ async function loadUserById(userId) {
     username: row.username,
     role: row.role,
     permissions: normalizePermissions(row.permissions),
-    must_change_password: Number(row.must_change_password) === 1,
+    must_change_password: mustChangePassword(row),
     is_active: row.is_active == null ? true : Number(row.is_active) === 1,
     tokens_valid_after: row.tokens_valid_after,
   }
