@@ -1,3 +1,4 @@
+process.env.TZ = 'Asia/Phnom_Penh';
 const { assertRequiredEnv, env } = require('./src/config/env');
 const { STORE } = require('./src/config/store');
 assertRequiredEnv();
@@ -154,6 +155,7 @@ const { publicAuthRouter, privateAuthRouter, rejectPublicSignup } = require('./s
 const {
     listUnreadUserAlerts,
     markNotificationRead,
+    markAllNotificationsRead,
     ensureAdminNotificationsSchema,
     notifyAdminsOfExpense,
 } = require('./src/utils/adminNotifications');
@@ -167,6 +169,7 @@ const {
     updateReservation,
     checkInReservation,
     deleteReservation,
+    completeSeatedReservationsForTable,
     getAvailableTables,
     getLiveFloorReservations,
     TIME_SLOTS,
@@ -1442,7 +1445,10 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
                 try {
                     const nextTableStatus = clear_table === false ? 'Paid' : 'Empty';
                     await conn.execute('UPDATE tables SET status = ? WHERE id = ?', [nextTableStatus, resolvedTableId]);
-                    if (nextTableStatus === 'Empty') await releaseMergedTables(conn, resolvedTableId);
+                    if (nextTableStatus === 'Empty') {
+                        await releaseMergedTables(conn, resolvedTableId);
+                        await completeSeatedBooking(conn, resolvedTableId);
+                    }
                 } catch (tableStatusErr) {
                     console.warn('⚠️ Could not update table status in checkout:', tableStatusErr.message);
                 }
@@ -1652,7 +1658,10 @@ app.post('/api/orders/split-checkout', requirePermission('payment'), async (req,
                 tableStatus = clear_table === false ? 'Paid' : 'Empty';
                 if (resolvedTableId) {
                     await conn.execute('UPDATE tables SET status = ? WHERE id = ?', [tableStatus, resolvedTableId]);
-                    if (tableStatus === 'Empty') await releaseMergedTables(conn, resolvedTableId);
+                    if (tableStatus === 'Empty') {
+                        await releaseMergedTables(conn, resolvedTableId);
+                        await completeSeatedBooking(conn, resolvedTableId);
+                    }
                 }
             } else {
                 // Table still has remaining items
@@ -1893,6 +1902,7 @@ app.put('/api/orders/items', requireOrderWriteAccess, async (req, res) => {
                 if (target.sourceType === 'Table') {
                     await conn.execute('UPDATE tables SET status = "Empty" WHERE id = ?', [target.tableId]);
                     await releaseMergedTables(conn, target.tableId);
+                    await completeSeatedBooking(conn, target.tableId);
                 }
                 return { orderId: null, savedLines: [] };
             }
@@ -2161,6 +2171,15 @@ app.get('/api/alerts', async (req, res) => {
     } catch (error) {
         console.error('❌ ALERTS ENGINE ERROR:', error.message);
         res.status(500).json({ message: 'Failed to scan active alerts', errorId: logError(error, { route: `${req.method} ${req.originalUrl}` }) });
+    }
+});
+
+app.post('/api/notifications/read-all', async (req, res) => {
+    try {
+        const updated = await markAllNotificationsRead(db, req.user.id);
+        res.status(200).json({ message: 'Notifications marked as read', updated });
+    } catch (error) {
+        res.status(500).json({ message: 'Failed to update notifications', errorId: logError(error, { route: 'POST /api/notifications/read-all' }) });
     }
 });
 
@@ -3289,6 +3308,15 @@ app.post('/api/tables/transfer', requirePosFloorAccess, async (req, res) => {
 });
 
 // Tables merged onto `hostId` come back to the floor once the host table is freed.
+async function completeSeatedBooking(conn, tableId) {
+    if (!tableId) return;
+    try {
+        await completeSeatedReservationsForTable(conn, tableId);
+    } catch (err) {
+        console.warn('⚠️ Could not complete the seated reservation:', err.message);
+    }
+}
+
 async function releaseMergedTables(conn, hostId) {
     if (!hostId) return;
     try {
@@ -3462,6 +3490,7 @@ app.post('/api/tables/:id/clear', requirePosFloorAccess, async (req, res) => {
             if (target.sourceType === 'Table' && target.tableId) {
                 await conn.execute('UPDATE tables SET status = "Empty" WHERE id = ?', [target.tableId]);
                 await releaseMergedTables(conn, target.tableId);
+                await completeSeatedBooking(conn, target.tableId);
             }
         }, { locks: [pendingOrderLockName(target)] });
 
@@ -3503,8 +3532,11 @@ app.delete('/api/tables/:id', requireReservationsAccess, async (req, res) => {
 
         const [reservations] = await db.execute(
             `SELECT id FROM reservations
-             WHERE table_id = ? AND reservation_date >= CURDATE()
-               AND status IN ('Pending', 'Confirmed', 'Paid', 'Reserved', 'Seated')
+             WHERE table_id = ?
+               AND (
+                 (reservation_date >= CURDATE() AND status IN ('Pending', 'Confirmed', 'Paid', 'Reserved'))
+                 OR (reservation_date = CURDATE() AND status = 'Seated')
+               )
              LIMIT 1`,
             [tableId],
         );
@@ -3567,7 +3599,13 @@ function sendReservationFailure(res, error, route) {
     if (status >= 500) {
         return res.status(500).json({ message: 'Something went wrong', errorId });
     }
-    return res.status(status).json({ message: 'Invalid request', errorId });
+    const body = { message: error?.message || 'Invalid request', errorId };
+    if (error?.code) body.code = error.code;
+    return res.status(status).json(body);
+}
+
+function reservationAuditLine(reservation) {
+    return `#${reservation.id} (${reservation.customer_name}, ${reservation.table_name}, ${reservation.reservation_date} ${reservation.time_slot}, ${reservation.guest_count} guests, ${reservation.status})`;
 }
 
 app.get('/api/reservations/meta', requireReservationsAccess, async (_req, res) => {
@@ -3622,6 +3660,11 @@ app.get('/api/reservations/:id', requireReservationsAccess, async (req, res) => 
 app.post('/api/reservations', requireReservationsAccess, async (req, res) => {
     try {
         const reservation = await createReservation(db, req.body, req.user)
+        await auditFromRequest(db, req, {
+            action: 'reservation_create',
+            module: 'Reservations',
+            description: `Created booking ${reservationAuditLine(reservation)}`,
+        })
         notifyReservationCreated(db, reservation).catch(() => null)
         res.status(201).json(reservation)
     } catch (error) {
@@ -3632,6 +3675,11 @@ app.post('/api/reservations', requireReservationsAccess, async (req, res) => {
 app.put('/api/reservations/:id', requireReservationsAccess, async (req, res) => {
     try {
         const reservation = await updateReservation(db, req.params.id, req.body)
+        await auditFromRequest(db, req, {
+            action: 'reservation_update',
+            module: 'Reservations',
+            description: `Updated booking ${reservationAuditLine(reservation)}`,
+        })
         if (req.body?.status === 'Pending') {
             notifyReservationCreated(db, reservation).catch(() => null)
         }
@@ -3644,6 +3692,11 @@ app.put('/api/reservations/:id', requireReservationsAccess, async (req, res) => 
 app.post('/api/reservations/:id/check-in', requireReservationsAccess, async (req, res) => {
     try {
         const reservation = await checkInReservation(db, req.params.id)
+        await auditFromRequest(db, req, {
+            action: 'reservation_check_in',
+            module: 'Reservations',
+            description: `Checked in booking ${reservationAuditLine(reservation)}`,
+        })
         res.status(200).json(reservation)
     } catch (error) {
         return sendReservationFailure(res, error, 'POST /api/reservations/:id/check-in');
@@ -3677,6 +3730,11 @@ app.post('/api/reservations/:id/confirmation-letter', requireReservationsAccess,
 app.delete('/api/reservations/:id', requireReservationsAccess, async (req, res) => {
     try {
         const reservation = await deleteReservation(db, req.params.id)
+        await auditFromRequest(db, req, {
+            action: 'reservation_delete',
+            module: 'Reservations',
+            description: `Deleted booking ${reservationAuditLine(reservation)}`,
+        })
         res.status(200).json({ message: 'Reservation deleted', reservation })
     } catch (error) {
         return sendReservationFailure(res, error, 'DELETE /api/reservations/:id');
