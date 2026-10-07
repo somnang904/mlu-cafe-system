@@ -112,10 +112,15 @@ const { normalizeCheckoutPayment } = require('./src/utils/cashDrawer');
 const {
     ensureExpensesSchema,
     listExpenses,
+    listExpenseCategories,
+    expenseOverview,
     createExpense,
+    updateExpense,
     deleteExpense,
+    expenseReceiptPath,
     summarizeExpensesToday,
 } = require('./src/utils/expenses');
+const { createExpenseExport } = require('./src/utils/expenseExport');
 const {
     ensureAuditSchema,
     writeAuditLog,
@@ -263,6 +268,13 @@ if (!fs.existsSync(menuUploadsDir)) {
 }
 app.use('/api/uploads', express.static(uploadsDir, { maxAge: '7d' }));
 app.use('/uploads', express.static(uploadsDir, { maxAge: '7d' }));
+
+// Receipt photos are financial records: kept outside the public uploads folder and only served
+// to signed-in users with expense access (GET /api/expenses/:id/receipt).
+const receiptsDir = path.join(__dirname, 'private-uploads', 'receipts');
+if (!fs.existsSync(receiptsDir)) {
+    fs.mkdirSync(receiptsDir, { recursive: true });
+}
 
 // ==========================================
 // 🔐 PUBLIC AUTH (login, password reset — no JWT)
@@ -1225,7 +1237,7 @@ app.post('/api/orders', requireOrderWriteAccess, async (req, res) => {
             let id = await findPendingOrderId(conn, target);
             if (!id) {
                 await assertTableNotMerged(conn, target);
-                id = await createPendingOrder(conn, target, table_id);
+                id = await createPendingOrder(conn, target, table_id, req.user);
             }
             for (const item of items) {
                 await insertOrderItem(conn, id, item);
@@ -1548,12 +1560,14 @@ app.post('/api/orders/split-checkout', requirePermission('payment'), async (req,
             const chgKhr = payment.change_khr;
             const exRate = payment.exchange_rate;
 
-            // 1. Create a new completed order for the split items
+            // 1. Create a new completed order for the split items (same staff as the bill it came from)
+            const [[staffRow]] = await conn.execute('SELECT staff_id, staff_name FROM orders WHERE id = ?', [originalOrderId]);
             const [insertOrder] = await conn.execute(
                 `INSERT INTO orders
                   (invoice_id, source_type, target_id, table_id, payment_method, payment_type, payment_bank, subtotal, tax,
-                   total, total_amount, received_usd, received_khr, change_usd, change_khr, exchange_rate, status, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, 'Completed', NOW())`,
+                   total, total_amount, received_usd, received_khr, change_usd, change_khr, exchange_rate, status, updated_at,
+                   staff_id, staff_name)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, 'Completed', NOW(), ?, ?)`,
                 [
                     invoiceId,
                     target.sourceType,
@@ -1570,6 +1584,8 @@ app.post('/api/orders/split-checkout', requirePermission('payment'), async (req,
                     chgUsd,
                     chgKhr,
                     exRate,
+                    staffRow?.staff_id ?? null,
+                    staffRow?.staff_name ?? null,
                 ],
             );
             const splitOrderId = insertOrder.insertId;
@@ -1839,7 +1855,7 @@ app.put('/api/orders/items', requireOrderWriteAccess, async (req, res) => {
             if (!id) {
                 if (items.length === 0) return { orderId: null, savedLines: [] };
                 await assertTableNotMerged(conn, target);
-                id = await createPendingOrder(conn, target, table_id);
+                id = await createPendingOrder(conn, target, table_id, req.user);
             }
             const prices = await pickLinePrices(conn, id, items, { isAdmin: isAdminRole(req.user?.role) });
             await reconcileOrderStock(conn, id, items, req.user?.id ?? null);
@@ -1881,13 +1897,35 @@ app.put('/api/orders/items', requireOrderWriteAccess, async (req, res) => {
 const SALE_STATUS_SQL = saleStatusSql();
 const REFUNDED_STATUS_SQL = refundedStatusSql();
 const REFUND_DATE_SQL = refundDateSql();
+/** Inclusive YYYY-MM-DD range → { start, endExclusive } for SQL, or null when missing/invalid. */
+function parseDayRange(rawFrom, rawTo) {
+    const from = typeof rawFrom === 'string' ? rawFrom.trim() : '';
+    const to = typeof rawTo === 'string' ? rawTo.trim() : '';
+    const pattern = /^\d{4}-\d{2}-\d{2}$/;
+    if (!pattern.test(from) || !pattern.test(to)) return null;
+    const start = new Date(`${from}T00:00:00Z`);
+    const end = new Date(`${to}T00:00:00Z`);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return null;
+    if ((end - start) / 86400000 > 800) return null;
+    end.setUTCDate(end.getUTCDate() + 1);
+    return { start: from, endExclusive: end.toISOString().slice(0, 10) };
+}
+
 app.get('/api/orders/history', requireSalesHistoryAccess, async (req, res) => {
     const monthParam = typeof req.query.month === 'string' ? req.query.month.trim() : '';
     const monthMatch = /^(\d{4})-(\d{2})$/.exec(monthParam);
     let rangeSql = (column) => `${column} >= DATE_SUB(CURDATE(), INTERVAL ? DAY)`;
     let dateFilterParams = [730];
+    // Optional inclusive day range (Reports): from=YYYY-MM-DD&to=YYYY-MM-DD, at most ~2 years.
+    const range = parseDayRange(req.query.from, req.query.to);
+    if ((req.query.from || req.query.to) && !range) {
+        return res.status(400).json({ message: 'Invalid date range. Use from=YYYY-MM-DD&to=YYYY-MM-DD.' });
+    }
 
-    if (monthMatch) {
+    if (range) {
+        rangeSql = (column) => `${column} >= ? AND ${column} < ?`;
+        dateFilterParams = [range.start, range.endExclusive];
+    } else if (monthMatch) {
         const year = Number.parseInt(monthMatch[1], 10);
         const month = Number.parseInt(monthMatch[2], 10);
         if (Number.isInteger(year) && Number.isInteger(month) && month >= 1 && month <= 12) {
@@ -1898,6 +1936,10 @@ app.get('/api/orders/history', requireSalesHistoryAccess, async (req, res) => {
             rangeSql = (column) => `${column} >= ? AND ${column} < ?`;
             dateFilterParams = [startDate, endDate];
         }
+    } else if (req.query.days === 'all') {
+        // Reports → All: every sale and refund, no date limit.
+        rangeSql = () => '1 = 1';
+        dateFilterParams = [];
     } else {
         const parsedDays = Number.parseInt(req.query.days, 10);
         const allowedDayRanges = [30, 31, 60, 90, 120, 180, 365, 730];
@@ -1932,7 +1974,10 @@ app.get('/api/orders/history', requireSalesHistoryAccess, async (req, res) => {
                 END AS refund_date,
                 DATE_FORMAT(updated_at, '%Y-%m-%d') AS date,
                 DATE_FORMAT(updated_at, '%h:%i %p') AS time,
-                DATE_FORMAT(updated_at, '%Y-%m') AS month_key
+                HOUR(updated_at) AS hour,
+                DATE_FORMAT(updated_at, '%Y-%m') AS month_key,
+                staff_id,
+                staff_name
             FROM orders
             WHERE (${SALE_STATUS_SQL} AND ${rangeSql('updated_at')})
                OR (${REFUNDED_STATUS_SQL} AND ${rangeSql(REFUND_DATE_SQL)})
@@ -1952,6 +1997,7 @@ app.get('/api/orders/history', requireSalesHistoryAccess, async (req, res) => {
                 oi.order_id,
                 oi.menu_item_id,
                 COALESCE(m.name, oi.item_name, 'Custom item') AS name,
+                m.category,
                 m.image_url,
                 oi.notes,
                 oi.quantity AS qty,
@@ -1969,6 +2015,9 @@ app.get('/api/orders/history', requireSalesHistoryAccess, async (req, res) => {
             acc[row.order_id].push({
                 menu_item_id: row.menu_item_id,
                 image_url: row.image_url,
+                category: row.category || null,
+                // Name without the serving/sugar note, so Reports can group "Latte (Iced)" with "Latte".
+                base_name: row.name,
                 name: formatOrderLineName(row.name, row.notes),
                 notes: row.notes || '',
                 qty: row.qty,
@@ -2590,11 +2639,123 @@ app.post('/api/system/backup/restore', sensitiveOperationLimiter, requireAdmin, 
 // ==========================================
 app.get('/api/expenses', requireExpenseAccess, async (req, res) => {
     try {
-        const expenses = await listExpenses(db, { days: req.query.days });
+        // from/to (inclusive YYYY-MM-DD) wins over days.
+        const range = parseDayRange(req.query.from, req.query.to);
+        if ((req.query.from || req.query.to) && !range) {
+            return res.status(400).json({ message: 'Invalid date range. Use from=YYYY-MM-DD&to=YYYY-MM-DD.' });
+        }
+        const status = typeof req.query.status === 'string' ? req.query.status : null;
+        const expenses = await listExpenses(
+            db,
+            range ? { from: range.start, toExclusive: range.endExclusive, status } : { days: req.query.days, status },
+        );
         res.status(200).json(expenses);
     } catch (error) {
         console.error('❌ EXPENSES FETCH ERROR:', error.message);
         res.status(500).json({ message: 'Failed to load expenses' });
+    }
+});
+
+// Categories for the expense form and filters (anyone who can log an expense).
+app.get('/api/expense-categories', requireExpenseWriteAccess, async (req, res) => {
+    try {
+        res.status(200).json(await listExpenseCategories(db));
+    } catch (error) {
+        const errorId = logError(error, { route: `${req.method} ${req.originalUrl}` });
+        res.status(500).json({ message: 'Failed to load expense categories', errorId });
+    }
+});
+
+// Expenses page cards that don't follow the period: all unpaid bills, and the monthly repeats.
+app.get('/api/expenses/overview', requireExpenseAccess, async (req, res) => {
+    try {
+        res.status(200).json(await expenseOverview(db));
+    } catch (error) {
+        const errorId = logError(error, { route: `${req.method} ${req.originalUrl}` });
+        res.status(500).json({ message: 'Failed to load the expense overview', errorId });
+    }
+});
+
+app.get('/api/expenses/export/:kind', sensitiveOperationLimiter, requireExpenseAccess, async (req, res) => {
+    const kind = req.params.kind === 'excel' ? 'xlsx' : req.params.kind;
+    if (kind !== 'pdf' && kind !== 'xlsx') {
+        return res.status(400).json({ message: 'Invalid export type.' });
+    }
+    try {
+        const exported = await createExpenseExport(db, req.query, req.user, kind);
+        await auditFromRequest(db, req, {
+            action: kind === 'pdf' ? 'export_expenses_pdf' : 'export_expenses_excel',
+            module: 'Expenses',
+            description: `Expenses ${exported.periodLabel}; ${exported.count} row(s)`,
+        });
+        res.setHeader('Content-Type', exported.contentType);
+        res.setHeader('Content-Disposition', `attachment; filename="${exported.filename}"`);
+        res.send(exported.buffer);
+    } catch (error) {
+        if (error?.status === 400) return res.status(400).json({ message: error.message });
+        const errorId = logError(error, { route: `${req.method} ${req.originalUrl}` });
+        res.status(500).json({ message: 'Failed to export expenses', errorId });
+    }
+});
+
+// Receipt photo upload; returns the stored name to send as `receipt` when saving the expense.
+app.post('/api/expenses/receipt', requireExpenseWriteAccess, (req, res) => {
+    menuImageUpload.single('receipt')(req, res, async (err) => {
+        if (err) {
+            if (err.code === 'LIMIT_FILE_SIZE') {
+                return res.status(400).json({ message: 'Image file must be under 30 MB' });
+            }
+            return res.status(400).json({ message: err.message || 'Failed to upload the receipt' });
+        }
+        if (!req.file) {
+            return res.status(400).json({ message: 'Please choose a photo of the receipt' });
+        }
+        try {
+            const receipt = await saveMenuImage(req.file.buffer, req.file.originalname || 'receipt', receiptsDir, { maxSide: 1600 });
+            return res.status(200).json({ receipt });
+        } catch (saveError) {
+            if (saveError.status === 400) return res.status(400).json({ message: saveError.message });
+            const errorId = logError(saveError, { route: `${req.method} ${req.originalUrl}` });
+            return res.status(500).json({ message: 'Failed to save the receipt', errorId });
+        }
+    });
+});
+
+app.get('/api/expenses/:id/receipt', requireExpenseAccess, async (req, res) => {
+    try {
+        const filePath = await expenseReceiptPath(db, req.params.id, receiptsDir);
+        if (!filePath) return res.status(404).json({ message: 'No receipt for this expense' });
+        res.setHeader('Cache-Control', 'private, max-age=300');
+        res.sendFile(filePath);
+    } catch (error) {
+        if (error.status) return res.status(error.status).json({ message: error.message });
+        const errorId = logError(error, { route: `${req.method} ${req.originalUrl}` });
+        res.status(500).json({ message: 'Failed to load the receipt', errorId });
+    }
+});
+
+function removeReceiptFile(file) {
+    if (!file) return;
+    fs.promises.unlink(path.join(receiptsDir, path.basename(file))).catch(() => {});
+}
+
+app.put('/api/expenses/:id', requireExpenseAccess, async (req, res) => {
+    try {
+        const { expense, previous, removedReceipt } = await updateExpense(db, req.params.id, req.body ?? {}, { receiptsDir });
+        removeReceiptFile(removedReceipt);
+        await auditFromRequest(db, req, {
+            action: 'expense_update',
+            module: 'Expenses',
+            description: `Edited expense #${expense.id}: $${Number(previous.amount).toFixed(2)} → $${Number(expense.amount).toFixed(2)} (${expense.category}, ${expense.status}) dated ${expense.expense_date}.`,
+        });
+        res.status(200).json(expense);
+    } catch (error) {
+        const status = error.status || 500;
+        if (status >= 500) {
+            const errorId = logError(error, { route: `${req.method} ${req.originalUrl}` });
+            return res.status(500).json({ message: 'Failed to save the expense', errorId });
+        }
+        res.status(status).json({ message: error.message || 'Failed to save the expense', field: error.field });
     }
 });
 
@@ -2701,7 +2862,7 @@ app.get('/api/shifts/history', requirePosFloorAccess, async (req, res) => {
 
 app.post('/api/expenses', requireExpenseWriteAccess, async (req, res) => {
     try {
-        const expense = await createExpense(db, req.body ?? {}, req.user);
+        const expense = await createExpense(db, req.body ?? {}, req.user, { receiptsDir });
         await auditFromRequest(db, req, {
             action: 'expense_create',
             module: 'Expenses',
@@ -2720,7 +2881,7 @@ app.post('/api/expenses', requireExpenseWriteAccess, async (req, res) => {
             const errorId = logError(error, { route: `${req.method} ${req.originalUrl}` });
             return res.status(500).json({ message: 'Failed to create expense', errorId });
         }
-        res.status(status).json({ message: error.message || 'Failed to create expense' });
+        res.status(status).json({ message: error.message || 'Failed to create expense', field: error.field });
     }
 });
 
@@ -2732,7 +2893,8 @@ app.delete('/api/expenses/:id', requireExpenseAccess, async (req, res) => {
             [expenseId],
         );
         const previous = rows[0] || null;
-        await deleteExpense(db, req.params.id);
+        const receiptFile = await deleteExpense(db, req.params.id);
+        removeReceiptFile(receiptFile);
         await auditFromRequest(db, req, {
             action: 'expense_delete',
             module: 'Expenses',
