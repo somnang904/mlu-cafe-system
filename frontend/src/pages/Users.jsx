@@ -11,6 +11,7 @@ import {
   User,
   UserCheck,
   UserPlus,
+  Users as UsersIcon,
   Wallet,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -531,7 +532,10 @@ export default function Users() {
   return (
     <div className="space-y-6">
       <div className="space-y-4">
-        <h3 className="text-heading text-lg font-bold">{t('nav.users')}</h3>
+        <div className="flex items-center gap-2.5">
+          <UsersIcon className="h-5 w-5 shrink-0 text-forest-600 dark:text-forest-400" aria-hidden />
+          <h3 className="text-heading text-lg font-bold">{t('nav.users')}</h3>
+        </div>
         <button
           type="button"
           onClick={openCreateModal}
