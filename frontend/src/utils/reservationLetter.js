@@ -45,8 +45,22 @@ export function contactTelHref(phone = STORE.phone) {
   return digits ? `tel:${digits}` : 'tel:'
 }
 
+function buildLetterWording(reservation) {
+  if (String(reservation?.status) === 'Pending') {
+    return {
+      heading: 'Booking Received',
+      intro: 'Your booking request has been received and is awaiting confirmation. We will be in touch shortly.',
+    }
+  }
+  return {
+    heading: 'Booking Confirmed!',
+    intro: 'Your appointment has been successfully scheduled. We look forward to seeing you!',
+  }
+}
+
 export function buildLetterFields(reservation) {
   return {
+    ...buildLetterWording(reservation),
     guestName: String(reservation?.customer_name || 'Guest').trim(),
     dateLabel: formatLetterDate(reservation?.reservation_date),
     timeLabel: slotLabel(
@@ -73,7 +87,7 @@ export function letterFileName(reservation) {
 
 export function canIssueConfirmationLetter(reservation) {
   if (!reservation?.id) return false
-  return reservation.status !== 'Canceled'
+  return reservation.status !== 'Canceled' && reservation.status !== 'No-show'
 }
 
 function buildPrintableLetterHtml(reservation) {
@@ -89,7 +103,7 @@ function buildPrintableLetterHtml(reservation) {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Booking Confirmed — ${escapeHtml(letter.businessName)}</title>
+  <title>${escapeHtml(letter.heading.replace(/!$/, ''))} —${escapeHtml(letter.businessName)}</title>
   <style>
     @page { size: A5 portrait; margin: 0; }
     * { box-sizing: border-box; }
@@ -215,8 +229,8 @@ function buildPrintableLetterHtml(reservation) {
         <path d="M5 12.5 9.5 17 19 7" />
       </svg>
     </div>
-    <h1>Booking Confirmed!</h1>
-    <p class="sub">Your appointment has been successfully scheduled. We look forward to seeing you!</p>
+    <h1>${escapeHtml(letter.heading)}</h1>
+    <p class="sub">${escapeHtml(letter.intro)}</p>
     <p class="guest">Prepared for ${escapeHtml(letter.guestName)}</p>
     <div class="rule"></div>
     ${row('Date', letter.dateLabel)}

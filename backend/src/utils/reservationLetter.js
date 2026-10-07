@@ -45,8 +45,24 @@ function contactTelHref(phone = STORE.phone) {
   return digits ? `tel:${digits}` : 'tel:'
 }
 
+function buildLetterWording(reservation) {
+  if (String(reservation?.status) === 'Pending') {
+    return {
+      heading: 'Booking Received',
+      intro: 'Your booking request has been received and is awaiting confirmation. We will be in touch shortly.',
+      subjectPrefix: 'Booking received',
+    }
+  }
+  return {
+    heading: 'Booking Confirmed!',
+    intro: 'Your appointment has been successfully scheduled. We look forward to seeing you!',
+    subjectPrefix: 'Booking confirmed',
+  }
+}
+
 function buildLetterFields(reservation) {
   return {
+    ...buildLetterWording(reservation),
     guestName: String(reservation?.customer_name || 'Guest').trim(),
     dateLabel: formatLetterDate(reservation?.reservation_date),
     timeLabel: formatLetterTime(reservation),
@@ -66,9 +82,9 @@ function isValidLetterEmail(value) {
 function buildLetterText(reservation) {
   const letter = buildLetterFields(reservation)
   return [
-    'Booking Confirmed!',
+    letter.heading,
     '',
-    'Your appointment has been successfully scheduled. We look forward to seeing you!',
+    letter.intro,
     '',
     `Prepared for: ${letter.guestName}`,
     `Date: ${letter.dateLabel}`,
@@ -96,7 +112,7 @@ function buildLetterEmailHtml(reservation) {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Booking Confirmed</title>
+  <title>${escapeHtml(letter.heading.replace(/!$/, ''))}</title>
 </head>
 <body style="margin:0;padding:0;background:${LETTER_BG};">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${LETTER_BG};">
@@ -106,8 +122,8 @@ function buildLetterEmailHtml(reservation) {
           <tr>
             <td align="center" style="padding:36px 24px 8px 24px;">
               <div style="width:48px;height:48px;border-radius:24px;background:${LETTER_GREEN};line-height:48px;color:#ffffff;font-size:22px;font-family:Arial,Helvetica,sans-serif;">&#10003;</div>
-              <h1 style="margin:18px 0 8px 0;font-family:Georgia,'Times New Roman',serif;font-size:28px;font-weight:700;color:${LETTER_TEXT};">Booking Confirmed!</h1>
-              <p style="margin:0 12px;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.5;color:#8A8A8A;">Your appointment has been successfully scheduled. We look forward to seeing you!</p>
+              <h1 style="margin:18px 0 8px 0;font-family:Georgia,'Times New Roman',serif;font-size:28px;font-weight:700;color:${LETTER_TEXT};">${escapeHtml(letter.heading)}</h1>
+              <p style="margin:0 12px;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.5;color:#8A8A8A;">${escapeHtml(letter.intro)}</p>
               <p style="margin:10px 0 0 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#A3A3A3;">Prepared for ${escapeHtml(letter.guestName)}</p>
             </td>
           </tr>
@@ -149,14 +165,14 @@ async function sendReservationConfirmationLetter({ reservation, to }) {
     error.status = 404
     throw error
   }
-  if (String(reservation.status) === 'Canceled') {
+  if (['Canceled', 'No-show'].includes(String(reservation.status))) {
     const error = new Error('Cannot send a confirmation letter for a canceled booking')
     error.status = 400
     throw error
   }
 
   const letter = buildLetterFields(reservation)
-  const subject = `Booking confirmed — ${letter.businessName} (${letter.dateLabel})`
+  const subject = `${letter.subjectPrefix} — ${letter.businessName} (${letter.dateLabel})`
   return sendMail({
     to: email,
     subject,
@@ -167,6 +183,8 @@ async function sendReservationConfirmationLetter({ reservation, to }) {
 
 module.exports = {
   buildLetterFields,
+  buildLetterText,
+  buildLetterEmailHtml,
   isValidLetterEmail,
   sendReservationConfirmationLetter,
 }

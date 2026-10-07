@@ -110,10 +110,10 @@ export default function ConfirmationLetterModal({ isOpen, reservation, onClose }
                 className="mt-5 text-[1.65rem] leading-tight"
                 style={{ fontFamily: 'Georgia, "Times New Roman", serif', color: LETTER_COLORS.text }}
               >
-                Booking Confirmed!
+                {letter.heading}
               </h2>
               <p className="mt-2 text-[13px] leading-relaxed text-neutral-500">
-                Your appointment has been successfully scheduled. We look forward to seeing you!
+                {letter.intro}
               </p>
               <p className="mt-1 text-[12px] text-neutral-400">Prepared for {letter.guestName}</p>
               <div className="mx-auto mt-5 h-px w-[78%] bg-neutral-200" />
