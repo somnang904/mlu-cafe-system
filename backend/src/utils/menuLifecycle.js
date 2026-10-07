@@ -1,5 +1,13 @@
 const MENU_DELETE_COOLDOWN_DAYS = 7
 const MENU_NAME_MAX = 100
+
+function collapseSpaces(raw) {
+  return String(raw ?? '').trim().replace(/\s+/g, ' ')
+}
+
+function nameKey(raw) {
+  return collapseSpaces(raw).toLowerCase()
+}
 const DAY_MS = 24 * 60 * 60 * 1000
 
 function toDate(value) {
@@ -28,7 +36,7 @@ function computeMenuDeleteEligibility({ has_sales, is_available, unavailable_sin
 
 function normalizeMenuItemName(raw) {
   if (typeof raw !== 'string') return { error: 'Please fill in all fields (Name, Category, Price)', code: 'required' }
-  const name = raw.trim()
+  const name = collapseSpaces(raw)
   if (!name) return { error: 'Please fill in all fields (Name, Category, Price)', code: 'required' }
   if (name.length > MENU_NAME_MAX) return { error: `Use ${MENU_NAME_MAX} characters or fewer`, code: 'too_long' }
   return { name }
@@ -43,13 +51,16 @@ function parseOptionalAvailability(raw) {
 
 async function findDuplicateMenuName(db, name, category, excludeId = null) {
   const [rows] = await db.execute(
-    'SELECT id FROM menu_items WHERE category = ? AND LOWER(name) = LOWER(?) AND id <> ? LIMIT 1',
-    [category, name, excludeId ?? 0],
+    'SELECT name FROM menu_items WHERE category = ? AND id <> ?',
+    [category, excludeId ?? 0],
   )
-  return rows.length > 0
+  const wanted = nameKey(name)
+  return rows.some((row) => nameKey(row.name) === wanted)
 }
 
 module.exports = {
+  collapseSpaces,
+  nameKey,
   MENU_DELETE_COOLDOWN_DAYS,
   MENU_NAME_MAX,
   computeMenuDeleteEligibility,

@@ -1,6 +1,7 @@
 export const LOW_STOCK_PORTIONS = 5
 
 export function stockLevelOf(item) {
+  if (item?.stock_tracked === false && !item?.stock_unlimited) return 'out'
   const left = item?.stock_left
   if (left == null) return null
   const status = String(item.stock_status || '').toUpperCase()

@@ -17,7 +17,11 @@ const RENEWED_TOKEN_HEADER = 'X-Renewed-Token'
 const CLEANUP_INTERVAL_MS = 60 * 60 * 1000
 const REVOKED_ROW_FALLBACK_MS = SESSION_DAYS * 24 * 60 * 60 * 1000
 
+const { registerSchemaReset } = require('./schemaReset')
 let schemaReady = null
+registerSchemaReset(() => {
+  schemaReady = null
+})
 
 async function columnExists(db, column) {
   const [columns] = await db.execute(

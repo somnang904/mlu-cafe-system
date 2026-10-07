@@ -114,6 +114,8 @@ async function run() {
     password: '',
     database: DB_NAME,
   });
+  await conn.query('ALTER TABLE menu_items ALTER stock_unlimited SET DEFAULT 1');
+  await conn.query('UPDATE menu_items SET stock_unlimited = 1');
   const itemIds = [];
   const orderIds = [];
 

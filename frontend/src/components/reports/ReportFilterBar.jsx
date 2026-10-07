@@ -4,6 +4,7 @@ import { CalendarDays, FileSpreadsheet, FileText } from 'lucide-react'
 import SettingToggle from '../ui/SettingToggle'
 import PeriodSwitch from '../ui/PeriodSwitch'
 import { addDays, toDayKey } from '../../utils/reportRange'
+import { recentMonthKeys } from '../../utils/phnomPenhTime'
 import { formatMonthKey } from './reportFormat'
 
 export const REPORT_PRESETS = ['all', 'day', 'week', 'month', 'year', 'custom']
@@ -18,13 +19,6 @@ const COMPARE_LABELS = {
 const MONTH_CHOICES = 24
 // Matches the backend limit on from/to (about two years).
 const MAX_RANGE_DAYS = 800
-
-function recentMonths(today) {
-  return Array.from({ length: MONTH_CHOICES }, (_, index) => {
-    const date = new Date(today.getFullYear(), today.getMonth() - index, 1)
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
-  })
-}
 
 /**
  * Filter and export bar shared by every Reports tab: Day / Week / Month / Year / Custom (custom shows
@@ -46,8 +40,7 @@ export default function ReportFilterBar({
   const fromId = useId()
   const toId = useId()
   const monthId = useId()
-  const today = new Date()
-  const todayKey = toDayKey(today)
+  const todayKey = toDayKey(new Date())
   const selectedMonth = range.from.slice(0, 7) === range.to.slice(0, 7) && range.from.endsWith('-01')
     ? range.from.slice(0, 7)
     : ''
@@ -142,7 +135,7 @@ export default function ReportFilterBar({
               className="input-field rounded-xl px-3 py-2 text-sm"
             >
               <option value="">{t('reports.chooseMonth')}</option>
-              {recentMonths(today).map((monthKey) => (
+              {recentMonthKeys(MONTH_CHOICES).map((monthKey) => (
                 <option key={monthKey} value={monthKey}>
                   {formatMonthKey(monthKey, t)}
                 </option>

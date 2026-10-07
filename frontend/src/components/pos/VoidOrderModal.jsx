@@ -44,7 +44,7 @@ export default function VoidOrderModal({ isOpen, onClose, order, onConfirmVoid }
     }
 
     if (!order.order_id) {
-      setError('This sale is still syncing. Please try again in a moment.')
+      setError(t('sales.saleSyncing'))
       return
     }
 
@@ -57,7 +57,7 @@ export default function VoidOrderModal({ isOpen, onClose, order, onConfirmVoid }
       })
       onClose()
     } catch (err) {
-      setError(err.message || 'Failed to refund order')
+      setError(err.message || t('sales.refundFailed'))
     } finally {
       setSubmitting(false)
     }

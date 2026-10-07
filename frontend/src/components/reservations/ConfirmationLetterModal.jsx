@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Check, Download, Mail, ScrollText } from 'lucide-react'
 import { useModalKeyboard } from '../../hooks/useModalKeyboard'
 import { useNotifications } from '../../context/NotificationContext'
@@ -12,6 +13,7 @@ import {
 } from '../../utils/reservationLetter'
 
 export default function ConfirmationLetterModal({ isOpen, reservation, onClose }) {
+  const { t } = useTranslation()
   const panelRef = useModalKeyboard({ isOpen, onEscape: onClose, primaryActionMode: 'never' })
   const { pushBanner } = useNotifications()
   const [email, setEmail] = useState('')
@@ -34,14 +36,14 @@ export default function ConfirmationLetterModal({ isOpen, reservation, onClose }
     const method = printConfirmationLetter(reservation)
     if (method === 'download') {
       pushBanner({
-        title: 'Letter downloaded',
-        message: 'The print window was blocked, so an HTML copy was saved instead.',
+        title: t('reservations.letter.downloadedTitle'),
+        message: t('reservations.letter.downloadedMessage'),
       })
       return
     }
     pushBanner({
-      title: 'Save as PDF',
-      message: 'In the print dialog, choose Save as PDF to keep a copy for the guest.',
+      title: t('reservations.letter.savePdfTitle'),
+      message: t('reservations.letter.savePdfMessage'),
     })
   }
 
@@ -55,16 +57,16 @@ export default function ConfirmationLetterModal({ isOpen, reservation, onClose }
         body: JSON.stringify({ email }),
       })
       const data = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(data.message || 'Failed to send the letter')
+      if (!response.ok) throw new Error(data.message || t('reservations.letter.sendFailed'))
       pushBanner({
-        title: data.delivered ? 'Letter sent' : 'Letter queued',
+        title: data.delivered ? t('reservations.letter.sentTitle') : t('reservations.letter.queuedTitle'),
         message: data.delivered
-          ? `Sent to ${email.trim()}.`
-          : data.message || 'SMTP is not configured, so the letter was written to the mail log.',
+          ? t('reservations.letter.sentTo', { email: email.trim() })
+          : data.message || t('reservations.letter.queuedMessage'),
       })
       onClose()
     } catch (err) {
-      setSendError(err.message || 'Failed to send the letter')
+      setSendError(err.message || t('reservations.letter.sendFailed'))
     } finally {
       setSending(false)
     }
@@ -85,8 +87,8 @@ export default function ConfirmationLetterModal({ isOpen, reservation, onClose }
           <div className="mb-4">
             <ModalHeader
               icon={ScrollText}
-              title="Confirmation letter"
-              subtitle="Optional copy for the guest. Download a PDF or send it by email when they ask."
+              title={t('reservations.letter.title')}
+              subtitle={t('reservations.letter.subtitle')}
               titleId="confirmation-letter-title"
               onClose={onClose}
             />
@@ -110,10 +112,10 @@ export default function ConfirmationLetterModal({ isOpen, reservation, onClose }
                 className="mt-5 text-[1.65rem] leading-tight"
                 style={{ fontFamily: 'Georgia, "Times New Roman", serif', color: LETTER_COLORS.text }}
               >
-                Booking Confirmed!
+                {letter.heading}
               </h2>
               <p className="mt-2 text-[13px] leading-relaxed text-neutral-500">
-                Your appointment has been successfully scheduled. We look forward to seeing you!
+                {letter.intro}
               </p>
               <p className="mt-1 text-[12px] text-neutral-400">Prepared for {letter.guestName}</p>
               <div className="mx-auto mt-5 h-px w-[78%] bg-neutral-200" />
@@ -166,13 +168,13 @@ export default function ConfirmationLetterModal({ isOpen, reservation, onClose }
               className="btn-secondary flex w-full items-center justify-center gap-2 px-4 py-2.5 text-sm"
             >
               <Download className="h-4 w-4" />
-              Download letter
+              {t('reservations.letter.download')}
             </button>
 
             <form className="space-y-2" onSubmit={handleSend}>
               <div>
                 <FieldLabel icon={Mail} htmlFor="letter-email">
-                  Send to customer email
+                  {t('reservations.letter.sendToEmail')}
                 </FieldLabel>
                 <input
                   id="letter-email"
@@ -195,7 +197,7 @@ export default function ConfirmationLetterModal({ isOpen, reservation, onClose }
                 }`}
               >
                 <Mail className="h-4 w-4" />
-                {sending ? 'Sending…' : 'Send letter'}
+                {sending ? t('reservations.letter.sending') : t('reservations.letter.send')}
               </button>
             </form>
           </div>

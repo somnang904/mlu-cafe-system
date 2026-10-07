@@ -33,9 +33,6 @@ export const STORE_SCHEDULE = {
   },
 }
 
-export const OPERATING_HOURS_NOTICE =
-  'Operating Hours: Low Season (9:00 AM - 9:00 PM) | High Season (7:00 AM - 9:00 PM) | Closed Mondays'
-
 function pad2(value) {
   return String(value).padStart(2, '0')
 }
@@ -62,10 +59,6 @@ export function isHighSeasonMonth(dateInput, seasonMode = 'auto') {
   const date = dateInput instanceof Date ? dateInput : parseIsoDate(dateInput)
   const month = date.getMonth() + 1
   return HIGH_SEASON_MONTHS.includes(month)
-}
-
-export function getSeasonForDate(dateInput, seasonMode = 'auto') {
-  return isHighSeasonMonth(dateInput, seasonMode) ? STORE_SCHEDULE.highSeason : STORE_SCHEDULE.lowSeason
 }
 
 export function generateTimeSlots(isHighSeason) {

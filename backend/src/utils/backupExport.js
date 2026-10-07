@@ -71,7 +71,7 @@ async function writeSalesSheet(workbook, db, period) {
           tax,
           COALESCE(total, total_amount, 0) AS total,
           status,
-          updated_at AS soldAt
+          DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS soldAt
         FROM orders
         WHERE ${COMPLETED}${filter.clause} AND id > ?
         ORDER BY id
@@ -105,7 +105,7 @@ async function writeExpensesSheet(workbook, db, period) {
     query: async (lastId) => {
       const [rows] = await db.execute(
         `
-        SELECT id, category, description, amount, expense_date AS expenseDate, created_by_name AS recordedBy, paid_from AS paidFrom
+        SELECT id, category, description, amount, DATE_FORMAT(expense_date, '%Y-%m-%d') AS expenseDate, created_by_name AS recordedBy, paid_from AS paidFrom
         FROM expenses
         WHERE id > ?${filter.clause}
         ORDER BY id
@@ -184,7 +184,7 @@ async function writeMovementsSheet(workbook, db, period) {
             m.reason,
             m.order_id AS orderId,
             m.note,
-            m.created_at AS createdAt
+            DATE_FORMAT(m.created_at, '%Y-%m-%d %H:%i:%s') AS createdAt
           FROM stock_movements m
           LEFT JOIN inventory i ON i.id = m.inventory_id
           WHERE m.id > ?${filter.clause}

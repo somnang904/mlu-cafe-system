@@ -1,6 +1,6 @@
 const { createAdminNotification } = require('./adminNotifications')
 const { userHasPermission } = require('../constants/permissions')
-const { formatDate, TIME_SLOTS, ensureReservationsSchema, addDaysIso } = require('./reservations')
+const { formatDate, todayIso, ACTIVE_STATUSES, TIME_SLOTS, ensureReservationsSchema, addDaysIso } = require('./reservations')
 const { formatTimeRange12Hour } = require('../config/siteData')
 
 const REMINDER_INTERVAL_MS = Number.parseInt(process.env.RESERVATION_REMINDER_INTERVAL_MS, 10) || 10 * 60 * 1000
@@ -94,6 +94,26 @@ async function dismissLegacyThreeDayAlerts(db) {
   }
 }
 
+async function dismissInactiveReservationAlerts(db, today) {
+  try {
+    await db.execute(
+      `
+      UPDATE admin_notifications n
+      SET n.is_read = 1
+      WHERE n.is_read = 0
+        AND n.type LIKE 'reservation_%'
+        AND NOT EXISTS (
+          SELECT 1 FROM reservations r
+          WHERE r.id = CAST(JSON_UNQUOTE(JSON_EXTRACT(n.meta, '$.reservationId')) AS UNSIGNED)
+            AND r.status IN (${ACTIVE_STATUSES.map(() => '?').join(', ')})
+            AND r.reservation_date >= ?
+        )
+      `,
+      [...ACTIVE_STATUSES, today],
+    )
+  } catch {}
+}
+
 async function notifyReservationCreated(db, reservation) {
   try {
     const recipients = await listReminderRecipients(db)
@@ -133,14 +153,16 @@ async function runReminderPass(db) {
   const recipients = await listReminderRecipients(db)
   if (!recipients.length) return { created: 0 }
 
-  const today = formatDate(new Date())
+  const today = todayIso()
   const tomorrow = addDaysIso(today, 1)
   let created = 0
+
+  await dismissInactiveReservationAlerts(db, today)
 
   // 1. Pending reservations needing confirmation (today or upcoming)
   const [pendingRows] = await db.execute(
     `
-    SELECT r.id, r.customer_name, r.phone, r.reservation_date, r.time_slot, r.guest_count,
+    SELECT r.id, r.customer_name, r.phone, DATE_FORMAT(r.reservation_date, '%Y-%m-%d') AS reservation_date, r.time_slot, r.guest_count,
            r.table_id, t.table_name
     FROM reservations r
     JOIN tables t ON t.id = r.table_id
@@ -177,7 +199,7 @@ async function runReminderPass(db) {
   // 2. Reservations for TODAY
   const [todayRows] = await db.execute(
     `
-    SELECT r.id, r.customer_name, r.phone, r.reservation_date, r.time_slot, r.guest_count,
+    SELECT r.id, r.customer_name, r.phone, DATE_FORMAT(r.reservation_date, '%Y-%m-%d') AS reservation_date, r.time_slot, r.guest_count,
            r.table_id, t.table_name, r.status
     FROM reservations r
     JOIN tables t ON t.id = r.table_id
@@ -213,7 +235,7 @@ async function runReminderPass(db) {
   // 3. Reservations for TOMORROW (1 day reminder)
   const [oneDayRows] = await db.execute(
     `
-    SELECT r.id, r.customer_name, r.phone, r.reservation_date, r.time_slot, r.guest_count,
+    SELECT r.id, r.customer_name, r.phone, DATE_FORMAT(r.reservation_date, '%Y-%m-%d') AS reservation_date, r.time_slot, r.guest_count,
            r.table_id, t.table_name, r.status
     FROM reservations r
     JOIN tables t ON t.id = r.table_id
@@ -250,7 +272,7 @@ async function runReminderPass(db) {
   // 4. Upcoming advance reservations (2 days or more in advance)
   const [upcomingRows] = await db.execute(
     `
-    SELECT r.id, r.customer_name, r.phone, r.reservation_date, r.time_slot, r.guest_count,
+    SELECT r.id, r.customer_name, r.phone, DATE_FORMAT(r.reservation_date, '%Y-%m-%d') AS reservation_date, r.time_slot, r.guest_count,
            r.table_id, t.table_name, r.status
     FROM reservations r
     JOIN tables t ON t.id = r.table_id

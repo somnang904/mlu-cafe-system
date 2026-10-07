@@ -1,3 +1,4 @@
+import i18n from '../i18n'
 import { readSession, writeSession } from './sessionStorage'
 import { deviceHeaders } from '../utils/deviceFingerprint'
 
@@ -32,7 +33,7 @@ export function getAuthToken() {
 }
 
 function unauthenticatedResponse() {
-  return new Response(JSON.stringify({ message: 'Authentication required' }), {
+  return new Response(JSON.stringify({ message: i18n.t('apiErrors.authRequired') }), {
     status: 401,
     headers: { 'Content-Type': 'application/json' },
   })
@@ -127,7 +128,7 @@ export async function apiFetch(path, options = {}) {
   if (!SILENT_NETWORK_PATHS.has(normalizeApiPath(normalizedPath))) {
     noteBackend(false)
   }
-  throw lastError || new Error('Backend unreachable')
+  throw lastError || new Error(i18n.t('apiErrors.backendUnreachable'))
 }
 
 function parseFilenameFromDisposition(headerValue) {
@@ -160,14 +161,14 @@ export function saveBlobAsDownload(blob, filename) {
 
 export async function apiFetchDownload(path, fallbackFilename = 'download', query = {}) {
   if (!getAuthToken()) {
-    throw new Error('Authentication required')
+    throw new Error(i18n.t('apiErrors.authRequired'))
   }
 
   const normalizedPath = path.startsWith('/') ? path : `/${path}`
   const response = await apiFetch(`${normalizedPath}${buildQueryString(query)}`)
 
   if (!response.ok) {
-    let message = 'Download failed'
+    let message = i18n.t('apiErrors.downloadFailed')
     try {
       const payload = await response.json()
       message = payload.message || message
@@ -183,16 +184,10 @@ export async function apiFetchDownload(path, fallbackFilename = 'download', quer
   return { blob, filename }
 }
 
-export async function apiDownload(path, fallbackFilename = 'download', query = {}) {
-  const { blob, filename } = await apiFetchDownload(path, fallbackFilename, query)
-  saveBlobAsDownload(blob, filename)
-  return filename
-}
-
 export async function apiUpload(path, fieldName, file) {
   const token = getAuthToken()
   if (!token) {
-    throw new Error('Authentication required')
+    throw new Error(i18n.t('apiErrors.authRequired'))
   }
 
   const normalizedPath = path.startsWith('/') ? path : `/${path}`
@@ -218,14 +213,9 @@ export async function apiUpload(path, fieldName, file) {
   }
 
   if (!response.ok) {
-    throw new Error(payload.message || payload.detail || 'Upload failed')
+    throw new Error(payload.message || payload.detail || i18n.t('apiErrors.uploadFailed'))
   }
 
   return payload
 }
 
-export function updateSessionUser(user) {
-  const session = readSession()
-  if (!session) return
-  writeSession({ ...session, user })
-}

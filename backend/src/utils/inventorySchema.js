@@ -1,4 +1,8 @@
+const { registerSchemaReset } = require('./schemaReset');
 let schemaReadyPromise = null;
+registerSchemaReset(() => {
+  schemaReadyPromise = null;
+});
 
 async function columnExists(db, table, column) {
   const [rows] = await db.execute(

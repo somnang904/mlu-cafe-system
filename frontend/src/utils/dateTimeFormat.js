@@ -2,10 +2,18 @@ import i18n from '../i18n'
 
 const KHMER_DIGITS = ['០', '១', '២', '៣', '៤', '៥', '៦', '៧', '៨', '៩']
 
+export function isKhmerLanguage(language = i18n.language) {
+  return String(language || '').startsWith('km')
+}
+
+export function activeLocale(language = i18n.language) {
+  return isKhmerLanguage(language) ? 'km-KH' : 'en-US'
+}
+
 export function localizeDigits(value) {
   const text = String(value ?? '')
-  if (!String(i18n.language || '').startsWith('km')) return text
-  return text.replace(/d/g, (digit) => KHMER_DIGITS[Number(digit)])
+  if (!isKhmerLanguage()) return text
+  return text.replace(/\d/g, (digit) => KHMER_DIGITS[Number(digit)])
 }
 
 const DATE_ISO_REGEX = /^\d{4}-\d{2}-\d{2}$/

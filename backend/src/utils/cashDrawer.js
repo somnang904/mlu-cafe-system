@@ -3,8 +3,8 @@ const MIN_EXCHANGE_RATE = 1000
 const MAX_EXCHANGE_RATE = 10000
 const KHR_ROUNDING_SLACK = 50
 const USD_SLACK = 0.01
-const MAX_RECEIVED_USD = 99999999
-const MAX_RECEIVED_KHR = 999999999999
+const MAX_RECEIVED_USD = 1000000
+const MAX_RECEIVED_KHR = 4000000000
 
 function roundUsd(value) {
   return Math.round(Number(value) * 100) / 100

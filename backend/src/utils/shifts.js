@@ -3,7 +3,11 @@ const { columnExists } = require('./ordersSchema')
 const { summarizeCashOrders, computeCashDifference } = require('./cashDrawer')
 const { ensureExpensesSchema } = require('./expenses')
 
+const { registerSchemaReset } = require('./schemaReset')
 let shiftsSchemaReady = null
+registerSchemaReset(() => {
+  shiftsSchemaReady = null
+})
 
 async function ensureShiftsSchema(db) {
   if (!shiftsSchemaReady) {
@@ -80,7 +84,10 @@ async function withShiftLock(db, fn) {
   }
 }
 
-function parseCount(value, label, { required }) {
+const MAX_CASH_USD = 1000000
+const MAX_CASH_KHR = 4000000000
+
+function parseCount(value, label, { required, max = null }) {
   if (value === null || value === undefined || value === '') {
     if (required) throw shiftError(`${label} is required`, 400)
     return 0
@@ -88,6 +95,9 @@ function parseCount(value, label, { required }) {
   const number = Number(value)
   if (!Number.isFinite(number) || number < 0) {
     throw shiftError(`${label} must be a non-negative number`, 400)
+  }
+  if (max != null && number > max) {
+    throw shiftError(`${label} cannot be more than ${max.toLocaleString('en-US')}`, 400)
   }
   return number
 }
@@ -209,11 +219,8 @@ async function getCurrentShift(db, userId = null) {
 async function startShift(db, { userId, cashierName, openingFloatUsd = 0, openingFloatKhr = 0 }) {
   await ensureShiftsSchema(db)
 
-  const parsedFloatUsd = Math.max(0, Math.round(Number(openingFloatUsd || 0) * 100) / 100)
-  const parsedFloatKhr = Math.max(0, Math.round(Number(openingFloatKhr || 0)))
-  if (!Number.isFinite(parsedFloatUsd) || !Number.isFinite(parsedFloatKhr)) {
-    throw shiftError('Opening float must be a number', 400)
-  }
+  const parsedFloatUsd = Math.round(parseCount(openingFloatUsd, 'opening_float_usd', { required: false, max: MAX_CASH_USD }) * 100) / 100
+  const parsedFloatKhr = Math.round(parseCount(openingFloatKhr, 'opening_float_khr', { required: false, max: MAX_CASH_KHR }))
 
   await withShiftLock(db, async (conn) => {
     const [existing] = await conn.execute(
@@ -256,8 +263,8 @@ async function endShift(db, { shiftId, closingCashUsd, closingCashKhr, notes = '
   const expectedCashUsd = expectedDrawerUsd(openFloatUsd, metrics)
   const expectedCashKhr = Math.round((openFloatKhr + metrics.cashSalesKhr) * 100) / 100
 
-  const countUsd = Math.round(parseCount(closingCashUsd, 'closing_cash_usd', { required: true }) * 100) / 100
-  const countKhr = Math.round(parseCount(closingCashKhr, 'closing_cash_khr', { required: false }))
+  const countUsd = Math.round(parseCount(closingCashUsd, 'closing_cash_usd', { required: true, max: MAX_CASH_USD }) * 100) / 100
+  const countKhr = Math.round(parseCount(closingCashKhr, 'closing_cash_khr', { required: false, max: MAX_CASH_KHR }))
   const diffUsd = Math.round((countUsd - expectedCashUsd) * 100) / 100
   const diffKhr = Math.round(countKhr - expectedCashKhr)
   const diff = computeCashDifference({

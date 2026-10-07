@@ -965,6 +965,7 @@ export default function Table() {
     refreshFloorTables,
   } = usePOS()
   const { refresh: refreshAlerts } = useAlerts()
+  const { isAdmin } = useAuth()
   const [floorReservations, setFloorReservations] = useState({})
   const [preview, setPreview] = useState(null)
   const [previewBusy, setPreviewBusy] = useState(false)
@@ -1166,14 +1167,16 @@ export default function Table() {
           <h3 className="page-title">{t('nav.table')}</h3>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setShowAddModal(true)}
-            className={`${TOOLBAR_ITEM} cursor-pointer bg-forest-500 text-white shadow-sm ring-forest-500 transition-colors hover:bg-forest-600`}
-          >
-            <Plus className="h-4 w-4" />
-            {t('tables.addTable')}
-          </button>
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => setShowAddModal(true)}
+              className={`${TOOLBAR_ITEM} cursor-pointer bg-forest-500 text-white shadow-sm ring-forest-500 transition-colors hover:bg-forest-600`}
+            >
+              <Plus className="h-4 w-4" />
+              {t('tables.addTable')}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setShowMergeModal(true)}

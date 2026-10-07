@@ -1,6 +1,11 @@
-const { computeMenuDeleteEligibility, toIso } = require('./menuLifecycle')
+const { computeMenuDeleteEligibility, toIso, nameKey } = require('./menuLifecycle')
+const { withTransaction } = require('./stockLedger')
 
+const { registerSchemaReset } = require('./schemaReset')
 let menuItemsSchemaReadyPromise = null
+registerSchemaReset(() => {
+  menuItemsSchemaReadyPromise = null
+})
 
 const MENU_CATEGORIES = ['Coffee', 'Tea', 'Cold Drinks', 'Beer', 'Starters', 'Mains', 'Soup', 'Vegetable', 'Dessert']
 // ENUM storage order must stay stable. New values are appended only.
@@ -27,6 +32,22 @@ function normalizeMenuImageUrl(raw) {
   if (raw == null) return null
   const trimmed = String(raw).trim()
   return trimmed === '' ? null : trimmed.slice(0, 512)
+}
+
+const MAX_MENU_PRICE = 100000
+const MAX_IMAGE_URL = 512
+const IMAGE_URL_PREFIXES = ['/api/uploads/', '/uploads/', '/menu-images/', 'http://', 'https://']
+
+function parseMenuImageUrl(raw) {
+  if (raw == null) return { value: null }
+  if (typeof raw !== 'string') return { error: 'Image link is not valid' }
+  const trimmed = raw.trim()
+  if (!trimmed) return { value: null }
+  if (trimmed.length > MAX_IMAGE_URL) return { error: `Image link must be ${MAX_IMAGE_URL} characters or fewer` }
+  if (!IMAGE_URL_PREFIXES.some((prefix) => trimmed.toLowerCase().startsWith(prefix)) || /\s/.test(trimmed)) {
+    return { error: 'Image link must be an uploaded picture or an http(s) link' }
+  }
+  return { value: trimmed }
 }
 
 function parseOptionalMoney(value) {
@@ -204,7 +225,7 @@ async function renameMenuCategory(db, rawCurrent, rawNext) {
 async function deleteMenuCategory(db, raw, rawMoveTo = null) {
   const { key, builtIn } = await findMenuCategory(db, raw)
   const [[{ count }]] = await db.execute('SELECT COUNT(*) AS count FROM menu_items WHERE category = ?', [key])
-  const moved = Number(count)
+  let moved = Number(count)
   if (moved > 0) {
     const target = cleanCategoryName(rawMoveTo) ? await resolveMenuCategory(db, rawMoveTo) : null
     if (!target || target === key) {
@@ -212,7 +233,22 @@ async function deleteMenuCategory(db, raw, rawMoveTo = null) {
       error.count = moved
       throw error
     }
-    await db.execute('UPDATE menu_items SET category = ? WHERE category = ?', [target, key])
+    moved = await withTransaction(db, async (conn) => {
+      const [rows] = await conn.execute(
+        'SELECT id, name, category FROM menu_items WHERE category IN (?, ?) FOR UPDATE',
+        [key, target],
+      )
+      const targetNames = new Set(rows.filter((row) => row.category === target).map((row) => nameKey(row.name)))
+      const source = rows.filter((row) => row.category === key)
+      const clashes = [...new Set(source.filter((row) => targetNames.has(nameKey(row.name))).map((row) => row.name))]
+      if (clashes.length) {
+        const error = categoryError(409, `These items already exist in "${target}": ${clashes.join(', ')}. Rename them first.`, 'name_clash')
+        error.names = clashes
+        throw error
+      }
+      const [result] = await conn.execute('UPDATE menu_items SET category = ? WHERE category = ?', [target, key])
+      return Number(result.affectedRows)
+    })
   }
   if (builtIn) await saveBuiltInSetting(db, key, { hidden: true })
   else await db.execute('DELETE FROM menu_categories WHERE name = ?', [key])
@@ -223,9 +259,23 @@ function isFoodCategory(category) {
   return !DRINK_CATEGORIES.has(category)
 }
 
+const PRICE_RANGE_ERROR = `Price must be more than 0 and no more than ${MAX_MENU_PRICE.toLocaleString('en-US')}`
+
+function strictPrice(raw) {
+  if (raw == null || raw === '') return { value: null }
+  const n = Number(raw)
+  if (typeof raw === 'boolean' || !Number.isFinite(n)) return { invalid: true }
+  const rounded = Math.round(n * 100) / 100
+  if (rounded <= 0 || rounded > MAX_MENU_PRICE) return { invalid: true }
+  return { value: rounded }
+}
+
 function normalizeMenuPrices(body, category) {
-  const hot = parseOptionalMoney(body?.hot_price)
-  const iced = parseOptionalMoney(body?.iced_price)
+  const hotCheck = strictPrice(body?.hot_price)
+  const icedCheck = strictPrice(body?.iced_price)
+  if (hotCheck.invalid || icedCheck.invalid) return { error: PRICE_RANGE_ERROR }
+  const hot = hotCheck.value
+  const iced = icedCheck.value
 
   // Any item may offer Hot/Ice servings (e.g. Matcha under Cold Drinks).
   if (hot != null || iced != null) {
@@ -237,7 +287,9 @@ function normalizeMenuPrices(body, category) {
     }
   }
 
-  const price = parseOptionalMoney(body?.price)
+  const priceCheck = strictPrice(body?.price)
+  if (priceCheck.invalid) return { error: PRICE_RANGE_ERROR }
+  const price = priceCheck.value
   if (price == null) {
     return {
       error: isFoodCategory(category)
@@ -266,6 +318,7 @@ function serializeMenuItem(row, now = new Date()) {
     image_url: normalizeMenuImageUrl(row.image_url),
     is_available: row.is_available === 0 || row.is_available === false ? false : true,
     unavailable_since: toIso(row.unavailable_since),
+    stock_unlimited: Number(row.stock_unlimited) === 1,
     has_sales: hasSales,
     ...computeMenuDeleteEligibility({
       has_sales: hasSales,
@@ -277,7 +330,7 @@ function serializeMenuItem(row, now = new Date()) {
 }
 
 const MENU_ITEM_SELECT = `SELECT m.id, m.name, m.category, m.price, m.hot_price, m.iced_price, m.image_url, m.is_available,
-       m.unavailable_since,
+       m.unavailable_since, m.stock_unlimited,
        EXISTS (SELECT 1 FROM order_items oi WHERE oi.menu_item_id = m.id) AS has_sales
 FROM menu_items m`
 
@@ -316,6 +369,9 @@ async function ensureMenuItemsSchema(db) {
       await db.execute(
         'UPDATE menu_items SET unavailable_since = NOW() WHERE is_available = 0 AND unavailable_since IS NULL',
       )
+      if (!(await columnExists(db, 'menu_items', 'stock_unlimited'))) {
+        await db.execute('ALTER TABLE menu_items ADD COLUMN stock_unlimited TINYINT(1) NOT NULL DEFAULT 0')
+      }
 
       if (!(await columnExists(db, 'order_items', 'item_category'))) {
         await db.execute('ALTER TABLE order_items ADD COLUMN item_category VARCHAR(100) NULL')
@@ -387,6 +443,8 @@ module.exports = {
   ensureMenuItemsSchema,
   ensureMenuItemsImageSchema: ensureMenuItemsSchema,
   normalizeMenuImageUrl,
+  parseMenuImageUrl,
+  MAX_MENU_PRICE,
   normalizeMenuCategory,
   normalizeMenuPrices,
   parseOptionalMoney,

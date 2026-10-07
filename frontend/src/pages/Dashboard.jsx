@@ -231,12 +231,14 @@ export default function Dashboard({ onNavigate }) {
     })
   }, [orders, menuItems])
 
-  const paymentColors = [chartTheme.primary, chartTheme.secondary]
+  const paymentColors = [chartTheme.primary, chartTheme.secondary, chartTheme.muted]
   const localizedPaymentSplit = useMemo(
     () =>
       paymentSplit.map((entry) => ({
         ...entry,
         name: paymentMethodLabel(entry.name, t),
+        value: Math.max(0, entry.value),
+        amount: entry.value,
       })),
     [paymentSplit, t],
   )
@@ -486,7 +488,7 @@ export default function Dashboard({ onNavigate }) {
                         <span className="text-foreground">{entry.name}</span>
                       </div>
                       <span className="text-heading font-semibold tabular-nums">
-                        ${entry.value.toFixed(2)} ({percent.toFixed(0)}%)
+                        ${entry.amount.toFixed(2)} ({percent.toFixed(0)}%)
                       </span>
                     </div>
                     <div className="h-2 overflow-hidden rounded-full bg-background/80 dark:bg-card/40">

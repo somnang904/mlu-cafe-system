@@ -13,6 +13,7 @@ const { ensureReservationsSchema } = require('./reservations')
 const { ensureAppSettingsSchema } = require('./appSettings')
 const { ensureLoginSecuritySchema } = require('./loginSecurity')
 const { ensureShiftsSchema } = require('./shifts')
+const { resetSchemaCaches } = require('./schemaReset')
 
 async function ensureApplicationSchema(db) {
   await ensureInventorySchema(db)
@@ -34,6 +35,13 @@ async function ensureApplicationSchema(db) {
   return restoredSaleDates
 }
 
+async function refreshApplicationSchemaAfterRestore(db) {
+  resetSchemaCaches()
+  await ensureApplicationSchema(db)
+  await db.execute('UPDATE users SET tokens_valid_after = UNIX_TIMESTAMP()')
+}
+
 module.exports = {
   ensureApplicationSchema,
+  refreshApplicationSchemaAfterRestore,
 }

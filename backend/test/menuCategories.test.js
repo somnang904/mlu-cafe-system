@@ -12,14 +12,20 @@ const {
 
 // Just enough of the mysql2 pool for the menu_categories queries.
 // `items` holds the category of each menu item; `settings` the built-in key -> { label, hidden } rows.
-function fakeDb(names = [], items = []) {
+function fakeDb(names = [], items = [], itemNames = items.map((_, index) => `Item ${index}`)) {
   const rows = [...names]
   const settings = new Map()
-  return {
+  const db = {
     rows,
     items,
     settings,
+    async getConnection() {
+      return { execute: db.execute, beginTransaction: async () => {}, commit: async () => {}, rollback: async () => {}, release() {} }
+    },
     async execute(sql, params = []) {
+      if (sql.startsWith('SELECT id, name, category FROM menu_items')) {
+        return [items.map((category, index) => ({ id: index + 1, name: itemNames[index], category })).filter((row) => params.includes(row.category))]
+      }
       if (sql.startsWith('SELECT name, label, hidden FROM menu_category_settings')) {
         return [[...settings].map(([name, setting]) => ({ name, label: setting.label, hidden: setting.hidden }))]
       }
@@ -32,10 +38,14 @@ function fakeDb(names = [], items = []) {
         return [{ affectedRows: 1 }]
       }
       if (sql.startsWith('UPDATE menu_items SET category')) {
+        let affectedRows = 0
         items.forEach((category, index) => {
-          if (category === params[1]) items[index] = params[0]
+          if (category === params[1]) {
+            items[index] = params[0]
+            affectedRows += 1
+          }
         })
-        return [{}]
+        return [{ affectedRows }]
       }
       if (sql.startsWith('SELECT COUNT(*) AS count FROM menu_items')) {
         return [[{ count: items.filter((category) => category === params[0]).length }]]
@@ -56,6 +66,7 @@ function fakeDb(names = [], items = []) {
       throw new Error(`unexpected query: ${sql}`)
     },
   }
+  return db
 }
 
 test('a new category is trimmed and listed after the built-in ones', async () => {
@@ -118,6 +129,13 @@ test('a category with items is deleted only after they move to another one', asy
   assert.deepEqual(await deleteMenuCategory(db, 'Bowls', 'Coffee'), { key: 'Bowls', moved: 2 })
   assert.deepEqual(db.items, ['Coffee', 'Tea', 'Coffee'])
   assert.deepEqual(await deleteMenuCategory(db, 'Dessert'), { key: 'Dessert', moved: 0 })
+})
+
+test('moving items into a category that already has the same names is refused and nothing moves', async () => {
+  const db = fakeDb(['Smoothies', 'Bowls'], ['Smoothies', 'Bowls', 'Smoothies'], ['Mango  Shake', 'mango shake', 'Kiwi'])
+  await assert.rejects(deleteMenuCategory(db, 'Smoothies', 'Bowls'), (error) => error.status === 409 && error.code === 'name_clash' && error.names.join() === 'Mango  Shake')
+  assert.deepEqual(db.items, ['Smoothies', 'Bowls', 'Smoothies'])
+  assert.deepEqual(db.rows, ['Smoothies', 'Bowls'])
 })
 
 test('a built-in category is renamed with a display label; its items keep the key', async () => {

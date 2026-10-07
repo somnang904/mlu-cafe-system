@@ -7,6 +7,7 @@ import {
   ClipboardList,
   Hash,
   History,
+  Infinity as InfinityIcon,
   ListChecks,
   ListFilter,
   Package,
@@ -752,6 +753,20 @@ export default function MenuStock() {
     })
   }
 
+  const toggleUnlimited = async (item) => {
+    const next = !item.stock_unlimited
+    try {
+      const { ok, data } = await sendJson(`/inventory/menu-stock/${item.menu_item_id}/unlimited`, 'PATCH', { unlimited: next })
+      if (!ok) {
+        setError(data?.message || t('menuStock.errors.save'))
+        return
+      }
+      applyItem(data.item || { ...item, stock_unlimited: next }, next ? t('menuStock.unlimitedOn') : t('menuStock.unlimitedOff'))
+    } catch (err) {
+      setError(err.message || t('menuStock.errors.save'))
+    }
+  }
+
   const applyItem = (updated, message) => {
     const next = items.map((item) =>
       item.menu_item_id === updated.menu_item_id ? { ...item, ...updated } : item,
@@ -947,8 +962,12 @@ export default function MenuStock() {
                           <Pill tone={tone.pill} dot={tone.dot}>
                             {t(tone.key)}
                           </Pill>
-                        ) : (
+                        ) : item.stock_unlimited ? (
                           <span className="text-xs font-medium text-slate-500 dark:text-zinc-400">{t('menuStock.unlimited')}</span>
+                        ) : (
+                          <Pill tone={STATUS_TONES.OUT_OF_STOCK.pill} dot={STATUS_TONES.OUT_OF_STOCK.dot}>
+                            {t('menuStock.noStockCannotSell')}
+                          </Pill>
                         )}
                       </td>
                       <td className="px-6 py-4">
@@ -989,16 +1008,33 @@ export default function MenuStock() {
                               </Tooltip>
                             </>
                           ) : (
-                            <Tooltip label={t('menuStock.trackStock')} side="left">
-                              <button
-                                type="button"
-                                onClick={() => setModal({ type: 'track', item })}
-                                aria-label={t('menuStock.trackStock')}
-                                className={ACTION_BUTTON}
+                            <>
+                              <Tooltip label={t('menuStock.trackStock')} side="left">
+                                <button
+                                  type="button"
+                                  onClick={() => setModal({ type: 'track', item })}
+                                  aria-label={t('menuStock.trackStock')}
+                                  className={ACTION_BUTTON}
+                                >
+                                  <Plus className="h-4 w-4" aria-hidden />
+                                </button>
+                              </Tooltip>
+                              <span className="h-4 w-px bg-slate-200 dark:bg-zinc-700" aria-hidden />
+                              <Tooltip
+                                label={item.stock_unlimited ? t('menuStock.stopUnlimited') : t('menuStock.makeUnlimited')}
+                                side="left"
                               >
-                                <Plus className="h-4 w-4" aria-hidden />
-                              </button>
-                            </Tooltip>
+                                <button
+                                  type="button"
+                                  onClick={() => toggleUnlimited(item)}
+                                  aria-pressed={Boolean(item.stock_unlimited)}
+                                  aria-label={item.stock_unlimited ? t('menuStock.stopUnlimited') : t('menuStock.makeUnlimited')}
+                                  className={`${ACTION_BUTTON} ${item.stock_unlimited ? 'bg-forest-50 text-forest-700 dark:bg-forest-950/50 dark:text-forest-300' : ''}`}
+                                >
+                                  <InfinityIcon className="h-4 w-4" aria-hidden />
+                                </button>
+                              </Tooltip>
+                            </>
                           )}
                         </div>
                       </td>

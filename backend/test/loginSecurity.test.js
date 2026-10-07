@@ -10,6 +10,9 @@ const { equalizeFailedLoginTiming, verifyPassword } = require('../src/utils/logi
 const {
   INVALID_CREDENTIALS_MESSAGE,
   LOCKOUT_MESSAGE,
+  LOCK_LADDER_MS,
+  registerFailure,
+  applyExpiry,
 } = require('../src/utils/loginLockoutPolicy')
 const {
   createMemorySecurityStore,
@@ -371,7 +374,7 @@ test('locked accounts reject even the correct password', async () => {
   )
 })
 
-test('the counter resets after the 30-second lock expires', async () => {
+test('the failure counter restarts after a lock expires and the next lock is longer', async () => {
   const store = createMemorySecurityStore()
   const clock = { now: Date.parse('2026-09-29T00:00:00Z') }
 
@@ -408,8 +411,8 @@ test('the counter resets after the 30-second lock expires', async () => {
         body: { username: 'cashier', password: 'wrong-password' },
       })
       assert.equal(relock.status, 429)
-      assert.equal(relock.body.retryAfterSeconds, 30)
-      assert.equal(store.alerts.length, 2, 'each new lock raises its own alert')
+      assert.equal(relock.body.retryAfterSeconds, 120)
+      assert.equal(store.alerts.length, 1, 'a repeat lock within 10 minutes does not raise another alert')
     },
   )
 })
@@ -521,4 +524,136 @@ test('X-Forwarded-For is ignored unless the app is behind a trusted proxy', () =
 
   assert.equal(getClientIp(req, { trustProxy: false }), '127.0.0.1')
   assert.equal(getClientIp(req, { trustProxy: true }), '203.0.113.77')
+})
+
+function directAttempt(store, clock, { username, ip, password = 'wrong-password', user = null, onAlert }) {
+  return processLoginAttempt({
+    username,
+    password,
+    ip,
+    fingerprint: FINGERPRINT,
+    userAgent: 'test',
+    acceptLanguage: 'en',
+    now: clock.now,
+    store,
+    findUser: async () => user,
+    verifyPassword,
+    equalizeFailedLoginTiming: async () => {},
+    lookupLocation: async () => 'Unknown',
+    onSecurityAlert: onAlert,
+  })
+}
+
+test('lock time escalates 30s, 2min, 10min, 30min and stays capped', async () => {
+  const store = createMemorySecurityStore()
+  const clock = { now: Date.parse('2026-09-29T00:00:00Z') }
+  const seen = []
+
+  for (let round = 0; round < 6; round += 1) {
+    let last
+    for (let i = 0; i < 4; i += 1) {
+      last = await directAttempt(store, clock, { username: 'owner', ip: '203.0.113.5' })
+    }
+    assert.equal(last.status, 429)
+    seen.push(last.retryAfterSeconds)
+    clock.now += last.retryAfterSeconds * 1000 + 1
+  }
+
+  assert.deepEqual(seen, [30, 120, 600, 1800, 1800, 1800])
+  assert.deepEqual(LOCK_LADDER_MS.map((ms) => ms / 1000), [30, 120, 600, 1800])
+})
+
+test('the lock level resets after a clean hour and after a successful login', async () => {
+  const passwordHash = await bcrypt.hash(PASSWORD, 4)
+  const user = { id: 1, username: 'owner', password_hash: passwordHash, role: 'Admin' }
+  const store = createMemorySecurityStore()
+  const clock = { now: Date.parse('2026-09-29T00:00:00Z') }
+
+  for (let i = 0; i < 4; i += 1) await directAttempt(store, clock, { username: 'owner', ip: '203.0.113.5' })
+  clock.now += 31 * 1000
+  let second
+  for (let i = 0; i < 4; i += 1) second = await directAttempt(store, clock, { username: 'owner', ip: '203.0.113.5' })
+  assert.equal(second.retryAfterSeconds, 120)
+
+  clock.now += 63 * 60 * 1000
+  let afterHour
+  for (let i = 0; i < 4; i += 1) afterHour = await directAttempt(store, clock, { username: 'owner', ip: '203.0.113.5' })
+  assert.equal(afterHour.retryAfterSeconds, 30)
+
+  clock.now += 31 * 1000
+  const ok = await directAttempt(store, clock, { username: 'owner', ip: '203.0.113.5', password: PASSWORD, user })
+  assert.equal(ok.ok, true)
+  let afterSuccess
+  for (let i = 0; i < 4; i += 1) afterSuccess = await directAttempt(store, clock, { username: 'owner', ip: '203.0.113.5' })
+  assert.equal(afterSuccess.retryAfterSeconds, 30)
+})
+
+test('an attacker IP cannot lock the owner out on another IP', async () => {
+  const passwordHash = await bcrypt.hash(PASSWORD, 4)
+  const user = { id: 1, username: 'owner', password_hash: passwordHash, role: 'Admin' }
+  const store = createMemorySecurityStore()
+  const clock = { now: Date.parse('2026-09-29T00:00:00Z') }
+
+  let attacker
+  for (let i = 0; i < 4; i += 1) attacker = await directAttempt(store, clock, { username: 'owner', ip: '198.51.100.9' })
+  assert.equal(attacker.status, 429)
+
+  const attackerAgain = await directAttempt(store, clock, { username: 'owner', ip: '198.51.100.9', password: PASSWORD, user })
+  assert.equal(attackerAgain.status, 429)
+
+  const owner = await directAttempt(store, clock, { username: 'owner', ip: '203.0.113.5', password: PASSWORD, user })
+  assert.equal(owner.ok, true)
+})
+
+test('20 failures across many devices lock the username for 15 minutes with one alert', async () => {
+  const passwordHash = await bcrypt.hash(PASSWORD, 4)
+  const user = { id: 1, username: 'owner', password_hash: passwordHash, role: 'Admin' }
+  const store = createMemorySecurityStore()
+  const clock = { now: Date.parse('2026-09-29T00:00:00Z') }
+  let alertsSent = 0
+  const onAlert = () => {
+    alertsSent += 1
+  }
+
+  let last
+  for (let i = 0; i < 19; i += 1) {
+    last = await directAttempt(store, clock, { username: 'owner', ip: `198.51.100.${i + 1}`, onAlert })
+    assert.equal(last.status, 401)
+  }
+  last = await directAttempt(store, clock, { username: 'owner', ip: '198.51.100.99', onAlert })
+  assert.equal(last.status, 429)
+  assert.equal(last.retryAfterSeconds, 900)
+
+  const owner = await directAttempt(store, clock, { username: 'owner', ip: '203.0.113.5', password: PASSWORD, user })
+  assert.equal(owner.status, 429)
+  assert.equal(store.alerts.length, 1)
+  assert.equal(alertsSent, 1)
+})
+
+test('failures older than the 15 minute window do not accumulate', () => {
+  const start = Date.parse('2026-09-29T00:00:00Z')
+  let attempt = null
+  for (let i = 0; i < 3; i += 1) attempt = registerFailure(attempt, start, 'user').attempt
+  const later = start + 16 * 60 * 1000
+  assert.equal(applyExpiry(attempt, later).failedCount, 0)
+  const next = registerFailure(attempt, later, 'device')
+  assert.equal(next.triggeredLock, false)
+  assert.equal(next.attempt.failedCount, 1)
+})
+
+test('at most one security alert per username every 10 minutes', async () => {
+  const store = createMemorySecurityStore()
+  const clock = { now: Date.parse('2026-09-29T00:00:00Z') }
+
+  for (let i = 0; i < 4; i += 1) await directAttempt(store, clock, { username: 'owner', ip: '203.0.113.5' })
+  clock.now += 31 * 1000
+  for (let i = 0; i < 4; i += 1) await directAttempt(store, clock, { username: 'owner', ip: '203.0.113.5' })
+  assert.equal(store.alerts.length, 1)
+
+  clock.now += 11 * 60 * 1000
+  for (let i = 0; i < 4; i += 1) await directAttempt(store, clock, { username: 'owner', ip: '203.0.113.5' })
+  assert.equal(store.alerts.length, 2)
+
+  for (let i = 0; i < 4; i += 1) await directAttempt(store, clock, { username: 'other', ip: '203.0.113.6' })
+  assert.equal(store.alerts.length, 3)
 })

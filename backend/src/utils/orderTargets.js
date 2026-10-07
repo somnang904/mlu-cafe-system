@@ -1,4 +1,8 @@
 const TAKEOUT_KEY = 'takeout'
+const MAX_LINE_QUANTITY = 999
+const MAX_TABLE_NUMBER = 2147483647
+const INVOICE_LOCK_NAME = 'invoice-allocation'
+const QUANTITY_MESSAGE = `Each order line needs a whole quantity from 1 to ${MAX_LINE_QUANTITY}`
 
 function normalizeIncomingTarget(rawTarget) {
   if (rawTarget == null || rawTarget === '') {
@@ -16,8 +20,8 @@ function normalizeIncomingTarget(rawTarget) {
     }
   }
 
-  const tableNumber = Number.parseInt(normalized, 10)
-  if (!Number.isNaN(tableNumber) && tableNumber > 0) {
+  const tableNumber = /^\d+$/.test(normalized) ? Number(normalized) : NaN
+  if (Number.isSafeInteger(tableNumber) && tableNumber > 0 && tableNumber <= MAX_TABLE_NUMBER) {
     return {
       key: String(tableNumber),
       targetId: tableNumber,
@@ -64,8 +68,10 @@ function tableLockName(tableId) {
 async function resolveTableForeignKey(db, tableRef) {
   if (tableRef == null || tableRef === '') return null
 
-  const tableNumber = Number.parseInt(String(tableRef).trim(), 10)
-  if (Number.isNaN(tableNumber) || tableNumber <= 0) return null
+  const trimmed = String(tableRef).trim()
+  if (!/^\d+$/.test(trimmed)) return null
+  const tableNumber = Number(trimmed)
+  if (!Number.isSafeInteger(tableNumber) || tableNumber <= 0 || tableNumber > MAX_TABLE_NUMBER) return null
 
   const [byId] = await db.execute('SELECT id FROM tables WHERE id = ? LIMIT 1', [tableNumber])
   if (byId.length > 0) return byId[0].id
@@ -85,6 +91,7 @@ async function createPendingOrder(db, target, explicitTableId = undefined, staff
   if (target.sourceType !== 'Take Out') {
     const tableRef = explicitTableId !== undefined ? explicitTableId : target.tableId
     tableId = await resolveTableForeignKey(db, tableRef)
+    if (tableId == null) throw lineHttpError(404, `Table ${target.tableId} does not exist`)
   }
 
   const [result] = await db.execute(
@@ -111,7 +118,11 @@ function logOrderError(context, error, meta = {}) {
   })
 }
 
+const { registerSchemaReset } = require('./schemaReset')
 let orderItemsSchemaReadyPromise = null
+registerSchemaReset(() => {
+  orderItemsSchemaReadyPromise = null
+})
 let orderItemsHasNameColumn = null
 let orderItemsHasNotesColumn = null
 let orderItemsHasCategoryColumn = null
@@ -266,10 +277,74 @@ function lineHttpError(status, message) {
   return error
 }
 
+function lineQuantity(item) {
+  const raw = item?.quantity ?? item?.qty
+  const value = typeof raw === 'string' && /^\s*\d+\s*$/.test(raw) ? Number(raw) : raw
+  if (typeof value !== 'number' || !Number.isInteger(value)) return null
+  return value >= 1 && value <= MAX_LINE_QUANTITY ? value : null
+}
+
+function withLineQuantities(items) {
+  return items.map((item) => {
+    const quantity = lineQuantity(item)
+    return quantity == null ? item : { ...item, quantity }
+  })
+}
+
+async function assertItemsOnSale(db, items, orderId = null) {
+  const requested = new Map()
+  for (const item of items) {
+    const menuId = parseMenuItemIdFromItem(item)
+    if (!menuId) continue
+    requested.set(menuId, (requested.get(menuId) || 0) + (lineQuantity(item) || 0))
+  }
+  if (!requested.size) return
+
+  const ids = [...requested.keys()]
+  const placeholders = ids.map(() => '?').join(', ')
+  const [offSale] = await db.execute(
+    `SELECT id, name FROM menu_items WHERE is_available = 0 AND id IN (${placeholders})`,
+    ids,
+  )
+  const [noStock] = await db.execute(
+    `SELECT m.id, m.name FROM menu_items m
+     WHERE m.id IN (${placeholders}) AND m.is_available = 1 AND m.stock_unlimited = 0
+       AND NOT EXISTS (
+         SELECT 1 FROM menu_item_stock_links l
+         JOIN inventory i ON i.id = l.inventory_id AND i.archived_at IS NULL
+         WHERE l.menu_item_id = m.id AND l.variant = '' AND l.option_key = '' AND l.option_value = ''
+       )`,
+    ids,
+  )
+  if (!offSale.length && !noStock.length) return
+
+  const onBill = new Map()
+  if (orderId) {
+    const [rows] = await db.execute(
+      'SELECT menu_item_id, SUM(quantity) AS qty FROM order_items WHERE order_id = ? GROUP BY menu_item_id',
+      [orderId],
+    )
+    for (const row of rows) onBill.set(Number(row.menu_item_id), Number(row.qty))
+  }
+
+  const isNewQuantity = (row) => requested.get(row.id) > (onBill.get(row.id) || 0)
+  const blocked = offSale.filter(isNewQuantity)
+  if (blocked.length) {
+    const names = blocked.map((row) => row.name).join(', ')
+    throw lineHttpError(409, `Not on sale right now: ${names}. Remove ${blocked.length === 1 ? 'it' : 'them'} from the order.`)
+  }
+  const unstocked = noStock.filter(isNewQuantity)
+  if (unstocked.length) {
+    const names = unstocked.map((row) => row.name).join(', ')
+    const error = lineHttpError(409, `No stock for: ${names}. Add stock in Stock > Menu stock first.`)
+    error.code = 'not_stocked'
+    throw error
+  }
+}
+
 function validateOrderLine(item, { isAdmin }) {
-  const qty = Number(item?.quantity ?? item?.qty)
-  if (!Number.isFinite(qty) || qty <= 0) {
-    return 'Each order line needs a valid quantity'
+  if (lineQuantity(item) == null) {
+    return QUANTITY_MESSAGE
   }
 
   const menuId = parseMenuItemIdFromItem(item)
@@ -346,7 +421,8 @@ async function resolveMenuItemForInsert(db, item) {
  *   (an admin override, or a line's existing price); otherwise the menu price is used.
  */
 async function insertOrderItem(db, orderId, item, { price: presetPrice = null } = {}) {
-  const quantity = Number(item.quantity)
+  const quantity = lineQuantity(item)
+  if (quantity == null) throw lineHttpError(400, QUANTITY_MESSAGE)
   const price = presetPrice != null ? presetPrice : await resolveLinePrice(db, item)
   const subtotal = quantity * price
   const { id: menuItemId, category: menuItemCategory } = await resolveMenuItemForInsert(db, item)
@@ -562,6 +638,11 @@ module.exports = {
   createPendingOrder,
   insertOrderItem,
   validateOrderLine,
+  lineQuantity,
+  withLineQuantities,
+  assertItemsOnSale,
+  INVOICE_LOCK_NAME,
+  MAX_LINE_QUANTITY,
   parseMenuItemId,
   parseMenuItemIdFromItem,
   ensureOrderItemsSchema,
