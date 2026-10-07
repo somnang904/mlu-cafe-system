@@ -142,8 +142,8 @@ function ModeButton({ active, onClick, children }) {
 function RestockModal({ item, displayName, onClose, onSaved }) {
   const { t } = useTranslation()
   const panelRef = useModalKeyboard({ isOpen: true, onEscape: onClose, primaryActionMode: 'never' })
-  const [mode, setMode] = useState('set')
-  const [quantity, setQuantity] = useState(mode === 'set' ? String(item.stock_quantity ?? 0) : '')
+  const [mode, setMode] = useState('add')
+  const [quantity, setQuantity] = useState('')
   const [packs, setPacks] = useState('')
   const [reason, setReason] = useState('mistake')
   const [saving, setSaving] = useState(false)
@@ -156,7 +156,7 @@ function RestockModal({ item, displayName, onClose, onSaved }) {
     setMode(next)
     setError('')
     setPacks('')
-    setQuantity(next === 'set' ? String(item.stock_quantity ?? 0) : '')
+    setQuantity('')
   }
 
   const quantityValue = quantity === '' ? 0 : parseWhole(quantity)
@@ -164,11 +164,9 @@ function RestockModal({ item, displayName, onClose, onSaved }) {
   const packUnits = hasPack && mode === 'add' && packsValue ? packsValue * Number(item.pack_size) : 0
   const addTotal = (quantityValue ?? 0) + packUnits
   const valid =
-    mode === 'set'
-      ? quantity !== '' && quantityValue !== null
-      : mode === 'remove'
-        ? quantityValue !== null && quantityValue > 0 && quantityValue <= onHand
-        : quantityValue !== null && packsValue !== null && addTotal > 0
+    mode === 'remove'
+      ? quantityValue !== null && quantityValue > 0 && quantityValue <= onHand
+      : quantityValue !== null && packsValue !== null && addTotal > 0
 
   const handleSubmit = async (event) => {
     event.preventDefault()
@@ -176,12 +174,7 @@ function RestockModal({ item, displayName, onClose, onSaved }) {
     setSaving(true)
     setError('')
     try {
-      const body =
-        mode === 'set'
-          ? { mode: 'set', quantity: quantityValue }
-          : mode === 'remove'
-            ? { mode: 'remove', quantity: quantityValue, reason }
-            : { mode: 'add' }
+      const body = mode === 'remove' ? { mode: 'remove', quantity: quantityValue, reason } : { mode: 'add' }
       if (mode === 'add') {
         if (quantityValue) body.quantity = quantityValue
         if (hasPack && packsValue) body.packs = packsValue
@@ -217,9 +210,6 @@ function RestockModal({ item, displayName, onClose, onSaved }) {
         </div>
 
         <div className="flex gap-2">
-          <ModeButton active={mode === 'set'} onClick={() => switchMode('set')}>
-            {t('menuStock.modeSet')}
-          </ModeButton>
           <ModeButton active={mode === 'add'} onClick={() => switchMode('add')}>
             {t('menuStock.modeAdd')}
           </ModeButton>
@@ -230,11 +220,7 @@ function RestockModal({ item, displayName, onClose, onSaved }) {
 
         <div>
           <FieldLabel icon={Hash} htmlFor="menu-stock-quantity">
-            {mode === 'set'
-              ? t('menuStock.quantityNew')
-              : mode === 'remove'
-                ? t('menuStock.quantityRemove')
-                : t('menuStock.quantityAdd')}
+            {mode === 'remove' ? t('menuStock.quantityRemove') : t('menuStock.quantityAdd')}
           </FieldLabel>
           <div className="relative flex items-center">
             <input
