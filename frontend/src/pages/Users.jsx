@@ -549,7 +549,7 @@ export default function Users() {
       )}
 
       <div className="table-shell overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto lg:min-h-[53rem]">
           <table className="w-full min-w-[640px] text-left text-sm">
             <thead>
               <tr className="table-head text-xs uppercase tracking-wider">
@@ -566,16 +566,16 @@ export default function Users() {
                   key={user.id}
                   className="table-row hover:bg-stone-50/50 dark:hover:bg-obsidian-900/20"
                 >
-                  <td className="px-6 py-4">
+                  <td className="px-6 py-3">
                     <p className="text-heading text-sm font-semibold">{user.display_name}</p>
                     <p className="text-xs text-stone-400">@{user.username}</p>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-6 py-3">
                     <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ${roleColors[user.role] || roleColors.Staff}`}>
                       {roleLabel(t, user.role)}
                     </span>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-6 py-3">
                     <div className="flex flex-wrap gap-1.5">
                       {isAdminRole(user.role) ? (
                         <span className="rounded-lg bg-emerald-50 px-2 py-0.5 text-2xs font-medium text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400">
@@ -588,10 +588,10 @@ export default function Users() {
                       )}
                     </div>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-6 py-3">
                     <StatusBadge active={user.is_active !== false} t={t} />
                   </td>
-                  <td className="px-6 py-4" onClick={(event) => event.stopPropagation()}>
+                  <td className="px-6 py-3" onClick={(event) => event.stopPropagation()}>
                     <div className="ml-auto flex w-fit items-center gap-0.5 rounded-full bg-white/90 p-0.5 shadow-sm ring-1 ring-slate-200 dark:bg-zinc-800/90 dark:ring-zinc-700">
                       <Tooltip label={t('common.edit')} side="left">
                         <button
