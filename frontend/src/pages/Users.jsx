@@ -77,6 +77,32 @@ function sortUsersWithAdminsFirst(userList) {
   })
 }
 
+const VISIBLE_PERMISSION_CHIPS = 3
+
+function PermissionChips({ permissions, t }) {
+  const visible = permissions.slice(0, VISIBLE_PERMISSION_CHIPS)
+  const hidden = permissions.slice(VISIBLE_PERMISSION_CHIPS)
+  return (
+    <>
+      {visible.map((permission) => (
+        <span key={permission} className="rounded-lg bg-olive-50 px-2 py-0.5 text-2xs font-medium text-forest-700 dark:bg-olive-900/20 dark:text-forest-400">
+          {permissionLabel(t, permission)}
+        </span>
+      ))}
+      {hidden.length > 0 ? (
+        <Tooltip label={hidden.map((permission) => permissionLabel(t, permission)).join(', ')}>
+          <span
+            tabIndex={0}
+            className="cursor-default rounded-lg bg-slate-100 px-2 py-0.5 text-2xs font-semibold text-slate-600 dark:bg-zinc-800 dark:text-zinc-300"
+          >
+            +{hidden.length}
+          </span>
+        </Tooltip>
+      ) : null}
+    </>
+  )
+}
+
 function UserFormModal({ mode, user, onClose, onSave }) {
   const { t } = useTranslation()
   const isEdit = mode === 'edit'
@@ -501,6 +527,7 @@ export default function Users() {
                 <th className="px-6 py-3.5">{t('common.name')}</th>
                 <th className="px-6 py-3.5">{t('users.assignmentRole')}</th>
                 <th className="px-6 py-3.5">{t('users.activePermissions')}</th>
+                <th className="px-6 py-3.5">{t('common.status')}</th>
                 <th className="px-6 py-3.5 text-right">{t('common.actions')}</th>
               </tr>
             </thead>
@@ -513,11 +540,6 @@ export default function Users() {
                   <td className="px-6 py-4">
                     <p className="text-heading text-sm font-semibold">{user.display_name}</p>
                     <p className="text-xs text-stone-400">@{user.username}</p>
-                    {user.is_active === false ? (
-                      <span className="mt-1 inline-block rounded-full bg-rose-50 px-2 py-0.5 text-2xs font-semibold text-rose-600 ring-1 ring-rose-200 dark:bg-rose-950/30 dark:text-rose-300 dark:ring-rose-900/50">
-                        {t('users.statusDisabled')}
-                      </span>
-                    ) : null}
                   </td>
                   <td className="px-6 py-4">
                     <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ${roleColors[user.role] || roleColors.Staff}`}>
@@ -531,15 +553,24 @@ export default function Users() {
                           {t('users.fullSystemAccess')}
                         </span>
                       ) : user.permissions && user.permissions.length > 0 ? (
-                        normalizePermissions(user.permissions).map((permission) => (
-                          <span key={permission} className="rounded-lg bg-olive-50 px-2 py-0.5 text-2xs font-medium text-forest-700 dark:bg-olive-900/20 dark:text-forest-400">
-                            {permissionLabel(t, permission)}
-                          </span>
-                        ))
+                        <PermissionChips permissions={normalizePermissions(user.permissions)} t={t} />
                       ) : (
                         <span className="text-xs italic text-stone-400">{t('users.noPermissions')}</span>
                       )}
                     </div>
+                  </td>
+                  <td className="px-6 py-4">
+                    {user.is_active === false ? (
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-2.5 py-0.5 text-xs font-semibold text-rose-600 ring-1 ring-rose-200 dark:bg-rose-950/30 dark:text-rose-300 dark:ring-rose-900/50">
+                        <span className="h-1.5 w-1.5 rounded-full bg-rose-500" aria-hidden />
+                        {t('users.statusDisabled')}
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-900/50">
+                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden />
+                        {t('users.statusActive')}
+                      </span>
+                    )}
                   </td>
                   <td className="px-6 py-4" onClick={(event) => event.stopPropagation()}>
                     <div className="ml-auto flex w-fit items-center gap-0.5 rounded-full bg-white/90 p-0.5 shadow-sm ring-1 ring-slate-200 dark:bg-zinc-800/90 dark:ring-zinc-700">
