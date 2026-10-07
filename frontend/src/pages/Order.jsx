@@ -128,6 +128,7 @@ export default function Order() {
   const [selectedDestination, setSelectedDestination] = useState('')
   const [sentConfirmation, setSentConfirmation] = useState(null)
   const [sendPaused, setSendPaused] = useState(false)
+  const [sendRejection, setSendRejection] = useState('')
   const [activeCategory, setActiveCategory] = useState('All')
   // From the Menu page: which categories exist (deleted built-ins are left out) and renamed ones' labels.
   const [menuCategories, setMenuCategories] = useState({ categories: null, labels: {} })
@@ -554,6 +555,7 @@ export default function Order() {
 
   const handleSendOrder = async () => {
     if (!selectedDestination || cart.length === 0) return
+    setSendRejection('')
     if (!backendReachable) {
       setSendPaused(true)
       return
@@ -561,14 +563,16 @@ export default function Order() {
 
     const target = assignmentTargets.find((entry) => String(entry.id) === selectedDestination)
     const destinationId = target?.isTakeOut ? 'takeout' : Number(selectedDestination)
-    const success = await assignOrder(destinationId, cart)
+    const outcome = await assignOrder(destinationId, cart)
 
-    if (!success) {
-      setSendPaused(true)
+    if (!outcome.ok) {
+      setSendRejection(outcome.message || '')
+      setSendPaused(!outcome.message)
       return
     }
 
     setSendPaused(false)
+    setSendRejection('')
     setCart([])
     setSelectedDestination('')
     loadStockLevels()
@@ -961,6 +965,10 @@ export default function Order() {
               {!backendReachable || sendPaused ? (
                 <p className="mt-4 text-sm text-amber-800 dark:text-amber-200" role="status">
                   {t('connection.orderPaused')}
+                </p>
+              ) : sendRejection ? (
+                <p className="mt-4 text-sm text-red-700 dark:text-red-300" role="alert">
+                  {sendRejection}
                 </p>
               ) : null}
               {cart.length > 0 && !selectedDestination ? (

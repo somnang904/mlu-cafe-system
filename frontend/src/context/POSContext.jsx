@@ -84,7 +84,9 @@ async function postOrderToServer(destinationId, safeCartItems) {
 
   const data = await response.json().catch(() => ({}))
   if (!response.ok) {
-    throw new Error(data.detail || data.message || `Server status returned ${response.status}`)
+    const error = new Error(data.detail || data.message || `Server status returned ${response.status}`)
+    error.status = response.status
+    throw error
   }
   return data
 }
@@ -536,7 +538,7 @@ export function POSProvider({ children }) {
   }
 
   const assignOrder = async (destinationId, cartItems) => {
-    if (!cartItems.length) return false
+    if (!cartItems.length) return { ok: false, message: null }
 
     const safeCartItems = cartItems.map((item) =>
       normalizeBillItem({
@@ -565,7 +567,8 @@ export function POSProvider({ children }) {
     } catch (err) {
       endSync()
       console.error('Failed to log order to MySQL:', err.message)
-      return false
+      const rejected = Number.isInteger(err.status) && err.status !== 503
+      return { ok: false, message: rejected ? err.message : null }
     }
 
     if (savedItems?.length) {
@@ -579,7 +582,7 @@ export function POSProvider({ children }) {
     }
     endSync()
 
-    return true
+    return { ok: true, message: null }
   }
 
   const updateBillItems = (destinationId, items) => {
