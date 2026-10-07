@@ -532,8 +532,8 @@ export default function Users() {
   return (
     <div className="space-y-6">
       <div className="space-y-4">
-        <div className="flex items-center gap-2.5">
-          <UsersIcon className="h-5 w-5 shrink-0 text-forest-600 dark:text-forest-400" aria-hidden />
+        <div className="flex items-center gap-3">
+          <UsersIcon className="h-6 w-6 shrink-0 text-forest-600 dark:text-forest-400" aria-hidden />
           <h3 className="page-title">{t('nav.users')}</h3>
         </div>
         <button
