@@ -11,6 +11,7 @@ import {
 } from '../utils/posHelpers'
 import { buildSalesHistoryQuery } from '../utils/salesHistoryAnalytics'
 import { formatOrderDate, formatTime12Hour } from '../utils/dateTimeFormat'
+import { phnomPenhDayKey } from '../utils/phnomPenhTime'
 import {
   readActiveOrdersSnapshot,
   writeActiveOrdersSnapshot,
@@ -103,6 +104,8 @@ export function POSProvider({ children }) {
   const syncRef = useRef({ inFlight: 0, epoch: 0, refreshPending: false })
   const saveQueueRef = useRef(new Map())
   const refreshActiveOrdersRef = useRef(null)
+  const historyScopeRef = useRef(null)
+  const historyRequestRef = useRef(0)
 
   const beginSync = useCallback(() => {
     const sync = syncRef.current
@@ -150,9 +153,14 @@ export function POSProvider({ children }) {
     const token = getAuthToken()
     if (!token) return null
 
+    if (options !== undefined) historyScopeRef.current = options
+    const requestId = ++historyRequestRef.current
+    const isStale = () => requestId !== historyRequestRef.current
+
     try {
-      const query = buildSalesHistoryQuery(options)
+      const query = buildSalesHistoryQuery(options !== undefined ? options : historyScopeRef.current ?? undefined)
       const response = await apiFetch(`/orders/history?${query}`, { token })
+      if (isStale()) return null
       if (response.status === 401) return null
       // Staff without Sales, or any permission ceiling miss: keep Order/Payment working.
       if (response.status === 403 || response.status === 400) {
@@ -164,6 +172,7 @@ export function POSProvider({ children }) {
         return []
       }
       const historyRows = await response.json()
+      if (isStale()) return null
 
       if (historyRows && Array.isArray(historyRows)) {
         const formattedHistory = historyRows.map((row) => ({
@@ -193,10 +202,15 @@ export function POSProvider({ children }) {
       }
     } catch (err) {
       console.error('Error loading historical database entries:', err)
-      setSalesHistory([])
+      if (!isStale()) setSalesHistory([])
     }
     return null
   }, [])
+
+  const releaseSalesHistoryScope = useCallback(() => {
+    historyScopeRef.current = null
+    return loadSalesHistory()
+  }, [loadSalesHistory])
 
   const refreshFloorTables = useCallback(async () => {
     const token = getAuthToken()
@@ -900,7 +914,7 @@ export function POSProvider({ children }) {
       setSalesHistory((prev) =>
         prev.map((order) =>
           order.order_id === orderId || order.id === data.invoice_id || order.id === orderId
-            ? { ...order, status: 'Refunded', void_reason: reason, refundDate: formatOrderDate(new Date()) }
+            ? { ...order, status: 'Refunded', void_reason: reason, refundDate: phnomPenhDayKey(new Date()) }
             : order,
         ),
       )
@@ -973,6 +987,7 @@ export function POSProvider({ children }) {
         takeOut,
         salesHistory,
         loadSalesHistory,
+        releaseSalesHistoryScope,
         assignmentTargets,
         paymentTargetId,
         orderTargetId,
