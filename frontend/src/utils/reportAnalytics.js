@@ -143,25 +143,41 @@ export function itemStats(orders, from, to) {
     for (const line of order.items || []) {
       const name = String(line.base_name || line.name || '').trim() || 'Custom item'
       const key = line.menu_item_id != null ? `id:${line.menu_item_id}` : `name:${name.toLowerCase()}`
-      const entry = items.get(key) || { key, name, category: line.category || null, qty: 0, revenue: 0 }
-      entry.qty += Number(line.qty) || 0
-      entry.revenue += Number(line.lineTotal) || (Number(line.qty) || 0) * (Number(line.unitPrice) || 0)
+      const entry = items.get(key) || { key, name, category: null, qty: 0, revenue: 0, byCategory: new Map() }
+      const qty = Number(line.qty) || 0
+      const revenue = Number(line.lineTotal) || qty * (Number(line.unitPrice) || 0)
+      const category = line.category || null
+      const slice = entry.byCategory.get(category) || { category, qty: 0, revenue: 0 }
+      slice.qty += qty
+      slice.revenue += revenue
+      entry.byCategory.set(category, slice)
+      entry.qty += qty
+      entry.revenue += revenue
       items.set(key, entry)
     }
   }
-  return [...items.values()].map((entry) => ({ ...entry, revenue: money(entry.revenue) }))
+  return [...items.values()].map((entry) => {
+    const slices = [...entry.byCategory.values()].map((slice) => ({ ...slice, revenue: money(slice.revenue) }))
+    const main = slices.reduce((best, slice) => (slice.revenue > best.revenue ? slice : best), slices[0])
+    return { ...entry, category: main ? main.category : null, byCategory: slices, revenue: money(entry.revenue) }
+  })
 }
 
 /** Items grouped by menu category (custom lines without a category fall under null). */
 export function categoryStats(items) {
   const totals = new Map()
   for (const item of items) {
-    const key = item.category || null
-    const entry = totals.get(key) || { category: key, qty: 0, revenue: 0, items: 0 }
-    entry.qty += item.qty
-    entry.revenue += item.revenue
-    entry.items += 1
-    totals.set(key, entry)
+    const slices = Array.isArray(item.byCategory) && item.byCategory.length
+      ? item.byCategory
+      : [{ category: item.category || null, qty: item.qty, revenue: item.revenue }]
+    for (const slice of slices) {
+      const key = slice.category || null
+      const entry = totals.get(key) || { category: key, qty: 0, revenue: 0, items: 0 }
+      entry.qty += slice.qty
+      entry.revenue += slice.revenue
+      entry.items += 1
+      totals.set(key, entry)
+    }
   }
   const total = [...totals.values()].reduce((sum, entry) => sum + entry.revenue, 0)
   return [...totals.values()].map((entry) => ({
