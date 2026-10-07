@@ -76,10 +76,6 @@ export function needsSugarLevel(item, serving = null) {
   return false
 }
 
-export function formatSugarNote(sugarLevel, extraNotes = '') {
-  return formatDrinkNotes({ sugarLevel, extraNotes })
-}
-
 export function formatDrinkNotes({ serving, sugarLevel, extraNotes = '', teaFlavor = '' } = {}) {
   const parts = []
   if (serving === 'iced') parts.push('Iced')

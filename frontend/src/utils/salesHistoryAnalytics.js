@@ -35,26 +35,6 @@ export function formatMonthLabel(monthKey, t) {
   })
 }
 
-export function buildMonthFilterOptions(
-  lookbackMonths = 6,
-  referenceDate = new Date(),
-  t,
-  allMonthsLabel = 'All months in range',
-) {
-  const options = [{ value: 'all', label: allMonthsLabel }]
-
-  for (let i = 0; i < lookbackMonths; i += 1) {
-    const date = new Date(referenceDate.getFullYear(), referenceDate.getMonth() - i, 1)
-    const value = getCurrentMonthKey(date)
-    options.push({
-      value,
-      label: formatMonthLabel(value, t),
-    })
-  }
-
-  return options
-}
-
 export function buildDynamicMonthFilterOptions(
   orders = [],
   expenses = [],
@@ -119,11 +99,6 @@ export function normalizeOrderDate(order) {
 export function getOrderMonthKey(order) {
   const normalized = normalizeOrderDate(order)
   return normalized ? normalized.slice(0, 7) : null
-}
-
-export function filterOrdersByMonth(orders, monthKey) {
-  if (!monthKey || monthKey === 'all') return orders
-  return orders.filter((order) => getOrderMonthKey(order) === monthKey)
 }
 
 function orderStatus(order) {

@@ -336,15 +336,3 @@ export const inventoryItems = [
   },
 ]
 
-export const INVENTORY_SECTIONS = {
-  countable: {
-    id: 'countable',
-    title: 'Bar & Packaging Supplies (Countable)',
-    description: 'Tracked by individual units — bottles, boxes, bags, and packs.',
-  },
-  uncountable: {
-    id: 'uncountable',
-    title: 'Kitchen & Fresh Ingredients (Uncountable)',
-    description: 'Tracked by raw weight in kilograms (kg).',
-  },
-}
