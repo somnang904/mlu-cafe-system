@@ -1,5 +1,5 @@
 const { STORE } = require('../config/store');
-const { LOW_THRESHOLD, stockLevel } = require('./stockLevel');
+const { resolveStockStatus } = require('./inventorySchema');
 
 const CACHE_TTL_MS = Number.parseInt(process.env.ALERTS_CACHE_TTL_MS, 10) || 20_000;
 let alertsCache = { expiresAt: 0, payload: null };
@@ -49,7 +49,8 @@ async function fetchInventoryForAlerts(db) {
       max_stock,
       low_threshold,
       critical_threshold,
-      unit_label
+      unit_label,
+      is_ingredient
     FROM inventory
     WHERE archived_at IS NULL OR is_ingredient = 1
     ORDER BY item_name ASC
@@ -67,12 +68,14 @@ async function fetchInventoryForAlerts(db) {
     stockStatus: row.stock_status,
     maxStock: Number(row.max_stock ?? 0),
     max_stock: Number(row.max_stock ?? 0),
-    lowThreshold: Number(row.low_threshold ?? 0),
-    low_threshold: Number(row.low_threshold ?? 0),
+    lowThreshold: row.low_threshold != null ? Number(row.low_threshold) : null,
+    low_threshold: row.low_threshold != null ? Number(row.low_threshold) : null,
     criticalThreshold: row.critical_threshold != null ? Number(row.critical_threshold) : null,
     critical_threshold: row.critical_threshold != null ? Number(row.critical_threshold) : null,
     unitLabel: row.unit_label || 'units',
     unit_label: row.unit_label || 'units',
+    is_ingredient: row.is_ingredient,
+    isIngredient: Boolean(row.is_ingredient),
   }));
 }
 
@@ -81,32 +84,53 @@ function buildStockAlerts(inventory) {
 
   for (const item of inventory) {
     const stock = Number(item.stock ?? item.stock_quantity ?? 0);
-    const maxStock = Number(item.maxStock ?? item.max_stock ?? 0);
-    // Same rule as the Items page: Out of stock at 0, Low at or below LOW_THRESHOLD of the maximum.
-    const level = stockLevel(stock, maxStock);
-    if (level === 'in') continue;
+    const lowThreshold = item.low_threshold != null ? Number(item.low_threshold) : null;
+    const criticalThreshold = item.critical_threshold != null ? Number(item.critical_threshold) : null;
 
-    const reorderPoint = Math.round(LOW_THRESHOLD * maxStock * 1000) / 1000;
+    // Evaluate against real configured thresholds instead of arbitrary percentage of max
+    const status = resolveStockStatus(stock, lowThreshold, criticalThreshold);
+    if (status === 'IN_STOCK') continue;
+
     const name = item.itemName || item.item_name;
     const unit = item.unitLabel || item.unit_label || item.unit || 'units';
-    const severity = level === 'out' ? 'critical' : 'warning';
-    const message = level === 'out'
+    const isOut = status === 'OUT_OF_STOCK';
+    const isCrit = !isOut && criticalThreshold != null && stock <= criticalThreshold;
+    const severity = (isOut || isCrit) ? 'critical' : 'warning';
+
+    const thresholdDisplay = lowThreshold ?? criticalThreshold ?? 0;
+    const message = isOut
       ? `${name} is out of stock (${stock} ${unit} on hand).`
-      : `${name} is at ${stock} ${unit} — at or below ${Math.round(LOW_THRESHOLD * 100)}% of its maximum (${reorderPoint} of ${maxStock} ${unit}).`;
+      : isCrit
+        ? `${name} is critically low (${stock} ${unit} remaining — threshold is ${criticalThreshold} ${unit}).`
+        : `${name} is low on stock (${stock} ${unit} remaining — threshold is ${thresholdDisplay} ${unit}).`;
+
+    const title = isOut
+      ? `Out of stock: ${name}`
+      : isCrit
+        ? `Critically low: ${name}`
+        : `Low stock: ${name}`;
+
+    const isIngredient = Boolean(item.is_ingredient);
+    const navigateTo = isIngredient ? 'inventory_ingredients' : 'inventory';
+    const actionLabel = isIngredient
+      ? `Add ${name} to Purchase Order`
+      : `Restock ${name}`;
 
     alerts.push(
       makeAlert({
         id: `stock-${item.id}`,
         category: 'stock',
         severity,
-        title: severity === 'critical' ? `Out of stock: ${name}` : `Low stock: ${name}`,
+        title,
         message,
-        actionLabel: `Add ${name} to Purchase Order`,
-        navigateTo: 'inventory',
+        actionLabel,
+        navigateTo,
         meta: {
           inventoryId: item.id,
           stock,
-          reorderPoint,
+          lowThreshold,
+          criticalThreshold,
+          isIngredient,
         },
       }),
     );

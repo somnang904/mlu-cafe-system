@@ -20,9 +20,12 @@ export const VALID_VIEWS = new Set([
   'security_alerts',
 ])
 
-const LEGACY_VIEW_ALIASES = {
+export const LEGACY_VIEW_ALIASES = {
   reports: 'reports_analysis',
   reports_prediction: 'reports_analysis',
+  expenses: 'inventory_expenses',
+  stock: 'inventory',
+  ingredients: 'inventory_ingredients',
 }
 
 const HASH_SEGMENT_ALIASES = {
@@ -32,7 +35,7 @@ const HASH_SEGMENT_ALIASES = {
   'backup-recovery': 'backup_recovery',
 }
 
-function resolveViewId(raw) {
+export function resolveViewId(raw) {
   if (!raw) return null
   const normalized = String(raw).trim().toLowerCase().replace(/-/g, '_')
   const resolved = LEGACY_VIEW_ALIASES[normalized] ?? normalized

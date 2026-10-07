@@ -351,7 +351,7 @@ export default function Payment() {
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
         <h3 className="page-title">{t('nav.payment')}</h3>
         <div className="flex flex-wrap items-center gap-2">
-          <ExchangeRateChip variant="inline" />
+          <ExchangeRateChip />
           <button
             type="button"
             onClick={() => setShowShiftModal(true)}

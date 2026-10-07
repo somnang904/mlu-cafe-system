@@ -73,8 +73,10 @@ export default function NotificationBell({ onNavigate }) {
           : alert?.category === 'reservation'
             ? 'reservations'
             : alert?.category === 'expense'
-              ? 'reports'
-              : 'inventory')
+              ? 'inventory_expenses'
+              : alert?.meta?.isIngredient
+                ? 'inventory_ingredients'
+                : 'inventory')
     onNavigate?.(target)
     setIsOpen(false)
   }
@@ -118,16 +120,23 @@ export default function NotificationBell({ onNavigate }) {
             onAction={handleAction}
             onDismiss={markNotificationRead}
             onViewAll={() => {
+              const firstStockAlert = alerts.find((a) => a.category === 'stock')
+              const stockTarget =
+                firstStockAlert?.action?.navigateTo ||
+                (firstStockAlert?.meta?.isIngredient ? 'inventory_ingredients' : 'inventory')
+
               onNavigate?.(
-                hasExpenseAlerts
-                  ? 'reports'
-                  : hasLoginLockAlerts
-                    ? 'security_alerts'
-                    : hasSecurityAlerts
-                      ? 'users'
-                      : hasReservationAlerts
-                        ? 'reservations'
-                        : 'inventory',
+                hasStockAlerts
+                  ? stockTarget
+                  : hasExpenseAlerts
+                    ? 'inventory_expenses'
+                    : hasLoginLockAlerts
+                      ? 'security_alerts'
+                      : hasSecurityAlerts
+                        ? 'users'
+                        : hasReservationAlerts
+                          ? 'reservations'
+                          : 'inventory',
               )
               setIsOpen(false)
             }}

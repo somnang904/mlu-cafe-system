@@ -226,9 +226,8 @@ export default function ShiftModal({ isOpen, onClose }) {
               <button
                 type="submit"
                 disabled={submitting}
-                className={`btn-primary w-full py-3 text-sm font-semibold disabled:opacity-50 ${
-                  submitting ? '' : 'beam-border shadow-[0_4px_14px_rgba(16,185,129,0.35)]'
-                }`}
+                className={`btn-primary w-full py-3 text-sm font-semibold disabled:opacity-50 ${submitting ? '' : 'beam-border shadow-[0_4px_14px_rgba(16,185,129,0.35)]'
+                  }`}
               >
                 {submitting
                   ? t('common.saving', { defaultValue: 'Opening...' })
@@ -402,11 +401,10 @@ export default function ShiftModal({ isOpen, onClose }) {
                   <div className="flex justify-between mt-1">
                     <span className="text-slate-500">Total Difference (in $):</span>
                     <span
-                      className={`font-bold tabular-nums ${
-                        previewDiffTotalUsd >= 0
+                      className={`font-bold tabular-nums ${previewDiffTotalUsd >= 0
                           ? 'text-emerald-600 dark:text-emerald-400'
                           : 'text-rose-600 dark:text-rose-400'
-                      }`}
+                        }`}
                     >
                       {formatUsd(previewDiffTotalUsd)}
                     </span>
@@ -439,9 +437,8 @@ export default function ShiftModal({ isOpen, onClose }) {
                 <button
                   type="submit"
                   disabled={submitting || countedUsd === ''}
-                  className={`btn-primary flex-1 py-2.5 text-sm font-semibold disabled:opacity-50 ${
-                    submitting || countedUsd === '' ? '' : 'beam-border shadow-[0_4px_14px_rgba(16,185,129,0.35)]'
-                  }`}
+                  className={`btn-primary flex-1 py-2.5 text-sm font-semibold disabled:opacity-50 ${submitting || countedUsd === '' ? '' : 'beam-border shadow-[0_4px_14px_rgba(16,185,129,0.35)]'
+                    }`}
                 >
                   {submitting
                     ? t('common.saving', { defaultValue: 'Closing...' })
@@ -529,9 +526,8 @@ export default function ShiftModal({ isOpen, onClose }) {
                   <div className="flex justify-between font-bold text-sm">
                     <span>Total Difference (in $):</span>
                     <span
-                      className={`tabular-nums ${
-                        Number(closingShiftResult?.difference_total_usd) >= 0 ? 'text-emerald-700' : 'text-rose-700'
-                      }`}
+                      className={`tabular-nums ${Number(closingShiftResult?.difference_total_usd) >= 0 ? 'text-emerald-700' : 'text-rose-700'
+                        }`}
                     >
                       {formatUsd(closingShiftResult?.difference_total_usd)}
                     </span>

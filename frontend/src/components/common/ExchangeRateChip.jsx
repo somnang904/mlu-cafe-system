@@ -120,11 +120,11 @@ function RateEditor({ rate, onDone }) {
 }
 
 /**
- * The shop's USD -> KHR rate. In the top bar it is hidden on phones to save room; the
- * "inline" variant (used beside the Payment page's Shift button) is always shown.
- * An admin changes the rate with the pencil; everyone else just reads it.
+ * The shop's USD -> KHR rate, shown beside the Shift button on the Payment page. It is an
+ * admin control: the admin sees the rate and changes it with the pencil, and a cashier does
+ * not see the chip at all (the till itself already shows the rate it is using).
  */
-export default function ExchangeRateChip({ variant = 'header' }) {
+export default function ExchangeRateChip() {
   const { t } = useTranslation()
   const { user } = useAuth()
   const rate = useExchangeRate()
@@ -149,20 +149,11 @@ export default function ExchangeRateChip({ variant = 'header' }) {
   }, [open])
 
   const label = t('dashboard.usdToKhr', { rate: formatKhr(rate) })
-  const showFlex = variant === 'inline' ? 'flex' : 'hidden sm:flex'
-  const showBlock = variant === 'inline' ? 'block' : 'hidden sm:block'
 
-  if (!canEdit) {
-    return (
-      <span className={`${CHIP_CLASS} ${showFlex}`} title={t('dashboard.exchangeRate')}>
-        <Banknote className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
-        <span className="whitespace-nowrap tabular-nums">{label}</span>
-      </span>
-    )
-  }
+  if (!canEdit) return null
 
   return (
-    <div ref={wrapperRef} className={`relative ${showBlock}`}>
+    <div ref={wrapperRef} className="relative">
       <div className={`${CHIP_CLASS} pr-1.5`}>
         <Banknote className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
         <span className="whitespace-nowrap tabular-nums">{label}</span>
