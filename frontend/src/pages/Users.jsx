@@ -79,6 +79,27 @@ function sortUsersWithAdminsFirst(userList) {
 
 const VISIBLE_PERMISSION_CHIPS = 3
 
+const STATUS_BADGE_TONES = {
+  active: {
+    pill: 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-900/50',
+    dot: 'bg-emerald-500',
+  },
+  disabled: {
+    pill: 'bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-950/30 dark:text-rose-300 dark:ring-rose-900/50',
+    dot: 'bg-rose-500',
+  },
+}
+
+function StatusBadge({ active, t }) {
+  const tone = active ? STATUS_BADGE_TONES.active : STATUS_BADGE_TONES.disabled
+  return (
+    <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold leading-none ring-1 ${tone.pill}`}>
+      <span className={`block h-2 w-2 shrink-0 rounded-full ${tone.dot}`} aria-hidden />
+      {active ? t('users.statusActive') : t('users.statusDisabled')}
+    </span>
+  )
+}
+
 function PermissionChips({ permissions, t }) {
   const visible = permissions.slice(0, VISIBLE_PERMISSION_CHIPS)
   const hidden = permissions.slice(VISIBLE_PERMISSION_CHIPS)
@@ -560,17 +581,7 @@ export default function Users() {
                     </div>
                   </td>
                   <td className="px-6 py-4">
-                    {user.is_active === false ? (
-                      <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-2.5 py-0.5 text-xs font-semibold text-rose-600 ring-1 ring-rose-200 dark:bg-rose-950/30 dark:text-rose-300 dark:ring-rose-900/50">
-                        <span className="h-1.5 w-1.5 rounded-full bg-rose-500" aria-hidden />
-                        {t('users.statusDisabled')}
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-900/50">
-                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden />
-                        {t('users.statusActive')}
-                      </span>
-                    )}
+                    <StatusBadge active={user.is_active !== false} t={t} />
                   </td>
                   <td className="px-6 py-4" onClick={(event) => event.stopPropagation()}>
                     <div className="ml-auto flex w-fit items-center gap-0.5 rounded-full bg-white/90 p-0.5 shadow-sm ring-1 ring-slate-200 dark:bg-zinc-800/90 dark:ring-zinc-700">
