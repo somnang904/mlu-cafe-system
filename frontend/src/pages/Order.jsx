@@ -690,6 +690,7 @@ export default function Order() {
                 const showServingButtons = Boolean(hotServing) && Boolean(icedServing)
                 const isHighlighted = Number(highlightedId) === Number(item.id)
                 const stockLevel = stockLevelOf(item)
+                const soldOut = stockLevel === 'out'
 
                 return (
                   <div
@@ -698,12 +699,13 @@ export default function Order() {
                     data-menu-card
                     className={`surface-card group relative flex h-full min-w-0 w-full flex-col items-center p-3 text-center shadow-[0_2px_6px_rgba(40,55,35,0.06),0_8px_24px_rgba(40,55,35,0.10)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_4px_10px_rgba(40,55,35,0.08),0_14px_32px_rgba(40,55,35,0.14)] motion-reduce:hover:translate-y-0 dark:shadow-[0_8px_24px_rgba(0,0,0,0.45)] dark:hover:shadow-[0_14px_32px_rgba(0,0,0,0.55)] sm:p-4 ${
                       isHighlighted ? 'border-forest-500 ring-2 ring-forest-400/70' : 'hover:border-olive-300'
-                    } ${stockLevel === 'out' ? 'opacity-70' : ''} ${showServingButtons ? '' : 'cursor-pointer'}`}
+                    } ${soldOut ? 'pointer-events-none select-none opacity-60 grayscale' : showServingButtons ? '' : 'cursor-pointer'}`}
+                    aria-disabled={soldOut || undefined}
                     onClick={
-                      showServingButtons ? undefined : () => handleMenuItemClick(item)
+                      showServingButtons || soldOut ? undefined : () => handleMenuItemClick(item)
                     }
                     onKeyDown={
-                      showServingButtons
+                      showServingButtons || soldOut
                         ? undefined
                         : (event) => {
                             if (event.key === 'Enter' || event.key === ' ') {
@@ -713,7 +715,7 @@ export default function Order() {
                           }
                     }
                     role={showServingButtons ? undefined : 'button'}
-                    tabIndex={showServingButtons ? undefined : 0}
+                    tabIndex={showServingButtons || soldOut ? undefined : 0}
                   >
                     <div className="flex w-full items-center justify-between gap-1.5">
                       <span className="badge-olive truncate">{categoryLabel(item.category, t, menuCategories.labels)}</span>
@@ -748,6 +750,7 @@ export default function Order() {
                             <button
                               type="button"
                               onClick={() => handleHotServing(item)}
+                              disabled={soldOut}
                               className="min-h-10 min-w-0 whitespace-nowrap rounded-xl bg-forest-500 px-1.5 py-2 text-center text-xs font-semibold text-white shadow-sm transition hover:bg-forest-600 active:scale-[0.98] dark:bg-forest-600 dark:hover:bg-forest-500 sm:px-2 sm:text-sm"
                             >
                               {t('order.serving.hot')}
@@ -758,6 +761,7 @@ export default function Order() {
                             <button
                               type="button"
                               onClick={() => handleColdServing(item)}
+                              disabled={soldOut}
                               className="min-h-10 min-w-0 whitespace-nowrap rounded-xl border border-cocoa-200 bg-cocoa-50 px-1.5 py-2 text-center text-xs font-semibold text-cocoa-800 transition hover:bg-cocoa-100 active:scale-[0.98] dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700 sm:px-2 sm:text-sm"
                             >
                               {t('order.serving.ice')}
