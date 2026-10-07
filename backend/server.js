@@ -1270,6 +1270,8 @@ app.post('/api/orders', requireOrderWriteAccess, async (req, res) => {
 });
 
 const ALLOWED_PAYMENT_METHODS = new Set(['Cash', 'Bank Scan']);
+const { normalizePaymentBank } = require('./src/utils/paymentBanks');
+const { getExchangeRate, setExchangeRate } = require('./src/utils/exchangeRate');
 
 async function allocateNextInvoiceId(conn) {
     const [rows] = await conn.execute(
@@ -1288,12 +1290,12 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
     const {
         target_id,
         payment_method,
+        payment_bank,
         table_id,
         clear_table = true,
         received_usd = null,
         received_khr = null,
         change_usd = null,
-        exchange_rate = null,
     } = req.body ?? {};
 
     if (!target_id) {
@@ -1308,6 +1310,13 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
         return res.status(400).json({ message: 'Invalid payment_method. Use Cash or Bank Scan.' });
     }
 
+    let bank;
+    try {
+        bank = normalizePaymentBank(method, payment_bank);
+    } catch (validationError) {
+        return res.status(400).json({ message: validationError.message });
+    }
+
     let target;
     try {
         target = normalizeIncomingTarget(target_id);
@@ -1318,6 +1327,8 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
 
     try {
         const { sql, params } = pendingOrderWhereClause(target);
+        // Server-owned: a stale or tampered till cannot book a sale at a different rate.
+        const shopRate = await getExchangeRate(db);
         const outcome = await withTransaction(db, async (conn) => {
             const orderId = await findPendingOrderId(conn, target);
             const resolvedTableId =
@@ -1355,7 +1366,7 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
                 receivedUsd: received_usd,
                 receivedKhr: received_khr,
                 changeUsd: change_usd,
-                exchangeRate: exchange_rate,
+                exchangeRate: shopRate,
             });
             const recUsd = payment.received_usd;
             const recKhr = payment.received_khr;
@@ -1365,7 +1376,7 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
 
             const [result] = await conn.execute(
                 `UPDATE orders
-                 SET invoice_id = ?, payment_method = ?, payment_type = ?, subtotal = ?, tax = ?, total = ?,
+                 SET invoice_id = ?, payment_method = ?, payment_type = ?, payment_bank = ?, subtotal = ?, tax = ?, total = ?,
                      total_amount = ?, table_id = ?, received_usd = ?, received_khr = ?, change_usd = ?,
                      change_khr = ?, exchange_rate = ?, status = 'Completed', updated_at = NOW()
                  WHERE id = ? AND ${sql}`,
@@ -1373,6 +1384,7 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
                     invoiceId,
                     method,
                     method,
+                    bank,
                     finalTotal,
                     0,
                     finalTotal,
@@ -1422,7 +1434,7 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
         await auditFromRequest(db, req, {
             action: 'payment_process',
             module: 'Payment',
-            description: `Payment received via ${method} for ${target.key === 'takeout' ? 'Take Out' : `Table ${target.key}`
+            description: `Payment received via ${method}${bank ? ` (${bank})` : ''} for ${target.key === 'takeout' ? 'Take Out' : `Table ${target.key}`
                 } / Invoice ${outcome.invoiceId} ($${outcome.finalTotal.toFixed(2)})`,
         });
 
@@ -1434,6 +1446,7 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
             total: outcome.finalTotal,
             lines: outcome.savedLines,
             low_stock_items: outcome.lowStockItems || [],
+            payment_bank: bank,
             received_usd: outcome.received_usd,
             received_khr: outcome.received_khr,
             change_usd: outcome.change_usd,
@@ -1459,13 +1472,13 @@ app.post('/api/orders/split-checkout', requirePermission('payment'), async (req,
         target_id,
         items, // array of { menu_item_id, notes, qty, unitPrice }
         payment_method,
+        payment_bank,
         table_id,
         clear_table = false,
         received_usd = null,
         received_khr = null,
         change_usd = null,
         change_khr = null,
-        exchange_rate = null,
     } = req.body ?? {};
 
     if (!target_id || !Array.isArray(items) || items.length === 0) {
@@ -1477,6 +1490,13 @@ app.post('/api/orders/split-checkout', requirePermission('payment'), async (req,
         return res.status(400).json({ message: 'Invalid payment_method. Use Cash or Bank Scan.' });
     }
 
+    let bank;
+    try {
+        bank = normalizePaymentBank(method, payment_bank);
+    } catch (validationError) {
+        return res.status(400).json({ message: validationError.message });
+    }
+
     let target;
     try {
         target = normalizeIncomingTarget(target_id);
@@ -1486,6 +1506,7 @@ app.post('/api/orders/split-checkout', requirePermission('payment'), async (req,
 
     try {
         const { sql, params } = pendingOrderWhereClause(target);
+        const shopRate = await getExchangeRate(db);
         const outcome = await withTransaction(db, async (conn) => {
             const originalOrderId = await findPendingOrderId(conn, target);
             if (!originalOrderId) {
@@ -1519,7 +1540,7 @@ app.post('/api/orders/split-checkout', requirePermission('payment'), async (req,
                 receivedUsd: received_usd,
                 receivedKhr: received_khr,
                 changeUsd: change_usd,
-                exchangeRate: exchange_rate,
+                exchangeRate: shopRate,
             });
             const recUsd = payment.received_usd;
             const recKhr = payment.received_khr;
@@ -1530,9 +1551,9 @@ app.post('/api/orders/split-checkout', requirePermission('payment'), async (req,
             // 1. Create a new completed order for the split items
             const [insertOrder] = await conn.execute(
                 `INSERT INTO orders
-                  (invoice_id, source_type, target_id, table_id, payment_method, payment_type, subtotal, tax,
+                  (invoice_id, source_type, target_id, table_id, payment_method, payment_type, payment_bank, subtotal, tax,
                    total, total_amount, received_usd, received_khr, change_usd, change_khr, exchange_rate, status, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, 'Completed', NOW())`,
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, 'Completed', NOW())`,
                 [
                     invoiceId,
                     target.sourceType,
@@ -1540,6 +1561,7 @@ app.post('/api/orders/split-checkout', requirePermission('payment'), async (req,
                     resolvedTableId,
                     method,
                     method,
+                    bank,
                     splitTotal,
                     splitTotal,
                     splitTotal,
@@ -1621,7 +1643,7 @@ app.post('/api/orders/split-checkout', requirePermission('payment'), async (req,
         await auditFromRequest(db, req, {
             action: 'split_payment_process',
             module: 'Payment',
-            description: `Split payment received via ${method} for ${target.key === 'takeout' ? 'Take Out' : `Table ${target.key}`} / Invoice ${outcome.invoiceId} ($${outcome.splitTotal.toFixed(2)})`,
+            description: `Split payment received via ${method}${bank ? ` (${bank})` : ''} for ${target.key === 'takeout' ? 'Take Out' : `Table ${target.key}`} / Invoice ${outcome.invoiceId} ($${outcome.splitTotal.toFixed(2)})`,
         });
 
         res.status(200).json({
@@ -1632,6 +1654,8 @@ app.post('/api/orders/split-checkout', requirePermission('payment'), async (req,
             remaining_count: outcome.remainingCount,
             table_status: outcome.tableStatus,
             low_stock_items: outcome.lowStockItems,
+            payment_bank: bank,
+            exchange_rate: shopRate,
         });
     } catch (error) {
         if ([400, 404, 409].includes(error.status)) {
@@ -1890,6 +1914,7 @@ app.get('/api/orders/history', requireSalesHistoryAccess, async (req, res) => {
                 source_type,
                 payment_method,
                 payment_type,
+                payment_bank,
                 subtotal,
                 tax,
                 total,
@@ -1960,6 +1985,7 @@ app.get('/api/orders/history', requireSalesHistoryAccess, async (req, res) => {
                 ...row,
                 target_id: targetKey,
                 payment_method: row.payment_method || row.payment_type || 'Cash',
+                payment_bank: row.payment_bank || null,
                 received_usd: row.received_usd != null ? parseFloat(row.received_usd) : null,
                 received_khr: row.received_khr != null ? parseFloat(row.received_khr) : null,
                 change_usd: row.change_usd != null ? parseFloat(row.change_usd) : null,
@@ -1979,6 +2005,43 @@ app.get('/api/orders/history', requireSalesHistoryAccess, async (req, res) => {
     } catch (error) {
         console.error('❌ CRITICAL DATABASE ERROR IN /api/orders/history:', error.message);
         res.status(500).json({ message: 'Failed to load sales history', errorId: logError(error, { route: `${req.method} ${req.originalUrl}` }) });
+    }
+});
+
+// ==========================================
+// 💱 EXCHANGE RATE (USD -> KHR)
+// ==========================================
+// Anyone signed in can read the rate (the till and the dashboard both show it);
+// only an admin can change it.
+app.get('/api/settings/exchange-rate', async (req, res) => {
+    try {
+        res.status(200).json({ rate: await getExchangeRate(db) });
+    } catch (error) {
+        res.status(500).json({
+            message: 'Failed to load the exchange rate',
+            errorId: logError(error, { route: `${req.method} ${req.originalUrl}` }),
+        });
+    }
+});
+
+app.put('/api/settings/exchange-rate', requireAdmin, async (req, res) => {
+    try {
+        const previous = await getExchangeRate(db);
+        const rate = await setExchangeRate(db, req.body?.rate);
+        await auditFromRequest(db, req, {
+            action: 'exchange_rate_update',
+            module: 'Settings',
+            description: `Exchange rate changed from ${previous} to ${rate} riel per dollar`,
+        });
+        res.status(200).json({ rate });
+    } catch (error) {
+        if (error.status === 400) {
+            return res.status(400).json({ message: error.message });
+        }
+        res.status(500).json({
+            message: 'Failed to save the exchange rate',
+            errorId: logError(error, { route: `${req.method} ${req.originalUrl}` }),
+        });
     }
 });
 

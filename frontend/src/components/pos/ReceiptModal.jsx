@@ -3,15 +3,11 @@ import { BadgeCheck, Printer, X } from 'lucide-react'
 import { STORE } from '../../config/store'
 import { formatDateTimeDisplay } from '../../utils/dateTimeFormat'
 import { calculateTotals } from '../../utils/posHelpers'
+import { paymentLabel } from '../../utils/paymentBanks'
+import { DEFAULT_EXCHANGE_RATE } from '../../utils/currency'
 import { translateDrinkNotes, translateMenuName } from '../../utils/menuNameTranslations'
 import { useModalKeyboard } from '../../hooks/useModalKeyboard'
 import BrandLogo from '../common/BrandLogo'
-
-function paymentMethodLabel(method, t) {
-  if (method === 'Bank Scan') return t('payment.methods.bankScan')
-  if (method === 'Cash') return t('payment.methods.cash')
-  return method
-}
 
 function ModalShell({ onClose, printLabel, documentContent }) {
   const { t } = useTranslation()
@@ -73,8 +69,8 @@ function formatKhrAmount(value) {
 
 function ReceiptTemplate({ transaction }) {
   const { t, i18n } = useTranslation()
-  const paymentMethod = paymentMethodLabel(transaction.payment || 'Cash', t)
-  const rate = transaction.exchange_rate || 4100
+  const paymentMethod = paymentLabel(transaction.payment || 'Cash', transaction.payment_bank, t)
+  const rate = transaction.exchange_rate || DEFAULT_EXCHANGE_RATE
   const totalKhr = Math.round((transaction.total * rate) / 100) * 100
   const hasReceived = transaction.received_usd > 0 || transaction.received_khr > 0
   const hasChange = transaction.change_usd > 0 || transaction.change_khr > 0

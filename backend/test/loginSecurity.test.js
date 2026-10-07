@@ -208,7 +208,7 @@ test('wrong username and wrong password return identical responses', async () =>
   )
 })
 
-test('the 5th failure triggers the 1-minute lock', async () => {
+test('the 4th failure locks the device for 30 seconds', async () => {
   const store = createMemorySecurityStore()
   const clock = { now: Date.parse('2026-09-29T00:00:00Z') }
 
@@ -220,7 +220,7 @@ test('the 5th failure triggers the 1-minute lock', async () => {
       onDummy: () => {},
     },
     async (server) => {
-      for (let attempt = 1; attempt <= 4; attempt += 1) {
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
         const response = await request(server, {
           method: 'POST',
           path: '/api/auth/login',
@@ -229,68 +229,21 @@ test('the 5th failure triggers the 1-minute lock', async () => {
         assert.equal(response.status, 401, `attempt ${attempt} should still be a normal failure`)
       }
 
-      const fifth = await request(server, {
+      const fourth = await request(server, {
         method: 'POST',
         path: '/api/auth/login',
         body: { username: 'cashier', password: 'wrong-password' },
       })
 
-      assert.equal(fifth.status, 429)
-      assert.equal(fifth.body.message, LOCKOUT_MESSAGE)
-      assert.equal(fifth.body.retryAfterSeconds, 60)
-      assert.equal(fifth.headers['retry-after'], '60')
+      assert.equal(fourth.status, 429)
+      assert.equal(fourth.body.message, LOCKOUT_MESSAGE)
+      assert.equal(fourth.body.retryAfterSeconds, 30)
+      assert.equal(fourth.headers['retry-after'], '30')
     },
   )
 })
 
-test('attempts 6-8 trigger the 10-minute lock', async () => {
-  const store = createMemorySecurityStore()
-  const clock = { now: Date.parse('2026-09-29T00:00:00Z') }
-
-  await withApp(
-    {
-      store,
-      clock,
-      findUser: async () => null,
-      onDummy: () => {},
-    },
-    async (server) => {
-      for (let attempt = 1; attempt <= 5; attempt += 1) {
-        await request(server, {
-          method: 'POST',
-          path: '/api/auth/login',
-          body: { username: 'cashier', password: 'wrong-password' },
-        })
-      }
-
-      clock.now += 60 * 1000 + 1
-
-      const sixth = await request(server, {
-        method: 'POST',
-        path: '/api/auth/login',
-        body: { username: 'cashier', password: 'wrong-password' },
-      })
-      const seventh = await request(server, {
-        method: 'POST',
-        path: '/api/auth/login',
-        body: { username: 'cashier', password: 'wrong-password' },
-      })
-      const eighth = await request(server, {
-        method: 'POST',
-        path: '/api/auth/login',
-        body: { username: 'cashier', password: 'wrong-password' },
-      })
-
-      assert.equal(sixth.status, 401)
-      assert.equal(seventh.status, 401)
-      assert.equal(eighth.status, 429)
-      assert.equal(eighth.body.message, LOCKOUT_MESSAGE)
-      assert.equal(eighth.body.retryAfterSeconds, 600)
-    },
-  )
-})
-
-test('the final failure triggers the 24-hour lock and creates a security alert', async () => {
+test('the lock raises a security alert with the device details', async () => {
   const store = createMemorySecurityStore()
   const clock = { now: Date.parse('2026-09-29T00:00:00Z') }
   const alerts = []
@@ -307,49 +260,70 @@ test('the final failure triggers the 24-hour lock and creates a security alert',
       },
     },
     async (server) => {
-      for (let attempt = 1; attempt <= 5; attempt += 1) {
+      const headers = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0) Chrome/120.0', 'X-Device-Id': FINGERPRINT }
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
         await request(server, {
           method: 'POST',
           path: '/api/auth/login',
           body: { username: 'missing-user', password: 'wrong-password' },
-          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0) Chrome/120.0', 'X-Device-Id': FINGERPRINT },
+          headers,
         })
       }
-      clock.now += 60 * 1000 + 1
-      for (let attempt = 0; attempt < 3; attempt += 1) {
-        await request(server, {
-          method: 'POST',
-          path: '/api/auth/login',
-          body: { username: 'missing-user', password: 'wrong-password' },
-          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0) Chrome/120.0', 'X-Device-Id': FINGERPRINT },
-        })
-      }
-      clock.now += 10 * 60 * 1000 + 1
+      assert.equal(store.alerts.length, 0, 'no alert before the lock')
 
-      const finalFailure = await request(server, {
+      const fourth = await request(server, {
         method: 'POST',
         path: '/api/auth/login',
         body: { username: 'missing-user', password: 'wrong-password' },
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0) Chrome/120.0',
-          'Accept-Language': 'en',
-          'X-Device-Id': FINGERPRINT,
-        },
+        headers: { ...headers, 'Accept-Language': 'en' },
       })
 
-      assert.equal(finalFailure.status, 429)
-      assert.equal(finalFailure.body.retryAfterSeconds, 24 * 60 * 60)
+      assert.equal(fourth.status, 429)
+      assert.equal(fourth.body.retryAfterSeconds, 30)
       assert.equal(store.alerts.length, 1)
       assert.equal(store.alerts[0].status, 'NEW')
-      assert.equal(store.alerts[0].stage, 3)
       assert.equal(store.alerts[0].username, 'missing-user')
-      assert.equal(store.alerts[0].failedAttempts, 9)
+      assert.equal(store.alerts[0].failedAttempts, 4)
       assert.equal(store.alerts[0].location, 'Siem Reap, Cambodia')
       assert.equal(store.alerts[0].browser, 'Chrome')
       assert.equal(store.alerts[0].osName, 'Windows')
       assert.equal(store.alerts[0].deviceFingerprint, FINGERPRINT)
       assert.equal(alerts.length, 1)
-      assert.equal(JSON.stringify(finalFailure.body).includes('stack'), false)
+      assert.equal(JSON.stringify(fourth.body).includes('stack'), false)
+    },
+  )
+})
+
+test('attempts during the lock are rejected and do not raise more alerts', async () => {
+  const store = createMemorySecurityStore()
+  const clock = { now: Date.parse('2026-09-29T00:00:00Z') }
+
+  await withApp(
+    {
+      store,
+      clock,
+      findUser: async () => null,
+      onDummy: () => {},
+    },
+    async (server) => {
+      for (let attempt = 1; attempt <= 4; attempt += 1) {
+        await request(server, {
+          method: 'POST',
+          path: '/api/auth/login',
+          body: { username: 'cashier', password: 'wrong-password' },
+        })
+      }
+      clock.now += 10 * 1000
+
+      const during = await request(server, {
+        method: 'POST',
+        path: '/api/auth/login',
+        body: { username: 'cashier', password: 'wrong-password' },
+      })
+
+      assert.equal(during.status, 429)
+      assert.equal(during.body.retryAfterSeconds, 20)
+      assert.equal(store.alerts.length, 1)
     },
   )
 })
@@ -374,7 +348,7 @@ test('locked accounts reject even the correct password', async () => {
       },
     },
     async (server) => {
-      for (let attempt = 1; attempt <= 5; attempt += 1) {
+      for (let attempt = 1; attempt <= 4; attempt += 1) {
         await request(server, {
           method: 'POST',
           path: '/api/auth/login',
@@ -397,7 +371,7 @@ test('locked accounts reject even the correct password', async () => {
   )
 })
 
-test('the counter resets after the 24-hour lock expires', async () => {
+test('the counter resets after the 30-second lock expires', async () => {
   const store = createMemorySecurityStore()
   const clock = { now: Date.parse('2026-09-29T00:00:00Z') }
 
@@ -409,39 +383,23 @@ test('the counter resets after the 24-hour lock expires', async () => {
       onDummy: () => {},
     },
     async (server) => {
-      for (let attempt = 1; attempt <= 5; attempt += 1) {
-        await request(server, {
-          method: 'POST',
-          path: '/api/auth/login',
-          body: { username: 'cashier', password: 'wrong-password' },
-        })
-      }
-      clock.now += 60 * 1000 + 1
-      for (let attempt = 0; attempt < 3; attempt += 1) {
-        await request(server, {
-          method: 'POST',
-          path: '/api/auth/login',
-          body: { username: 'cashier', password: 'wrong-password' },
-        })
-      }
-      clock.now += 10 * 60 * 1000 + 1
-      const dayLock = await request(server, {
-        method: 'POST',
-        path: '/api/auth/login',
-        body: { username: 'cashier', password: 'wrong-password' },
-      })
-      assert.equal(dayLock.status, 429)
-      assert.equal(dayLock.body.retryAfterSeconds, 24 * 60 * 60)
-
-      clock.now += 24 * 60 * 60 * 1000 + 1
-
       for (let attempt = 1; attempt <= 4; attempt += 1) {
+        await request(server, {
+          method: 'POST',
+          path: '/api/auth/login',
+          body: { username: 'cashier', password: 'wrong-password' },
+        })
+      }
+
+      clock.now += 30 * 1000 + 1
+
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
         const response = await request(server, {
           method: 'POST',
           path: '/api/auth/login',
           body: { username: 'cashier', password: 'wrong-password' },
         })
-        assert.equal(response.status, 401, `post-expiry attempt ${attempt} should be stage 1 again`)
+        assert.equal(response.status, 401, `post-expiry attempt ${attempt} should count from zero`)
       }
 
       const relock = await request(server, {
@@ -450,7 +408,8 @@ test('the counter resets after the 24-hour lock expires', async () => {
         body: { username: 'cashier', password: 'wrong-password' },
       })
       assert.equal(relock.status, 429)
-      assert.equal(relock.body.retryAfterSeconds, 60)
+      assert.equal(relock.body.retryAfterSeconds, 30)
+      assert.equal(store.alerts.length, 2, 'each new lock raises its own alert')
     },
   )
 })
@@ -515,8 +474,8 @@ test('non-admin users cannot access the alert endpoints', async () => {
     deviceType: 'Desktop',
     deviceFingerprint: FINGERPRINT,
     location: 'Unknown',
-    failedAttempts: 9,
-    stage: 3,
+    failedAttempts: 4,
+    stage: 1,
     createdAt: new Date(clock.now).toISOString(),
   })
 

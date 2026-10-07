@@ -1,4 +1,4 @@
-const ALLOWED_KEYS = new Set([])
+const ALLOWED_KEYS = new Set(['usd_khr_rate'])
 
 let schemaReadyPromise = null
 

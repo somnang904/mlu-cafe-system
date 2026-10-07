@@ -3,13 +3,15 @@ import { useTranslation } from 'react-i18next'
 import { Scissors, Minus, Plus } from 'lucide-react'
 import { useModalKeyboard } from '../../hooks/useModalKeyboard'
 import { translateMenuName, translateDrinkNotes } from '../../utils/menuNameTranslations'
-import { formatUsd, formatKhr, usdToKhr, DEFAULT_EXCHANGE_RATE } from '../../utils/currency'
+import { formatUsd, formatKhr, usdToKhr } from '../../utils/currency'
+import { useExchangeRate } from '../../hooks/useExchangeRate'
 import PaymentModule from './PaymentModule'
 import ModalHeader from '../ui/ModalHeader'
 
 const NO_ITEMS = []
 
 export default function SplitBillModal({ isOpen, onClose, bill, onPaySplit }) {
+  const exchangeRate = useExchangeRate()
   const { t, i18n } = useTranslation()
   const panelRef = useModalKeyboard({ isOpen, onEscape: onClose, primaryActionMode: 'never' })
 
@@ -199,7 +201,7 @@ export default function SplitBillModal({ isOpen, onClose, bill, onPaySplit }) {
                     {formatUsd(splitTotal)}
                   </p>
                   <p className="text-xs text-emerald-700 dark:text-emerald-400 tabular-nums">
-                    {formatKhr(usdToKhr(splitTotal, DEFAULT_EXCHANGE_RATE))}
+                    {formatKhr(usdToKhr(splitTotal, exchangeRate))}
                   </p>
                 </div>
 
@@ -211,7 +213,7 @@ export default function SplitBillModal({ isOpen, onClose, bill, onPaySplit }) {
                     {formatUsd(remainingTotal)}
                   </p>
                   <p className="text-xs text-slate-500 dark:text-zinc-400 tabular-nums">
-                    {formatKhr(usdToKhr(remainingTotal, DEFAULT_EXCHANGE_RATE))}
+                    {formatKhr(usdToKhr(remainingTotal, exchangeRate))}
                   </p>
                 </div>
               </div>

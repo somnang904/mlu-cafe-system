@@ -10,7 +10,6 @@ const {
   lockRemainingSeconds,
   isLocked,
   registerFailure,
-  cumulativeFailures,
 } = require('./loginLockoutPolicy')
 
 const USER_WIDE_IP = '*'
@@ -116,7 +115,7 @@ function mapAlertRow(row) {
     deviceFingerprint: row.device_fingerprint || '',
     location: row.location || 'Unknown',
     failedAttempts: Number(row.failed_attempts) || 0,
-    stage: Number(row.stage) || 3,
+    stage: Number(row.stage) || 1,
     status: row.status,
     createdAt: row.created_at,
     reviewedAt: row.reviewed_at,
@@ -265,8 +264,7 @@ function createMysqlSecurityStore(database = db) {
       await ensureLoginSecuritySchema(database)
       const [result] = await database.execute(
         `DELETE FROM login_attempts
-         WHERE stage >= 3
-           AND locked_until IS NOT NULL
+         WHERE locked_until IS NOT NULL
            AND locked_until < ?`,
         [new Date(nowMs)],
       )
@@ -360,7 +358,7 @@ function createMemorySecurityStore() {
     async cleanupExpired(nowMs) {
       let removed = 0
       for (const [key, row] of attempts) {
-        if (row.stage >= 3 && row.lockedUntil && row.lockedUntil < nowMs) {
+        if (row.lockedUntil && row.lockedUntil < nowMs) {
           attempts.delete(key)
           removed += 1
         }
@@ -495,9 +493,7 @@ async function processLoginAttempt({
       location = 'Unknown'
     }
 
-    const failedAttempts = Math.max(
-      ...recorded.map((entry) => cumulativeFailures(entry.attempt.stage, entry.attempt.failedCount)),
-    )
+    const failedAttempts = Math.max(...recorded.map((entry) => entry.attempt.failedCount))
     const alert = await store.insertAlert({
       username,
       ipAddress: ip,
@@ -509,7 +505,7 @@ async function processLoginAttempt({
       deviceFingerprint: fingerprint,
       location,
       failedAttempts,
-      stage: 3,
+      stage: 1,
       createdAt: new Date(now).toISOString(),
     })
 
@@ -517,7 +513,7 @@ async function processLoginAttempt({
       ip,
       username: String(username).slice(0, 64),
       failedAttempts,
-      stage: 3,
+      stage: 1,
       location,
     })
 
@@ -526,12 +522,6 @@ async function processLoginAttempt({
         logError(error, { route: 'security-alert-notify' })
       })
     }
-  } else if (recorded.some((entry) => entry.triggeredLock)) {
-    logSecurity('login_lockout', {
-      ip,
-      username: String(username).slice(0, 64),
-      stage: recorded.find((entry) => entry.triggeredLock)?.attempt.stage,
-    })
   }
 
   if (recorded.some((entry) => entry.triggeredLock || entry.alreadyLocked)) {

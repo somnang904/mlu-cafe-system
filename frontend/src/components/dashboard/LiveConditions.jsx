@@ -1,5 +1,6 @@
-import { Cloud, CloudFog, CloudLightning, CloudRain, CloudSnow, CloudSun, Sun, Banknote } from 'lucide-react'
+import { Cloud, CloudFog, CloudLightning, CloudRain, CloudSnow, CloudSun, Sun } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import ExchangeRateCard from './ExchangeRateCard'
 
 const WEATHER_ICONS = {
   clear: Sun,
@@ -11,10 +12,6 @@ const WEATHER_ICONS = {
   rain: CloudRain,
   thunderstorm: CloudLightning,
   snow: CloudSnow,
-}
-
-function formatKhr(value) {
-  return Number(value).toLocaleString('en-US', { maximumFractionDigits: 0 })
 }
 
 function formatUpdated(savedAt, t) {
@@ -39,8 +36,9 @@ export default function LiveConditions({
   const exchangeUpdated = isStale ? formatUpdated(exchangeSavedAt || savedAt, t) : null
 
   const showWeather = isLoading || Boolean(weather)
-  const showExchange = isLoading || Boolean(exchange)
-  if (!showWeather && !showExchange) return null
+  // The shop rate is always known, so this card no longer waits on the live lookup.
+  const showExchange = true
+  const marketRate = Number(exchange?.khrPerUsd) > 0 ? Number(exchange.khrPerUsd) : null
 
   return (
     <div className="grid gap-4 sm:grid-cols-2">
@@ -66,24 +64,7 @@ export default function LiveConditions({
       ) : null}
 
       {showExchange ? (
-      <div className="surface-card flex items-center gap-4 p-5">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-amber-500 text-white shadow-sm">
-          <Banknote className="h-6 w-6" />
-        </div>
-        <div className="min-w-0">
-          <p className="text-muted text-sm font-medium">{t('dashboard.exchangeRate')}</p>
-          {isLoading ? (
-            <p className="text-muted mt-1 text-sm">{t('dashboard.loadingLive')}</p>
-          ) : exchange ? (
-            <>
-              <p className="text-heading mt-1 text-2xl font-semibold tabular-nums">
-                {t('dashboard.usdToKhr', { rate: formatKhr(exchange.khrPerUsd) })}
-              </p>
-              {exchangeUpdated ? <p className="text-muted mt-1 text-xs">{exchangeUpdated}</p> : null}
-            </>
-          ) : null}
-        </div>
-      </div>
+      <ExchangeRateCard marketRate={marketRate} marketUpdated={exchangeUpdated} />
       ) : null}
     </div>
   )

@@ -1,14 +1,16 @@
-import { Banknote, ScanLine, Calculator } from 'lucide-react'
+import { Banknote, ScanLine, Calculator, Landmark } from 'lucide-react'
 import { useState, useMemo, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  DEFAULT_EXCHANGE_RATE,
   formatUsd,
   formatKhr,
   calculateCashChange,
   splitChange,
   usdToKhr,
 } from '../../utils/currency'
+import { PAYMENT_BANKS, bankLabel } from '../../utils/paymentBanks'
+import BankMark from './BankMark'
+import { useExchangeRate } from '../../hooks/useExchangeRate'
 
 const PAYMENT_METHODS = [
   { id: 'Cash', labelKey: 'payment.methods.cash', icon: Banknote },
@@ -18,7 +20,9 @@ const PAYMENT_METHODS = [
 export default function PaymentModule({ disabled, billTotal = 0, onConfirm }) {
   const { t } = useTranslation()
   const [method, setMethod] = useState('Cash')
-  const [exchangeRate] = useState(DEFAULT_EXCHANGE_RATE)
+  // Which bank the QR was scanned on. Left empty on purpose so the cashier has to pick one.
+  const [bank, setBank] = useState('')
+  const exchangeRate = useExchangeRate()
   const [receivedUsdInput, setReceivedUsdInput] = useState('')
   const [receivedKhrInput, setReceivedKhrInput] = useState('')
 
@@ -60,6 +64,7 @@ export default function PaymentModule({ disabled, billTotal = 0, onConfirm }) {
   const changeSplit = splitChange(changeCalculation.changeUsd, exchangeRate)
 
   const isCash = method === 'Cash'
+  const needsBank = method === 'Bank Scan' && !bank
   // Cash has to be counted before the sale is recorded. Leaving the boxes empty used to
   // book the bill as paid in exact dollars, which puts the wrong currency in the drawer
   // when the guest actually paid riel.
@@ -79,6 +84,7 @@ export default function PaymentModule({ disabled, billTotal = 0, onConfirm }) {
   const handleConfirm = () => {
     if (disabled || !method) return
     if (isCash && !changeCalculation.isSufficient) return
+    if (needsBank) return
 
     const finalRecUsd = parsedReceivedUsd
     const finalRecKhr = parsedReceivedKhr
@@ -87,12 +93,15 @@ export default function PaymentModule({ disabled, billTotal = 0, onConfirm }) {
 
     onConfirm?.(method, {
       clearImmediately,
+      payment_bank: method === 'Bank Scan' ? bank : null,
       received_usd: isCash ? finalRecUsd : null,
       received_khr: isCash ? finalRecKhr : null,
       change_usd: isCash ? finalChangeUsd : null,
       change_khr: isCash ? finalChangeKhr : null,
       exchange_rate: exchangeRate,
     })
+    // The next sale picks its bank again instead of inheriting this one.
+    setBank('')
   }
 
   return (
@@ -150,6 +159,40 @@ export default function PaymentModule({ disabled, billTotal = 0, onConfirm }) {
           })}
         </div>
       </div>
+
+      {/* Which bank was scanned, so Sales History can tell the accounts apart */}
+      {method === 'Bank Scan' && (
+        <div className="space-y-1.5 rounded-2xl border border-slate-200 bg-slate-50/70 p-3 dark:border-zinc-800 dark:bg-zinc-900/60">
+          <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-700 dark:text-zinc-300">
+            <Landmark className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+            {t('payment.scannedBank', { defaultValue: 'Scanned on which bank?' })}
+          </p>
+          <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label={t('payment.scannedBank')}>
+            {PAYMENT_BANKS.map((entry) => {
+              const { id } = entry
+              const isActive = bank === id
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  role="radio"
+                  aria-checked={isActive}
+                  disabled={disabled}
+                  onClick={() => setBank(id)}
+                  className={`flex flex-col items-center gap-1 rounded-xl border px-2 py-2 text-xs font-semibold transition ${
+                    isActive
+                      ? 'surface-emerald-selected text-emerald-900 ring-2 ring-emerald-500/30 dark:text-emerald-300'
+                      : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-zinc-700 dark:hover:bg-zinc-800/50'
+                  } disabled:cursor-not-allowed disabled:opacity-40`}
+                >
+                  <BankMark bank={entry} />
+                  <span className="max-w-full truncate">{bankLabel(id, t)}</span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Cash Received & Change Calculator */}
       {isCash && (
@@ -286,6 +329,11 @@ export default function PaymentModule({ disabled, billTotal = 0, onConfirm }) {
       </div>
 
       {/* Confirm Button */}
+      {needsBank && (
+        <p className="text-center text-xs font-medium text-amber-700 dark:text-amber-300" role="status">
+          {t('payment.chooseBank', { defaultValue: 'Choose the bank that was scanned.' })}
+        </p>
+      )}
       {isExactDisabled && (
         <p className="text-center text-xs font-medium text-amber-700 dark:text-amber-300" role="status">
           {cashEntered
@@ -295,7 +343,7 @@ export default function PaymentModule({ disabled, billTotal = 0, onConfirm }) {
       )}
       <button
         type="button"
-        disabled={disabled || isExactDisabled}
+        disabled={disabled || isExactDisabled || needsBank}
         onClick={handleConfirm}
         className="btn-primary w-full py-2.5 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
       >
