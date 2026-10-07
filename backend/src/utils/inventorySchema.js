@@ -31,6 +31,16 @@ async function ensureInventorySchema(db) {
           'ALTER TABLE inventory ADD COLUMN unit_cost DECIMAL(12, 4) NOT NULL DEFAULT 0',
         );
       }
+
+      const hasArchivedAt = await columnExists(db, 'inventory', 'archived_at');
+      if (!hasArchivedAt) {
+        await db.execute('ALTER TABLE inventory ADD COLUMN archived_at DATETIME NULL');
+      }
+
+      const hasPackSize = await columnExists(db, 'inventory', 'pack_size');
+      if (!hasPackSize) {
+        await db.execute('ALTER TABLE inventory ADD COLUMN pack_size INT NULL');
+      }
     })().catch((error) => {
       schemaReadyPromise = null;
       throw error;

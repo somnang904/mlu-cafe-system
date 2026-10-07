@@ -68,16 +68,11 @@ function isLargeChange(before, after) {
 }
 
 async function loadStockRows(conn) {
-  const [columns] = await conn.execute(
-    `SELECT COLUMN_NAME FROM information_schema.COLUMNS
-     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'inventory' AND COLUMN_NAME = 'archived'`,
-  )
-  const archivedSql = columns.length ? 'WHERE COALESCE(archived, 0) = 0' : ''
   const [rows] = await conn.execute(
     `SELECT id, item_name, category, section, unit_label, is_weight,
             stock_quantity, max_stock, low_threshold, critical_threshold
      FROM inventory
-     ${archivedSql}
+     WHERE archived_at IS NULL
      ORDER BY id
      FOR UPDATE`,
   )

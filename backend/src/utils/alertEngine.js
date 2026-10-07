@@ -51,6 +51,7 @@ async function fetchInventoryForAlerts(db) {
       critical_threshold,
       unit_label
     FROM inventory
+    WHERE archived_at IS NULL
     ORDER BY item_name ASC
     `,
   );
