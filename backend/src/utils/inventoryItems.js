@@ -1,5 +1,5 @@
 const { resolveStockStatus } = require('./inventorySchema')
-const { applyStockChange, roundStock, withTransaction } = require('./stockLedger')
+const { applyStockChange, roundStock, withTransaction, MAX_STOCK_QUANTITY } = require('./stockLedger')
 
 const STOCK_UNITS = [
   { id: 'kg', singular: 'kg', section: 'uncountable' },
@@ -117,6 +117,9 @@ function parseItemInput(body, { editing = false } = {}) {
   }
   if (!editing && (stock == null || stock < 0 || critical == null)) {
     throw reject(400, 'Counts and thresholds must be zero or greater', { code: 'validation' })
+  }
+  if ([maxStock, low, critical, stock].some((n) => n != null && n > MAX_STOCK_QUANTITY)) {
+    throw reject(400, 'Counts and thresholds cannot be more than 1,000,000', { code: 'validation' })
   }
   if (maxStock < low || (critical != null && maxStock < critical)) {
     throw reject(400, 'Maximum must be at least the low and very-low thresholds', { code: 'validation' })

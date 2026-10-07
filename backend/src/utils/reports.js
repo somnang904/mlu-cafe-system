@@ -10,6 +10,8 @@ const COMPLETED_STATUSES = saleStatusSql('o')
 const REFUNDED_STATUS = refundedStatusSql('o')
 const REFUND_DATE = refundDateSql('o')
 
+const BASE_ITEM_NAME_SQL = `IF(oi.notes IS NOT NULL AND oi.notes <> '' AND CHAR_LENGTH(oi.item_name) > CHAR_LENGTH(oi.notes) + 3 AND RIGHT(oi.item_name, CHAR_LENGTH(oi.notes) + 3) = CONCAT(' (', oi.notes, ')'), LEFT(oi.item_name, CHAR_LENGTH(oi.item_name) - CHAR_LENGTH(oi.notes) - 3), oi.item_name)`
+
 function resolveDayRange(rawDays) {
   const parsed = Number.parseInt(rawDays, 10)
   return ALLOWED_DAY_RANGES.includes(parsed) ? parsed : 30
@@ -125,7 +127,7 @@ async function buildSalesReport(db, { days } = {}) {
   const [topItems] = await db.execute(
     `
     SELECT
-      COALESCE(m.name, oi.item_name, 'Custom item') AS name,
+      COALESCE(m.name, ${BASE_ITEM_NAME_SQL}, 'Custom item') AS name,
       COALESCE(oi.item_category, m.category, 'Uncategorized') AS category,
       COALESCE(SUM(oi.quantity), 0) AS quantity,
       COALESCE(SUM(oi.quantity * oi.price), 0) AS revenue
@@ -134,7 +136,7 @@ async function buildSalesReport(db, { days } = {}) {
     LEFT JOIN menu_items m ON m.id = oi.menu_item_id
     WHERE ${COMPLETED_STATUSES}
       AND o.updated_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
-    GROUP BY COALESCE(m.name, oi.item_name, 'Custom item'), COALESCE(oi.item_category, m.category, 'Uncategorized')
+    GROUP BY COALESCE(m.name, ${BASE_ITEM_NAME_SQL}, 'Custom item'), COALESCE(oi.item_category, m.category, 'Uncategorized')
     ORDER BY revenue DESC, quantity DESC
     LIMIT 10
     `,

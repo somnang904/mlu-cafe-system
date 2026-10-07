@@ -138,6 +138,9 @@ export default function MenuManagement() {
   const [menuDeleteBlocked, setMenuDeleteBlocked] = useState(null)
 
   const [form, setForm] = useState(EMPTY_FORM)
+  const [initialAvailable, setInitialAvailable] = useState(true)
+  const [isSaving, setIsSaving] = useState(false)
+  const savingRef = useRef(false)
 
   // Built-in categories (minus deleted ones), then ones added from this page (oldest first, so a
   // new one lands at the end). Until the server answers, show the built-in list.
@@ -284,11 +287,6 @@ export default function MenuManagement() {
         return Array.isArray(data) ? data : []
       })
       .then((menu) => {
-        if (menu.length === 0) {
-          setItems(getMenuFallback())
-          setUsingFallbackMenu(true)
-          return
-        }
         cacheMenuItems(menu)
         setItems(menu)
         setUsingFallbackMenu(false)
@@ -335,6 +333,7 @@ export default function MenuManagement() {
       use_servings: item.hot_price != null || item.iced_price != null,
       is_available: item.is_available !== false,
     })
+    setInitialAvailable(item.is_available !== false)
     setImageMode(item.image_url && !item.image_url.startsWith('/api/uploads') && item.image_url.startsWith('http') ? 'link' : 'upload')
     setUploadError('')
     setLinkDraft('')
@@ -343,11 +342,11 @@ export default function MenuManagement() {
 
   const handleSubmit = async (event) => {
     event.preventDefault()
-    if (!form.name) return
+    if (!form.name || savingRef.current) return
 
     const drink = isDrinkMenuCategory(form.category) || form.use_servings
     if (drink && form.hot_price === '' && form.iced_price === '') {
-      alert(t('menuAdmin.errors.servingPrice'))
+      showToast(t('menuAdmin.errors.servingPrice'))
       return
     }
     if (!drink && !form.price) return
@@ -356,8 +355,8 @@ export default function MenuManagement() {
       name: form.name,
       category: form.category,
       image_url: form.image_url.trim() || null,
-      is_available: form.is_available,
     }
+    if (!isEditing || form.is_available !== initialAvailable) payload.is_available = form.is_available
 
     if (drink) {
       payload.hot_price = form.hot_price === '' ? null : parseFloat(form.hot_price)
@@ -366,6 +365,9 @@ export default function MenuManagement() {
       payload.price = parseFloat(form.price)
     }
 
+    savingRef.current = true
+    setIsSaving(true)
+    try {
     if (isEditing) {
       try {
         const response = await apiFetch(`/menu/${editingId}`, {
@@ -380,7 +382,7 @@ export default function MenuManagement() {
           fetchMenu()
           handleCloseDetailsModal()
         } else {
-          alert(data.message || t('menuAdmin.errors.update'))
+          showToast(data.message || t('menuAdmin.errors.update'))
         }
       } catch (error) {
         console.error('Error updating item:', error)
@@ -399,11 +401,15 @@ export default function MenuManagement() {
           fetchMenu()
           handleCloseDetailsModal()
         } else {
-          alert(data.message || t('menuAdmin.errors.save'))
+          showToast(data.message || t('menuAdmin.errors.save'))
         }
       } catch (error) {
         console.error('Error adding item:', error)
       }
+    }
+    } finally {
+      savingRef.current = false
+      setIsSaving(false)
     }
   }
 
@@ -421,9 +427,9 @@ export default function MenuManagement() {
         }
       } else if (response.status === 409) {
         fetchMenu()
-        alert(data.message || t('menuAdmin.errors.delete'))
+        showToast(data.message || t('menuAdmin.errors.delete'))
       } else {
-        alert(data.message || t('menuAdmin.errors.delete'))
+        showToast(data.message || t('menuAdmin.errors.delete'))
       }
     } catch (error) {
       console.error('Error deleting item:', error)
@@ -451,7 +457,7 @@ export default function MenuManagement() {
       }
     } catch (error) {
       setItems(previous)
-      alert(error.message || t('menuAdmin.errors.save'))
+      showToast(error.message || t('menuAdmin.errors.save'))
     }
   }
 
@@ -1083,7 +1089,7 @@ export default function MenuManagement() {
                 <button type="button" onClick={handleCloseDetailsModal} className="btn-secondary flex-1 py-2.5 text-sm">
                   {t('common.cancel')}
                 </button>
-                <button type="submit" className="btn-primary beam-border flex-1 py-2.5 text-sm shadow-[0_4px_14px_rgba(16,185,129,0.35)]">
+                <button type="submit" disabled={isSaving} className="btn-primary beam-border flex-1 py-2.5 text-sm shadow-[0_4px_14px_rgba(16,185,129,0.35)]">
                   {isEditing ? t('common.saveChanges') : t('menuAdmin.addItem')}
                 </button>
               </div>

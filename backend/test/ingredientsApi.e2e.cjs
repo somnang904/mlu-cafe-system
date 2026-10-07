@@ -398,7 +398,9 @@ async function run() {
     const delAgain = await call('DELETE', `/ingredients/${id}`, { token });
     check('deleting again is 404', delAgain.status === 404, delAgain);
     const reuse = await create({ name: renamed, unit_label: 'kg' });
-    console.log(`INFO  re-creating a deleted ingredient name returns ${reuse.status} ${JSON.stringify(reuse.body?.code || '')}`);
+    check('re-adding the name of a removed ingredient is allowed (201)', reuse.status === 201, reuse);
+    const [tomb] = await conn.query('SELECT item_name FROM inventory WHERE id = ?', [id]);
+    check('the removed row is renamed to a tombstone name', String(tomb[0]?.item_name).toLowerCase() === `${renamed} [removed ${id}]`.toLowerCase(), tomb);
   } finally {
     await cleanup(conn, itemIds, orderIds);
     await conn.end();

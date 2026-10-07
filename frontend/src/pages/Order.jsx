@@ -164,6 +164,7 @@ export default function Order() {
           list.push({
             name: row.item_name,
             stock: Number(row.stock_quantity),
+            status: row.stock_status || null,
           })
           next[row.menu_item_id] = list
         }
@@ -308,7 +309,7 @@ export default function Order() {
 
     const linkedStock = stockByMenu[menuItemId] || []
     const outOfStock = linkedStock.find((st) => Number(st.stock) <= 0)
-    const lowStock = linkedStock.find((st) => Number(st.stock) > 0 && Number(st.stock) <= 3)
+    const lowStock = linkedStock.find((st) => Number(st.stock) > 0 && st.status === 'LOW_STOCK')
 
     if (outOfStock) {
       playAlertSound('critical')

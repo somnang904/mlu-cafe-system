@@ -72,7 +72,7 @@ const {
     menuCategoryFieldSql,
     renameMenuCategory,
     resolveMenuCategory,
-    normalizeMenuImageUrl,
+    parseMenuImageUrl,
     normalizeMenuPrices,
     serializeMenuItem,
     MENU_ITEM_SELECT,
@@ -85,7 +85,7 @@ const {
     parseOptionalAvailability,
 } = require('./src/utils/menuLifecycle');
 const { buildSalesReport } = require('./src/utils/reports');
-const { ensureInventorySchema } = require('./src/utils/inventorySchema');
+const { ensureInventorySchema, resolveStockStatus } = require('./src/utils/inventorySchema');
 const { createInventoryItem, editInventoryItem } = require('./src/utils/inventoryItems');
 const { ensureStockSchema } = require('./src/utils/stockSchema');
 const {
@@ -103,6 +103,7 @@ const {
     restockMenuItem,
     updateMenuStockSettings,
     untrackMenuItem,
+    syncTrackedStockName,
     archiveInventoryOnlyLinkedTo,
 } = require('./src/utils/menuStockSimple');
 const {
@@ -862,7 +863,7 @@ app.delete('/api/menu/categories/:name', requirePermission('menu'), async (req, 
         res.status(200).json({ moved, ...(await getMenuCategories(db)) });
     } catch (error) {
         if (error.status) {
-            return res.status(error.status).json({ message: error.message, code: error.code, count: error.count });
+            return res.status(error.status).json({ message: error.message, code: error.code, count: error.count, names: error.names });
         }
         console.error('Error deleting menu category:', error);
         res.status(500).json({ message: 'Failed to delete the category' });
@@ -896,6 +897,7 @@ app.post('/api/menu', requirePermission('menu'), async (req, res) => {
     const prices = normalizeMenuPrices(req.body ?? {}, category);
     const nameCheck = normalizeMenuItemName(req.body?.name);
     const availability = parseOptionalAvailability(req.body?.is_available);
+    const imageCheck = parseMenuImageUrl(image_url);
 
     if (nameCheck.code === 'too_long') {
         return res.status(400).json({ message: nameCheck.error, code: nameCheck.code });
@@ -906,10 +908,13 @@ app.post('/api/menu', requirePermission('menu'), async (req, res) => {
     if (availability.error) {
         return res.status(400).json({ message: availability.error });
     }
+    if (imageCheck.error) {
+        return res.status(400).json({ message: imageCheck.error, code: 'invalid_image_url' });
+    }
 
     const name = nameCheck.name;
     const isAvailable = availability.value !== false;
-    const normalizedImageUrl = normalizeMenuImageUrl(image_url);
+    const normalizedImageUrl = imageCheck.value;
 
     try {
         if (await findDuplicateMenuName(db, name, category)) {
@@ -952,6 +957,7 @@ app.put('/api/menu/:id', requirePermission('menu'), async (req, res) => {
     const prices = normalizeMenuPrices(req.body ?? {}, category);
     const nameCheck = normalizeMenuItemName(req.body?.name);
     const availability = parseOptionalAvailability(req.body?.is_available);
+    const imageCheck = parseMenuImageUrl(image_url);
 
     if (!Number.isInteger(itemId) || itemId <= 0) {
         return res.status(400).json({ message: 'Invalid menu item id' });
@@ -966,9 +972,12 @@ app.put('/api/menu/:id', requirePermission('menu'), async (req, res) => {
     if (availability.error) {
         return res.status(400).json({ message: availability.error });
     }
+    if (imageCheck.error) {
+        return res.status(400).json({ message: imageCheck.error, code: 'invalid_image_url' });
+    }
 
     const name = nameCheck.name;
-    const normalizedImageUrl = normalizeMenuImageUrl(image_url);
+    const normalizedImageUrl = imageCheck.value;
 
     try {
         const [existingRows] = await db.execute(
@@ -994,15 +1003,21 @@ app.put('/api/menu/:id', requirePermission('menu'), async (req, res) => {
 
         const query =
             `UPDATE menu_items SET name = ?, category = ?, price = ?, hot_price = ?, iced_price = ?, image_url = ?${availabilitySql} WHERE id = ?`;
-        const [result] = await db.execute(query, [
-            name,
-            category,
-            prices.price,
-            prices.hot_price,
-            prices.iced_price,
-            normalizedImageUrl,
-            itemId,
-        ]);
+        const result = await withTransaction(db, async (conn) => {
+            const [updated] = await conn.execute(query, [
+                name,
+                category,
+                prices.price,
+                prices.hot_price,
+                prices.iced_price,
+                normalizedImageUrl,
+                itemId,
+            ]);
+            if (updated.affectedRows !== 0 && String(previous.name) !== name) {
+                await syncTrackedStockName(conn, itemId, name);
+            }
+            return updated;
+        });
 
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: 'Item not found' });
@@ -1197,7 +1212,7 @@ app.get('/api/orders/active', requirePosFloorAccess, async (req, res) => {
 app.get('/api/orders/stock-levels', requireOrderWriteAccess, async (_req, res) => {
     try {
         const [rows] = await db.execute(
-            `SELECT l.menu_item_id, i.item_name, i.stock_quantity
+            `SELECT l.menu_item_id, i.item_name, i.stock_quantity, i.low_threshold
              FROM menu_item_stock_links l
              JOIN inventory i ON i.id = l.inventory_id
              WHERE l.variant = '' AND l.option_key = '' AND l.option_value = ''
@@ -1207,6 +1222,8 @@ app.get('/api/orders/stock-levels', requireOrderWriteAccess, async (_req, res) =
             menu_item_id: row.menu_item_id,
             item_name: row.item_name,
             stock_quantity: Number(row.stock_quantity),
+            low_threshold: row.low_threshold != null ? Number(row.low_threshold) : null,
+            stock_status: resolveStockStatus(Number(row.stock_quantity), row.low_threshold != null ? Number(row.low_threshold) : null, null),
         })));
     } catch (error) {
         logOrderError('DATABASE ERROR IN GET /api/orders/stock-levels', error);
@@ -1878,12 +1895,16 @@ app.put('/api/orders/items', requireOrderWriteAccess, async (req, res) => {
                 id = await createPendingOrder(conn, target, table_id, req.user);
             }
             const prices = await pickLinePrices(conn, id, items, { isAdmin: isAdminRole(req.user?.role) });
-            await reconcileOrderStock(conn, id, items, req.user?.id ?? null);
             await conn.execute('DELETE FROM order_items WHERE order_id = ?', [id]);
             for (const [index, item] of items.entries()) {
                 await insertOrderItem(conn, id, item, { price: prices[index] });
             }
             await combineDuplicateLines(conn, id);
+            const [stockLines] = await conn.execute(
+                'SELECT menu_item_id, quantity FROM order_items WHERE order_id = ?',
+                [id],
+            );
+            await reconcileOrderStock(conn, id, stockLines, req.user?.id ?? null);
 
             if (items.length === 0) {
                 await conn.execute(
@@ -2542,10 +2563,23 @@ app.post('/api/inventory/:id/links', requireStockAccess, async (req, res) => {
     }
 
     try {
-        const [stock] = await db.execute('SELECT id FROM inventory WHERE id = ? LIMIT 1', [itemId]);
+        const [stock] = await db.execute('SELECT id, archived_at, is_ingredient FROM inventory WHERE id = ? LIMIT 1', [itemId]);
         const [menu] = await db.execute('SELECT id FROM menu_items WHERE id = ? LIMIT 1', [menuItemId]);
         if (!stock.length || !menu.length) {
             return res.status(404).json({ message: 'Stock item or menu item was not found' });
+        }
+        if (stock[0].archived_at != null || Number(stock[0].is_ingredient) === 1) {
+            return res.status(400).json({ message: 'Only an active menu stock count can be linked to a menu item' });
+        }
+        if (perUnit !== 1) {
+            return res.status(400).json({ message: 'A menu item uses exactly 1 per sale' });
+        }
+        const [others] = await db.execute(
+            'SELECT 1 FROM menu_item_stock_links WHERE inventory_id = ? AND menu_item_id <> ? LIMIT 1',
+            [itemId, menuItemId],
+        );
+        if (others.length) {
+            return res.status(400).json({ message: 'This stock count already belongs to another menu item' });
         }
         const [result] = await db.execute(
             `INSERT INTO menu_item_stock_links
