@@ -5,6 +5,10 @@
 
 export const DEFAULT_EXCHANGE_RATE = 4100
 
+// Keep in step with backend/src/utils/cashDrawer.js, which enforces them.
+export const MIN_EXCHANGE_RATE = 1000
+export const MAX_EXCHANGE_RATE = 10000
+
 export function formatUsd(amount) {
   const val = Number(amount)
   if (!Number.isFinite(val)) return '$0.00'

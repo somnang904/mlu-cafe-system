@@ -1,517 +1,261 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { expenseCategoryLabel } from '../utils/expenseCategories'
+import { FileBarChart, Loader2 } from 'lucide-react'
+import ReportFilterBar from '../components/reports/ReportFilterBar'
+import ReportExportDialog from '../components/reports/ReportExportDialog'
+import OverviewTab from '../components/reports/OverviewTab'
+import SalesTab from '../components/reports/SalesTab'
+import ItemsTab from '../components/reports/ItemsTab'
+import StaffTab from '../components/reports/StaffTab'
+import { chartLabels, formatRangeLabel } from '../components/reports/reportFormat'
+import { apiFetch } from '../services/apiClient'
+import { menuCategoryLabel } from '../utils/menuCategoryLabel'
+import { translateMenuName } from '../utils/menuNameTranslations'
 import {
-  BarChart3,
-  CalendarRange,
-  FileSpreadsheet,
-  FileText,
-  Loader2,
-  Pencil,
-  Receipt,
-  RotateCcw,
-  ShoppingBag,
-  TrendingDown,
-  TrendingUp,
-  Wallet,
-} from 'lucide-react'
-import Modal from '../components/common/Modal'
-import ModalHeader from '../components/ui/ModalHeader'
-import FieldLabel from '../components/ui/FieldLabel'
-import FinanceBarChart from '../components/charts/FinanceBarChart'
-import ExpenseTracker from '../components/finance/ExpenseTracker'
-import { SalesFilterBar } from '../components/ui/SalesFilterBar'
-import { usePOS } from '../context/POSContext'
-import { useNotifications } from '../context/NotificationContext'
-import { apiFetch, apiFetchDownload, saveBlobAsDownload } from '../services/apiClient'
-import {
-  DEFAULT_HISTORY_DAYS,
-  buildDynamicMonthFilterOptions,
-  filterCompletedOrders,
-  formatMonthLabel,
-} from '../utils/salesHistoryAnalytics'
-import {
-  buildDailyProfitForMonth,
-  buildMonthlyProfitChart,
-  filterExpensesByMonth,
-  summarizeExpenses,
-  summarizeProfit,
-} from '../utils/profitAnalytics'
+  buildRangeChart,
+  hourlySales,
+  itemStats,
+  paymentBreakdown,
+  refundsInRange,
+  staffStats,
+  summarizeRange,
+} from '../utils/reportAnalytics'
+import { comparisonRange, dayCount, isDayKey, monthRange, presetRange } from '../utils/reportRange'
+import { normalizeOrderDate } from '../utils/salesHistoryAnalytics'
 
-const REPORT_EXPORT_SECTIONS = [
-  { id: 'income', labelKey: 'reports.salesAndRefunds' },
-  { id: 'expenses', labelKey: 'reports.expenses' },
-  { id: 'profit', labelKey: 'reports.netProfit' },
-  { id: 'orders', labelKey: 'reports.ordersFulfilled' },
-  { id: 'monthly', labelKey: 'reports.monthlyBreakdown' },
-  { id: 'spending', labelKey: 'reports.spendingByCategory' },
-]
+const TABS = ['overview', 'sales', 'items', 'staff']
+const MAX_RANGE_DAYS = 800
 
-function reportFileBase(selectedMonth) {
-  return selectedMonth === 'all' ? 'Mlu_Report_All-Time' : `Mlu_Report_${selectedMonth}`
+async function fetchJson(path, fallbackMessage) {
+  const response = await apiFetch(path)
+  const data = await response.json().catch(() => null)
+  if (!response.ok) throw new Error(data?.message || fallbackMessage)
+  return data
 }
 
-function sanitizeFileBase(value) {
-  return String(value || '')
-    .replace(/\.(xlsx|pdf)$/i, '')
-    // Control characters are invalid in Windows file names, so matching them is intended.
-    // eslint-disable-next-line no-control-regex
-    .replace(/[\\/:*?"<>|\u0000-\u001f]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 120)
+function validateRange(range, t) {
+  if (!isDayKey(range.from) || !isDayKey(range.to)) return t('reports.rangeInvalid')
+  if (range.from > range.to) return t('reports.rangeStartAfterEnd')
+  if (dayCount(range.from, range.to) > MAX_RANGE_DAYS) return t('reports.rangeTooLong')
+  return ''
 }
 
-function ReportExportDialog({ kind, selectedMonth, periodLabel, onClose }) {
-  const { t } = useTranslation()
-  const { pushBanner } = useNotifications()
-  const [sections, setSections] = useState(() => REPORT_EXPORT_SECTIONS.map((section) => section.id))
-  const [fileName, setFileName] = useState(() => reportFileBase(selectedMonth))
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
-  const allSelected = sections.length === REPORT_EXPORT_SECTIONS.length
-  const fileBase = sanitizeFileBase(fileName)
-  const canSave = sections.length > 0 && Boolean(fileBase) && !saving
-  const extension = kind === 'excel' ? 'xlsx' : 'pdf'
-  const title = kind === 'excel' ? t('reports.exportExcelTitle') : t('reports.exportPdfTitle')
+export default function ReportsAnalysis({ onNavigate }) {
+  const { t, i18n } = useTranslation()
+  const [tab, setTab] = useState('overview')
+  const [preset, setPreset] = useState('month')
+  const [customRange, setCustomRange] = useState(() => presetRange('month'))
+  const [compare, setCompare] = useState(false)
+  const [exportKind, setExportKind] = useState(null)
 
-  const saveLock = useRef(false)
+  // All = every sale and expense; there is nothing before it to compare with.
+  const isAll = preset === 'all'
+  const comparing = compare && !isAll
+  const selectedRange = preset === 'custom' ? customRange : presetRange(isAll ? 'day' : preset)
+  const rangeError = preset === 'custom' ? validateRange(customRange, t) : ''
+  // Day → yesterday, Week → last week, Month → last month, Year → last year, Custom → the days before.
+  const previous = useMemo(
+    () => (rangeError || isAll ? null : comparisonRange(preset, selectedRange.from, selectedRange.to)),
+    [preset, isAll, selectedRange.from, selectedRange.to, rangeError],
+  )
 
-  const toggleSection = (id) => {
-    setSections((current) => (
-      current.includes(id) ? current.filter((section) => section !== id) : [...current, id]
-    ))
-    setError('')
-  }
+  // Orders and expenses for the range (plus the previous period while compare is on).
+  const [data, setData] = useState({ key: '', orders: [], expenses: [], previousOrders: [], previousExpenses: [] })
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
+  const requestRef = useRef(0)
+  const dataKey = isAll ? 'all' : `${selectedRange.from}|${selectedRange.to}|${comparing ? 1 : 0}`
 
-  const confirmExport = async () => {
-    if (!canSave || saveLock.current) return
-    saveLock.current = true
-    const fullName = `${fileBase}.${extension}`
-    let handle = null
-    if (typeof window.showSaveFilePicker === 'function') {
-      try {
-        handle = await window.showSaveFilePicker({
-          suggestedName: fullName,
-          types: [
-            extension === 'xlsx'
-              ? {
-                  description: 'Excel',
-                  accept: {
-                    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
-                  },
-                }
-              : {
-                  description: 'PDF',
-                  accept: { 'application/pdf': ['.pdf'] },
-                },
-          ],
-        })
-      } catch (pickerError) {
-        if (pickerError?.name === 'AbortError') {
-          saveLock.current = false
-          return
-        }
-        handle = null
-      }
-    }
-
-    setSaving(true)
-    setError('')
+  const load = useCallback(async () => {
+    if (rangeError) return
+    const requestId = ++requestRef.current
+    setLoading(true)
+    setLoadError('')
+    const query = (from, to) => `from=${from}&to=${to}`
+    const current = isAll ? 'days=all' : query(selectedRange.from, selectedRange.to)
     try {
-      const ordered = REPORT_EXPORT_SECTIONS.map((section) => section.id).filter((id) => sections.includes(id))
-      const { blob } = await apiFetchDownload(
-        `/reports/export/${kind}`,
-        fullName,
-        { month: selectedMonth, sections: ordered.join(',') },
-      )
-      if (handle) {
-        const writable = await handle.createWritable()
-        await writable.write(blob)
-        await writable.close()
-      } else {
-        saveBlobAsDownload(blob, fullName)
-      }
-      pushBanner({
-        title: t('reports.exportSaved', { filename: fullName }),
-        tone: 'success',
-        durationMs: 4000,
+      const [orders, expenses, previousOrders, previousExpenses] = await Promise.all([
+        fetchJson(`/orders/history?${current}`, t('reports.errors.loadSales')),
+        fetchJson(`/expenses?${current}`, t('reports.errors.loadExpenses')),
+        comparing ? fetchJson(`/orders/history?${query(previous.from, previous.to)}`, t('reports.errors.loadSales')) : [],
+        comparing ? fetchJson(`/expenses?${query(previous.from, previous.to)}`, t('reports.errors.loadExpenses')) : [],
+      ])
+      if (requestId !== requestRef.current) return
+      setData({
+        key: dataKey,
+        orders: Array.isArray(orders) ? orders : [],
+        expenses: Array.isArray(expenses) ? expenses : [],
+        previousOrders: Array.isArray(previousOrders) ? previousOrders : [],
+        previousExpenses: Array.isArray(previousExpenses) ? previousExpenses : [],
       })
-      onClose()
-    } catch (exportError) {
-      setError(exportError.message || t('reports.exportFailed'))
-    } finally {
-      saveLock.current = false
-      setSaving(false)
-    }
-  }
-
-  return (
-    <Modal
-      title={title}
-      titleId="report-export-title"
-      header={<ModalHeader icon={kind === 'excel' ? FileSpreadsheet : FileText} titleId="report-export-title" title={title} />}
-      onClose={onClose}
-      closeLabel={t('a11y.closeModal')}
-      dismissible={!saving}      footer={(
-        <>
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={saving}
-            className="btn-secondary flex-1 py-2.5 text-sm"
-          >
-            {t('common.cancel')}
-          </button>
-          <button
-            type="button"
-            onClick={confirmExport}
-            disabled={!canSave}
-            className={`btn-primary inline-flex flex-1 items-center justify-center gap-2 py-2.5 text-sm ${
-              canSave ? 'beam-border shadow-[0_4px_14px_rgba(16,185,129,0.35)]' : ''
-            }`}
-          >
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            {saving ? t('reports.exportPreparing') : t('reports.exportOk')}
-          </button>
-        </>
-      )}
-    >
-      <div className="space-y-4">
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-sm font-medium">{t('reports.exportSections')}</p>
-          <button
-            type="button"
-            onClick={() => {
-              setSections(allSelected ? [] : REPORT_EXPORT_SECTIONS.map((section) => section.id))
-              setError('')
-            }}
-            className="shrink-0 text-sm font-semibold text-forest-700 hover:underline dark:text-forest-300"
-          >
-            {allSelected ? t('reports.clearAll') : t('reports.selectAll')}
-          </button>
-        </div>
-        <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-2">
-          {REPORT_EXPORT_SECTIONS.map((section) => (
-            <label key={section.id} className="flex min-h-10 min-w-0 cursor-pointer items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                className="h-4 w-4 shrink-0 accent-forest-600"
-                checked={sections.includes(section.id)}
-                onChange={() => toggleSection(section.id)}
-              />
-              <span className="min-w-0 break-words">{t(section.labelKey)}</span>
-            </label>
-          ))}
-        </div>
-        {sections.length === 0 ? (
-          <p className="text-sm text-rose-700 dark:text-rose-300">{t('reports.exportNeedSection')}</p>
-        ) : null}
-        <div>
-          <FieldLabel icon={Pencil} htmlFor="report-export-file-name">
-            {t('reports.fileName')}
-          </FieldLabel>
-          <input
-            id="report-export-file-name"
-            value={fileName}
-            onChange={(event) => setFileName(event.target.value)}
-            className="input-field w-full min-w-0 px-3 py-2 text-sm"
-            maxLength={120}
-          />
-        </div>
-        <p className="flex items-center gap-1.5 text-sm">
-          <CalendarRange className="h-4 w-4 shrink-0 text-forest-600 dark:text-forest-400" aria-hidden />
-          <span className="text-muted">{t('reports.exportPeriod')}: </span>
-          <span className="break-words font-medium">{periodLabel}</span>
-        </p>
-        {error ? <p className="break-words text-sm text-rose-700 dark:text-rose-300">{error}</p> : null}
-      </div>
-    </Modal>
-  )
-}
-
-function ReportExportCard({ selectedMonth, periodLabel }) {
-  const { t } = useTranslation()
-  const [kind, setKind] = useState(null)
-  const closeDialog = useCallback(() => setKind(null), [])
-
-  return (
-    <div className="surface-card p-4">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div className="min-w-0">
-          <h4 className="text-heading font-semibold">{t('reports.exportTitle')}</h4>
-          <p className="text-muted mt-1 text-sm">{t('reports.exportHint')}</p>
-        </div>
-        <div className="flex shrink-0 flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => setKind('excel')}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-forest-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-forest-700"
-          >
-            <FileSpreadsheet className="h-4 w-4" />
-            {t('reports.downloadReportExcel')}
-          </button>
-          <button
-            type="button"
-            onClick={() => setKind('pdf')}
-            className="inline-flex items-center justify-center gap-2 rounded-xl border border-forest-600 px-4 py-2.5 text-sm font-semibold text-forest-700 transition hover:bg-forest-50 dark:text-forest-300 dark:hover:bg-forest-950/40"
-          >
-            <FileText className="h-4 w-4" />
-            {t('reports.downloadReportPdf')}
-          </button>
-        </div>
-      </div>
-      {kind ? (
-        <ReportExportDialog
-          kind={kind}
-          selectedMonth={selectedMonth}
-          periodLabel={periodLabel}
-          onClose={closeDialog}
-        />
-      ) : null}
-    </div>
-  )
-}
-
-export default function ReportsAnalysis() {
-  const { t } = useTranslation()
-  const { salesHistory, loadSalesHistory } = usePOS()
-  const [selectedMonth, setSelectedMonth] = useState('all')
-  const [expenses, setExpenses] = useState([])
-  const [expenseError, setExpenseError] = useState('')
-  const [expenseTick, setExpenseTick] = useState(0)
-
-  const completedSales = useMemo(
-    () => filterCompletedOrders(salesHistory || []),
-    [salesHistory],
-  )
-
-  const monthOptions = useMemo(
-    () =>
-      buildDynamicMonthFilterOptions(
-        completedSales,
-        expenses,
-        new Date(),
-        t,
-        t('reports.allMonthsInRange'),
-      ),
-    [completedSales, expenses, t],
-  )
-
-  const loadExpenses = useCallback(async () => {
-    setExpenseError('')
-    try {
-      const response = await apiFetch('/expenses?days=730')
-      const data = await response.json().catch(() => [])
-      if (!response.ok) throw new Error(data.message || t('reports.errors.loadExpenses'))
-      setExpenses(Array.isArray(data) ? data : [])
     } catch (error) {
-      setExpenseError(error.message || t('reports.errors.couldNotLoadExpenses'))
-      setExpenses([])
+      if (requestId !== requestRef.current) return
+      setLoadError(error.message || t('reports.errors.loadSales'))
+    } finally {
+      if (requestId === requestRef.current) setLoading(false)
     }
-  }, [t])
+  }, [rangeError, isAll, selectedRange.from, selectedRange.to, comparing, previous, dataKey, t])
 
-  const refreshReportData = useCallback(() => {
-    if (selectedMonth === 'all') {
-      loadSalesHistory({ days: DEFAULT_HISTORY_DAYS })
-    } else {
-      loadSalesHistory({ month: selectedMonth })
-    }
-    loadExpenses()
-  }, [selectedMonth, loadSalesHistory, loadExpenses])
-
-  // Load once, then update only when an order is paid (this tab or another tab)
+  // Reload when the selection changes, and when an order is paid (this tab or another one).
   useEffect(() => {
-    refreshReportData()
-
+    load()
     let channel
     try {
       channel = new BroadcastChannel('mlu-pos-sync')
-      channel.onmessage = () => {
-        refreshReportData()
-      }
+      channel.onmessage = () => load()
     } catch {
       // BroadcastChannel is missing in some browsers; cross-tab sync is optional.
     }
-
-    window.addEventListener('mlu-order-completed', refreshReportData)
-
+    window.addEventListener('mlu-order-completed', load)
     return () => {
-      window.removeEventListener('mlu-order-completed', refreshReportData)
+      window.removeEventListener('mlu-order-completed', load)
       if (channel) channel.close()
     }
-  }, [refreshReportData, expenseTick])
+  }, [load])
 
-  const monthScopedExpenses = useMemo(
-    () => filterExpensesByMonth(expenses, selectedMonth),
-    [expenses, selectedMonth],
-  )
-
-  const profit = useMemo(
-    () => summarizeProfit(completedSales, monthScopedExpenses, selectedMonth),
-    [completedSales, monthScopedExpenses, selectedMonth],
-  )
-
-  const expenseBreakdown = useMemo(
-    () => summarizeExpenses(monthScopedExpenses),
-    [monthScopedExpenses],
-  )
-
-  const chartData = useMemo(() => {
-    if (selectedMonth === 'all') {
-      return buildMonthlyProfitChart(completedSales, expenses, monthOptions)
+  // Menu items (for items that sold nothing) and the Menu page's category labels.
+  const [menuItems, setMenuItems] = useState([])
+  const [categoryLabels, setCategoryLabels] = useState({})
+  useEffect(() => {
+    let cancelled = false
+    fetchJson('/menu', '')
+      .then((items) => !cancelled && Array.isArray(items) && setMenuItems(items))
+      .catch(() => {})
+    fetchJson('/menu/categories', '')
+      .then((result) => !cancelled && setCategoryLabels(result?.labels || {}))
+      .catch(() => {})
+    return () => {
+      cancelled = true
     }
-    return buildDailyProfitForMonth(completedSales, expenses, selectedMonth)
-  }, [completedSales, expenses, monthOptions, selectedMonth])
+  }, [])
 
-  const chartLabel =
-    selectedMonth === 'all'
-      ? t('reports.monthlyChartTitle')
-      : t('reports.dailyChartTitle', {
-          month: formatMonthLabel(selectedMonth, t),
-        })
+  const ready = data.key === dataKey
+  // For All, the range runs from the first sale or expense to today.
+  const range = useMemo(() => {
+    if (!isAll) return selectedRange
+    const today = presetRange('day').to
+    const first = [
+      ...data.orders.map((order) => normalizeOrderDate(order)),
+      ...data.expenses.map((expense) => String(expense.expense_date || '').slice(0, 10)),
+    ].filter(Boolean).sort()[0]
+    return { from: first && first < today ? first : today, to: today }
+    // selectedRange is rebuilt each render; its from/to are the real inputs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAll, data, selectedRange.from, selectedRange.to])
+  const figures = useMemo(() => {
+    const { orders, expenses } = data
+    const items = itemStats(orders, range.from, range.to)
+    return {
+      summary: summarizeRange(orders, expenses, range.from, range.to),
+      previous: comparing && previous ? summarizeRange(data.previousOrders, data.previousExpenses, previous.from, previous.to) : null,
+      chart: buildRangeChart(orders, expenses, range.from, range.to, (key, grain) => chartLabels(key, grain, t)),
+      payments: paymentBreakdown(orders, range.from, range.to),
+      items,
+      hours: hourlySales(orders, range.from, range.to),
+      refunds: refundsInRange(orders, range.from, range.to),
+      staff: staffStats(orders, range.from, range.to),
+    }
+  }, [data, range.from, range.to, comparing, previous, t])
 
-  const incomeLabel = t('reports.netSales')
-  const spendingLabel = t('reports.spending')
+  const rangeLabel = rangeError ? '' : isAll ? t('reports.allTime') : formatRangeLabel(range.from, range.to, t)
+  const compareLabel = previous ? formatRangeLabel(previous.from, previous.to, t) : ''
+  const itemName = (name) => translateMenuName(name, i18n.language, t)
+  const categoryName = (category) => menuCategoryLabel(category, t, categoryLabels)
 
-  const statCards = [
-    {
-      label: t('reports.sales'),
-      value: `$${profit.revenue.toFixed(2)}`,
-      icon: TrendingUp,
-      accent: 'bg-forest-500',
-    },
-    {
-      label: t('reports.refunds'),
-      value: `-$${profit.refunds.toFixed(2)}`,
-      hint: t('reports.refundsHint', { count: profit.refundOrders }),
-      icon: RotateCcw,
-      accent: 'bg-red-600',
-    },
-    {
-      label: t('reports.netSales'),
-      value: `$${profit.net.toFixed(2)}`,
-      hint: t('reports.netSalesHint'),
-      icon: BarChart3,
-      accent: 'bg-forest-600',
-    },
-    {
-      label: t('reports.expenses'),
-      value: `$${profit.expenses.toFixed(2)}`,
-      icon: TrendingDown,
-      accent: 'bg-amber-700',
-    },
-    {
-      label: t('reports.netProfit'),
-      value: `$${profit.profit.toFixed(2)}`,
-      icon: Wallet,
-      accent: profit.profit >= 0 ? 'bg-blue-600' : 'bg-red-600',
-    },
-    {
-      label: t('reports.ordersFulfilled'),
-      value: profit.orders.toString(),
-      icon: ShoppingBag,
-      accent: 'bg-forest-700',
-    },
-  ]
-
-  const categoryEntries = Object.entries(expenseBreakdown.byCategory).sort((a, b) => b[1] - a[1])
+  const changePreset = (next) => {
+    if (next === 'custom' && preset !== 'custom') setCustomRange(isAll ? presetRange('month') : range)
+    setPreset(next)
+  }
 
   return (
-    <div className="space-y-8">
-      <div>
-        <h3 className="text-heading text-lg">{t('nav.reports')}</h3>
+    <div className="space-y-5 page-enter">
+      <div className="flex items-center gap-3">
+        <FileBarChart className="h-6 w-6 shrink-0 text-forest-600 dark:text-forest-400" aria-hidden />
+        <h3 className="page-title">{t('nav.reports')}</h3>
       </div>
 
-      <div className="surface-card p-4">
-        <SalesFilterBar
-          selectedMonth={selectedMonth}
-          onMonthChange={setSelectedMonth}
-          monthOptions={monthOptions}
-        />
-      </div>
-
-      <ReportExportCard
-        selectedMonth={selectedMonth}
-        periodLabel={
-          selectedMonth === 'all'
-            ? t('reports.allMonthsInRange')
-            : formatMonthLabel(selectedMonth, t)
-        }
-      />
-
-      {expenseError ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800/50 dark:bg-red-950/40 dark:text-red-300">
-          {expenseError}
-        </div>
-      ) : null}
-
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {statCards.map(({ label, value, hint, icon: Icon, accent }) => (
-          <div key={label} className="surface-card p-5">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-muted text-sm">{label}</p>
-                <p className="text-heading mt-2 text-2xl font-bold tabular-nums">{value}</p>
-                {hint ? <p className="text-muted mt-1 text-xs">{hint}</p> : null}
-              </div>
-              <div className={`flex h-11 w-11 items-center justify-center rounded-xl ${accent} text-white`}>
-                <Icon className="h-5 w-5" />
-              </div>
-            </div>
-          </div>
+      <div role="tablist" aria-label={t('reports.tabsLabel')} className="flex flex-wrap gap-2">
+        {TABS.map((id) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            id={`reports-tab-${id}`}
+            aria-selected={tab === id}
+            aria-controls="reports-tab-panel"
+            onClick={() => setTab(id)}
+            className={`tab-pill shrink-0 rounded-xl px-4 shadow-sm ${tab === id ? 'tab-pill-active' : 'tab-pill-inactive'}`}
+          >
+            {t(`reports.tabs.${id}`)}
+          </button>
         ))}
       </div>
 
-      <div className="surface-card overflow-hidden">
-        <div className="border-b border-olive-100/60 px-6 py-4 dark:border-olive-800/30">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-forest-100 dark:bg-forest-900/40">
-              <BarChart3 className="h-5 w-5 text-forest-600 dark:text-forest-400" />
-            </div>
-            <h4 className="text-heading font-semibold">{chartLabel}</h4>
-          </div>
-        </div>
-        <div className="h-80 p-4">
-          <FinanceBarChart
-            data={chartData}
-            mode="income-spending"
-            tickMode={selectedMonth === 'all' ? 'monthly' : 'daily'}
-            incomeLabel={incomeLabel}
-            spendingLabel={spendingLabel}
-            emptyLabel={t('reports.noSalesYet')}
-          />
-        </div>
-      </div>
+      <ReportFilterBar
+        preset={preset}
+        onPresetChange={changePreset}
+        range={range}
+        onCustomRangeChange={setCustomRange}
+        onMonthPick={(monthKey) => setCustomRange(monthRange(monthKey))}
+        compare={compare}
+        onCompareChange={setCompare}
+        rangeLabel={comparing && compareLabel ? t('reports.rangeVs', { range: rangeLabel, previous: compareLabel }) : rangeLabel}
+        rangeError={rangeError}
+        onExport={setExportKind}
+      />
 
-      {categoryEntries.length > 0 ? (
-        <div className="surface-card p-5">
-          <div className="mb-4 flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-100 dark:bg-amber-950/40">
-              <Receipt className="h-5 w-5 text-amber-800 dark:text-amber-300" />
-            </div>
-            <h4 className="text-heading font-semibold">{t('reports.spendingByCategory')}</h4>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {categoryEntries.map(([category, amount]) => (
-              <div key={category} className="surface-inset rounded-xl px-4 py-3">
-                <p className="text-muted text-xs uppercase tracking-wider">
-                  {expenseCategoryLabel(category, t)}
-                </p>
-                <p className="text-heading mt-1 text-lg font-semibold tabular-nums">${amount.toFixed(2)}</p>
-              </div>
-            ))}
-          </div>
+      {loadError ? (
+        <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800/50 dark:bg-red-950/40 dark:text-red-300">
+          {loadError}
         </div>
       ) : null}
 
-      <div className="surface-card p-5">
-        <ExpenseTracker
-          days={730}
-          filterMonth={selectedMonth}
-          onChanged={() => setExpenseTick((tick) => tick + 1)}
-        />
+      <div id="reports-tab-panel" role="tabpanel" aria-labelledby={`reports-tab-${tab}`} aria-busy={loading || undefined}>
+        {rangeError ? null : !ready ? (
+          <div className="surface-card flex min-h-64 items-center justify-center gap-2 text-sm text-slate-500 dark:text-zinc-400">
+            <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
+            {t('reports.loading')}
+          </div>
+        ) : (
+          // Keep the last figures on screen while a refresh loads, just dimmed.
+          <div className={`transition-opacity ${loading ? 'opacity-60' : ''}`}>
+            {tab === 'overview' ? (
+              <OverviewTab
+                summary={figures.summary}
+                previous={figures.previous}
+                compare={comparing}
+                chart={figures.chart}
+                payments={figures.payments}
+                items={figures.items}
+                itemName={itemName}
+                onOpenExpenses={() => onNavigate?.('inventory_expenses')}
+                onViewAllItems={() => setTab('items')}
+              />
+            ) : null}
+            {tab === 'sales' ? (
+              <SalesTab chart={figures.chart} hours={figures.hours} payments={figures.payments} refunds={figures.refunds} />
+            ) : null}
+            {tab === 'items' ? (
+              <ItemsTab items={figures.items} menuItems={menuItems} itemName={itemName} categoryName={categoryName} />
+            ) : null}
+            {tab === 'staff' ? <StaffTab staff={figures.staff} /> : null}
+          </div>
+        )}
       </div>
+
+      {exportKind ? (
+        <ReportExportDialog
+          kind={exportKind}
+          from={range.from}
+          to={range.to}
+          allTime={isAll}
+          compare={comparing}
+          periodLabel={rangeLabel}
+          compareLabel={compareLabel}
+          compareRange={previous}
+          onClose={() => setExportKind(null)}
+        />
+      ) : null}
     </div>
   )
 }

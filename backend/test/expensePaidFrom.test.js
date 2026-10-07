@@ -49,14 +49,20 @@ test('rows saved before the column existed read back as drawer', () => {
 
 test('createExpense stores the chosen source and refuses bad ones before writing', async () => {
   const db = fakeDb((sql, params) => {
+    if (/INSERT IGNORE INTO expense_categories/.test(sql)) return [{}]
+    if (/SELECT DISTINCT category FROM expenses/.test(sql)) return [[]]
+    if (/FROM expense_categories WHERE LOWER\(name\)/.test(sql)) return [[{ id: 4, name: 'Utilities' }]]
     if (/^\s*INSERT INTO expenses/.test(sql)) return [{ insertId: 9 }]
-    if (/SELECT \* FROM expenses/.test(sql)) {
-      return [[{ id: 9, category: 'Utilities', amount: '40.00', paid_from: 'bank', expense_date: '2026-10-05' }]]
+    if (/FROM expenses e\s+LEFT JOIN expense_categories/.test(sql)) {
+      const insert = db.calls.find((call) => /INSERT INTO expenses/.test(call.sql))
+      return [[{ id: 9, category: 'Utilities', amount: '40.00', paid_from: insert.params[7], method: insert.params[5], expense_date: '2026-10-05' }]]
     }
     throw new Error(`unexpected query ${sql} ${params}`)
   })
+  // An older client: only paid_from, no method → a bank transfer paid from the bank.
   const saved = await createExpense(db, { category: 'Utilities', amount: 40, paid_from: 'bank', expense_date: '2026-10-05' })
   assert.equal(saved.paid_from, 'bank')
+  assert.equal(saved.method, 'bank_transfer')
   const insert = db.calls.find((call) => /INSERT INTO expenses/.test(call.sql))
   assert.match(insert.sql, /paid_from/)
   assert.ok(insert.params.includes('bank'))
@@ -79,6 +85,8 @@ test('shift metrics only count cash-drawer expenses', async () => {
   const metrics = await getLiveShiftMetrics(db, '2026-10-05 08:00:00', '2026-10-05 18:00:00')
   const expenseQuery = db.calls.find((call) => /FROM expenses/.test(call.sql) && /SUM\(amount\)/.test(call.sql))
   assert.match(expenseQuery.sql, /paid_from = 'drawer'/)
+  // An unpaid bill hasn't left the till yet.
+  assert.match(expenseQuery.sql, /status = 'paid'/)
   assert.deepEqual(expenseQuery.params, ['2026-10-05 08:00:00', '2026-10-05 18:00:00'])
   assert.equal(metrics.expensesUsd, 7.25)
   assert.equal(expectedDrawerUsd(50, metrics), 42.75)

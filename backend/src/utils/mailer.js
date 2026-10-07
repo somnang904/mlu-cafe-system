@@ -4,6 +4,7 @@ const nodemailer = require('nodemailer')
 const { env } = require('../config/env')
 const { STORE } = require('../config/store')
 const { LOG_DIR } = require('./logger')
+const { LOCK_RULE } = require('./loginLockoutPolicy')
 
 function smtpIsConfigured() {
   return Boolean(env.smtp.host && env.smtp.user && env.smtp.pass)
@@ -104,9 +105,9 @@ async function sendAdminPasswordResetEmail({ username, temporaryPassword }) {
 
 async function sendSecurityAlertEmail(alert) {
   const to = env.adminEmail
-  const subject = `${STORE.officialName} — 24-hour login lockout`
+  const subject = `${STORE.officialName} — login lockout`
   const text = [
-    `A login on ${STORE.officialName} was locked for 24 hours after repeated failures.`,
+    `A login on ${STORE.officialName} was locked for ${LOCK_RULE.lockMs / 1000} seconds after ${LOCK_RULE.failures} failed attempts.`,
     '',
     `Username: ${alert.username}`,
     `IP address: ${alert.ipAddress}`,
@@ -115,7 +116,6 @@ async function sendSecurityAlertEmail(alert) {
     `Operating system: ${alert.osName || 'Unknown'}`,
     `Device: ${alert.deviceType || 'Unknown'}`,
     `Failed attempts: ${alert.failedAttempts}`,
-    `Stage: ${alert.stage}`,
     `Time: ${alert.createdAt}`,
     '',
     'Open Security Alerts in the admin dashboard to review or block this device.',

@@ -48,6 +48,7 @@ async function writeSalesSheet(workbook, db, period) {
       { header: 'Invoice', key: 'invoice', width: 16 },
       { header: 'Source', key: 'source', width: 16 },
       { header: 'Payment', key: 'payment', width: 14 },
+      { header: 'Bank', key: 'bank', width: 12 },
       { header: 'Subtotal', key: 'subtotal', width: 12, style: { numFmt: '#,##0.00' } },
       { header: 'Tax', key: 'tax', width: 12, style: { numFmt: '#,##0.00' } },
       { header: 'Total', key: 'total', width: 14, style: { numFmt: '#,##0.00' } },
@@ -65,6 +66,7 @@ async function writeSalesSheet(workbook, db, period) {
             ELSE COALESCE(source_type, 'Dine In')
           END AS source,
           COALESCE(NULLIF(payment_method, ''), NULLIF(payment_type, ''), 'Cash') AS payment,
+          payment_bank AS bank,
           subtotal,
           tax,
           COALESCE(total, total_amount, 0) AS total,

@@ -1,19 +1,13 @@
 /**
- * Progressive login lockout.
- * Stage 1: 5 failures → 1 minute
- * Stage 2: 3 more failures → 10 minutes
- * Stage 3: 1 more failure → 24 hours and an admin alert
- * After the 24-hour lock expires, the counter returns to stage 1.
+ * Login lockout.
+ * 4 failures → the device is locked for 30 seconds and an admin alert is raised.
+ * Once the lock expires the counter starts again from zero.
  */
 
 const INVALID_CREDENTIALS_MESSAGE = 'Username or password is incorrect.'
 const LOCKOUT_MESSAGE = 'Too many attempts. Please try again later.'
 
-const STAGE_RULES = {
-  1: { failures: 5, lockMs: 60 * 1000 },
-  2: { failures: 3, lockMs: 10 * 60 * 1000 },
-  3: { failures: 1, lockMs: 24 * 60 * 60 * 1000 },
-}
+const LOCK_RULE = { failures: 4, lockMs: 30 * 1000 }
 
 function emptyAttempt() {
   return { failedCount: 0, stage: 1, lockedUntil: null }
@@ -23,7 +17,7 @@ function applyExpiry(attempt, nowMs) {
   const current = attempt
     ? {
         failedCount: Number(attempt.failedCount) || 0,
-        stage: Number(attempt.stage) || 1,
+        stage: 1,
         lockedUntil: attempt.lockedUntil ?? null,
       }
     : emptyAttempt()
@@ -32,11 +26,7 @@ function applyExpiry(attempt, nowMs) {
     return current
   }
 
-  if (current.stage >= 3) {
-    return emptyAttempt()
-  }
-
-  return { failedCount: 0, stage: current.stage + 1, lockedUntil: null }
+  return emptyAttempt()
 }
 
 function lockRemainingSeconds(attempt, nowMs) {
@@ -54,42 +44,32 @@ function registerFailure(attempt, nowMs) {
     return { attempt: current, triggeredLock: false, triggeredAlert: false, alreadyLocked: true }
   }
 
-  const stage = current.stage
-  const rule = STAGE_RULES[stage] || STAGE_RULES[1]
   const failedCount = current.failedCount + 1
 
-  if (failedCount >= rule.failures) {
+  if (failedCount >= LOCK_RULE.failures) {
     return {
-      attempt: { failedCount, stage, lockedUntil: nowMs + rule.lockMs },
+      attempt: { failedCount, stage: 1, lockedUntil: nowMs + LOCK_RULE.lockMs },
       triggeredLock: true,
-      triggeredAlert: stage === 3,
+      triggeredAlert: true,
       alreadyLocked: false,
     }
   }
 
   return {
-    attempt: { failedCount, stage, lockedUntil: null },
+    attempt: { failedCount, stage: 1, lockedUntil: null },
     triggeredLock: false,
     triggeredAlert: false,
     alreadyLocked: false,
   }
 }
 
-function cumulativeFailures(stage, failedCount) {
-  const count = Number(failedCount) || 0
-  if (stage <= 1) return count
-  if (stage === 2) return STAGE_RULES[1].failures + count
-  return STAGE_RULES[1].failures + STAGE_RULES[2].failures + count
-}
-
 module.exports = {
   INVALID_CREDENTIALS_MESSAGE,
   LOCKOUT_MESSAGE,
-  STAGE_RULES,
+  LOCK_RULE,
   emptyAttempt,
   applyExpiry,
   lockRemainingSeconds,
   isLocked,
   registerFailure,
-  cumulativeFailures,
 }

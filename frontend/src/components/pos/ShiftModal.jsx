@@ -3,7 +3,8 @@ import { useTranslation } from 'react-i18next'
 import { Clock, AlertCircle, Printer, DollarSign, Coins, NotebookPen } from 'lucide-react'
 import { useModalKeyboard } from '../../hooks/useModalKeyboard'
 import { apiFetch } from '../../services/apiClient'
-import { formatUsd, formatKhr, DEFAULT_EXCHANGE_RATE } from '../../utils/currency'
+import { formatUsd, formatKhr } from '../../utils/currency'
+import { useExchangeRate } from '../../hooks/useExchangeRate'
 import { STORE } from '../../config/store'
 import ModalHeader from '../ui/ModalHeader'
 import FieldLabel from '../ui/FieldLabel'
@@ -21,6 +22,7 @@ function signedKhr(amount) {
 
 export default function ShiftModal({ isOpen, onClose }) {
   const { t } = useTranslation()
+  const shopRate = useExchangeRate()
   const panelRef = useModalKeyboard({ isOpen, onEscape: onClose, primaryActionMode: 'never' })
 
   const [loading, setLoading] = useState(true)
@@ -65,7 +67,7 @@ export default function ShiftModal({ isOpen, onClose }) {
 
   if (!isOpen) return null
 
-  const previewRate = Number(shift?.exchange_rate) > 0 ? Number(shift.exchange_rate) : DEFAULT_EXCHANGE_RATE
+  const previewRate = Number(shift?.exchange_rate) > 0 ? Number(shift.exchange_rate) : shopRate
   const previewDiffUsd = (parseFloat(countedUsd) || 0) - Number(shift?.expected_cash_usd || 0)
   const previewDiffKhr = (parseFloat(countedKhr) || 0) - Number(shift?.expected_cash_khr || 0)
   const previewDiffTotalUsd = previewDiffUsd + previewDiffKhr / previewRate

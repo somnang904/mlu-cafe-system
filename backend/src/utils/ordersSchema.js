@@ -62,6 +62,11 @@ async function ensureOrdersSchema(db) {
         await db.execute('ALTER TABLE orders ADD COLUMN exchange_rate DECIMAL(10,2) NULL AFTER change_khr')
       }
 
+      // Which bank a Bank Scan sale was received on (null for cash and older sales)
+      if (!(await columnExists(db, 'orders', 'payment_bank'))) {
+        await db.execute('ALTER TABLE orders ADD COLUMN payment_bank VARCHAR(30) NULL')
+      }
+
       // Ensure void / refund columns exist
       if (!(await columnExists(db, 'orders', 'void_reason'))) {
         await db.execute('ALTER TABLE orders ADD COLUMN void_reason VARCHAR(255) NULL AFTER exchange_rate')
@@ -71,6 +76,14 @@ async function ensureOrdersSchema(db) {
       }
       if (!(await columnExists(db, 'orders', 'voided_at'))) {
         await db.execute('ALTER TABLE orders ADD COLUMN voided_at TIMESTAMP NULL AFTER voided_by')
+      }
+
+      // Who took the order (Reports → Staff). Orders placed before this column existed stay NULL.
+      if (!(await columnExists(db, 'orders', 'staff_id'))) {
+        await db.execute('ALTER TABLE orders ADD COLUMN staff_id INT NULL AFTER voided_at')
+      }
+      if (!(await columnExists(db, 'orders', 'staff_name'))) {
+        await db.execute('ALTER TABLE orders ADD COLUMN staff_name VARCHAR(120) NULL AFTER staff_id')
       }
 
       const [result] = await db.execute(
