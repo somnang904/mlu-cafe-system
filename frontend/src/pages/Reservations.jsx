@@ -48,9 +48,24 @@ import {
   slotLabel,
   toLocalDateISO,
 } from '../data/reservations'
-import { getTimeSlotsForDate, isMonday, isValidReservationSlot, nextOpenDate } from '../config/siteData'
+import {
+  checkCustomTimeRange,
+  CUSTOM_SLOT_VALUE,
+  getTimeSlotsForDate,
+  hhmmFromMinutes,
+  isMonday,
+  isValidReservationSlot,
+  minutesFromHHmm,
+  nextOpenDate,
+} from '../config/siteData'
 import { floorTables } from '../data/tables'
-import { formatLongDate, formatMonthYear, formatTime12Hour, localizeDigits } from '../utils/dateTimeFormat'
+import {
+  formatLongDate,
+  formatMonthYear,
+  formatSlotRange12Hour,
+  formatTime12Hour,
+  localizeDigits,
+} from '../utils/dateTimeFormat'
 import { canIssueConfirmationLetter } from '../utils/reservationLetter'
 import { useAlerts } from '../context/AlertsContext'
 import { useNotifications } from '../context/NotificationContext'
@@ -66,15 +81,27 @@ const STATUS_ICONS = {
   Paid: Banknote,
 }
 
+const DEFAULT_DURATION = DEFAULT_SLOTS[0]?.durationMinutes || 120
+
 const EMPTY_FORM = {
   customer_name: '',
   phone: '',
   reservation_date: DEFAULT_OPEN_DATE,
   time_slot: DEFAULT_SLOTS[0]?.value || '09:00',
+  duration_minutes: DEFAULT_DURATION,
+  // Switches the time picker from the preset list to two typed times.
+  use_custom_time: false,
   table_id: '',
   guest_count: 2,
   status: 'Confirmed',
   notes: '',
+}
+
+/** End of the booking window, as the HH:mm an <input type="time"> expects. */
+function formEndTime(form) {
+  const start = minutesFromHHmm(form.time_slot)
+  if (start == null) return ''
+  return hhmmFromMinutes(start + (Number(form.duration_minutes) || DEFAULT_DURATION))
 }
 
 function bookableTables() {
@@ -227,6 +254,8 @@ function BookingFormModal({ isOpen, mode, form, tables, error, saving, onChange,
   const tableOptions = tables.length ? tables : fallbackAvailability()
   const closedMonday = isMonday(form.reservation_date)
   const timeSlots = closedMonday ? [] : getTimeSlotsForDate(form.reservation_date)
+  const customTime = Boolean(form.use_custom_time)
+  const customEnd = formEndTime(form)
   const tableGroups = [
     {
       label: t('reservations.standardTables'),
@@ -324,13 +353,51 @@ function BookingFormModal({ isOpen, mode, form, tables, error, saving, onChange,
                 <div className={closedMonday || timeSlots.length === 0 ? 'pointer-events-none opacity-60' : ''}>
                   <IconSelect
                     id="booking-time-slot"
-                    value={closedMonday ? '' : String(form.time_slot ?? '')}
-                    onChange={(value) => onChange('time_slot', value)}
+                    value={closedMonday ? '' : customTime ? CUSTOM_SLOT_VALUE : String(form.time_slot ?? '')}
+                    onChange={(value) => onChange('time_slot_choice', value)}
                     placeholder={timeSlots.length === 0 ? t('reservations.closedMondayValidation') : ''}
-                    options={timeSlots.map((slot) => ({ value: slot.value, label: slot.label, icon: Clock }))}
+                    options={[
+                      ...timeSlots.map((slot) => ({ value: slot.value, label: slot.label, icon: Clock })),
+                      { value: CUSTOM_SLOT_VALUE, label: t('reservations.customTime'), icon: Pencil },
+                    ]}
                     className="rounded-xl"
                   />
                 </div>
+                {customTime && !closedMonday && (
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <div>
+                      <FieldLabel icon={Clock} htmlFor="booking-time-start" className="text-2xs">
+                        {t('reservations.customTimeStart')}
+                      </FieldLabel>
+                      <input
+                        id="booking-time-start"
+                        type="time"
+                        step="300"
+                        value={String(form.time_slot ?? '')}
+                        onChange={(event) => onChange('custom_start', event.target.value)}
+                        className="input-field px-3 py-2 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <FieldLabel icon={Clock} htmlFor="booking-time-end" className="text-2xs">
+                        {t('reservations.customTimeEnd')}
+                      </FieldLabel>
+                      <input
+                        id="booking-time-end"
+                        type="time"
+                        step="300"
+                        value={customEnd}
+                        onChange={(event) => onChange('custom_end', event.target.value)}
+                        className="input-field px-3 py-2 text-sm"
+                      />
+                    </div>
+                  </div>
+                )}
+                {customTime && !closedMonday && customEnd && (
+                  <p className="mt-1.5 text-2xs text-muted-foreground">
+                    {formatSlotRange12Hour(form.time_slot, form.duration_minutes)}
+                  </p>
+                )}
               </div>
               <div>
                 <FieldLabel icon={Armchair} htmlFor="booking-table">
@@ -566,13 +633,14 @@ export default function Reservations() {
     loadReservations()
   }, [loadReservations])
 
-  const loadAvailability = useCallback(async (date, timeSlot, excludeId) => {
+  const loadAvailability = useCallback(async (date, timeSlot, durationMinutes, excludeId) => {
     if (!date || !timeSlot || isMonday(date)) {
       setAvailability(fallbackAvailability())
       return
     }
     try {
       const params = new URLSearchParams({ date, time_slot: timeSlot })
+      if (durationMinutes) params.set('duration_minutes', String(durationMinutes))
       if (excludeId) params.set('exclude_id', String(excludeId))
       const response = await apiFetch(`/reservations/availability?${params}`)
       const data = await response.json().catch(() => ({}))
@@ -585,9 +653,16 @@ export default function Reservations() {
 
   useEffect(() => {
     if (!modalMode) return undefined
-    loadAvailability(form.reservation_date, form.time_slot, editing?.id)
+    loadAvailability(form.reservation_date, form.time_slot, form.duration_minutes, editing?.id)
     return undefined
-  }, [modalMode, form.reservation_date, form.time_slot, editing?.id, loadAvailability])
+  }, [
+    modalMode,
+    form.reservation_date,
+    form.time_slot,
+    form.duration_minutes,
+    editing?.id,
+    loadAvailability,
+  ])
 
   const countsByDate = useMemo(() => {
     const counts = {}
@@ -654,12 +729,18 @@ export default function Reservations() {
     const date = reservation.reservation_date
     const slots = getTimeSlotsForDate(date)
     const currentSlot = String(reservation.time_slot).slice(0, 5)
+    const currentDuration = Number(reservation.duration_minutes) || DEFAULT_DURATION
+    const matchedSlot = slots.find(
+      (slot) => slot.value === currentSlot && slot.durationMinutes === currentDuration,
+    )
     setEditing(reservation)
     setForm({
       customer_name: reservation.customer_name,
       phone: reservation.phone,
       reservation_date: date,
-      time_slot: slots.some((slot) => slot.value === currentSlot) ? currentSlot : slots[0]?.value || currentSlot,
+      time_slot: currentSlot,
+      duration_minutes: currentDuration,
+      use_custom_time: !matchedSlot,
       table_id: String(reservation.table_id),
       guest_count: reservation.guest_count,
       status: reservation.status,
@@ -672,12 +753,39 @@ export default function Reservations() {
 
   const handleFormChange = useCallback((field, value) => {
     setForm((prev) => {
+      if (field === 'time_slot_choice') {
+        if (value === CUSTOM_SLOT_VALUE) return { ...prev, use_custom_time: true }
+        const slot = getTimeSlotsForDate(prev.reservation_date).find((entry) => entry.value === value)
+        return {
+          ...prev,
+          use_custom_time: false,
+          time_slot: value,
+          duration_minutes: slot?.durationMinutes || DEFAULT_DURATION,
+        }
+      }
+
+      // Moving the start slides the whole window; the end sets its length.
+      if (field === 'custom_start') return { ...prev, time_slot: value }
+      if (field === 'custom_end') {
+        const start = minutesFromHHmm(prev.time_slot)
+        const end = minutesFromHHmm(value)
+        if (start == null || end == null) return prev
+        return { ...prev, duration_minutes: end - start }
+      }
+
       if (field !== 'reservation_date') return { ...prev, [field]: value }
+
+      // A typed time carries over to the new date; a preset falls back to the
+      // first slot that date actually offers.
+      if (prev.use_custom_time) return { ...prev, reservation_date: value }
       const slots = getTimeSlotsForDate(value)
-      const nextSlot = slots.some((slot) => slot.value === prev.time_slot)
-        ? prev.time_slot
-        : slots[0]?.value || ''
-      return { ...prev, reservation_date: value, time_slot: nextSlot }
+      const matched = slots.find((slot) => slot.value === prev.time_slot)
+      return {
+        ...prev,
+        reservation_date: value,
+        time_slot: matched?.value || slots[0]?.value || '',
+        duration_minutes: (matched || slots[0])?.durationMinutes || DEFAULT_DURATION,
+      }
     })
   }, [])
 
@@ -709,7 +817,13 @@ export default function Reservations() {
       setFormError(t('reservations.closedMondayValidation'))
       return
     }
-    if (!isValidReservationSlot(form.reservation_date, form.time_slot)) {
+    if (form.use_custom_time) {
+      const problem = checkCustomTimeRange(form.reservation_date, form.time_slot, formEndTime(form))
+      if (problem) {
+        setFormError(t(problem))
+        return
+      }
+    } else if (!isValidReservationSlot(form.reservation_date, form.time_slot)) {
       setFormError(t('reservations.invalidTimeSlot'))
       return
     }
@@ -718,8 +832,10 @@ export default function Reservations() {
     const isEdit = modalMode === 'edit'
     const payload = {
       ...form,
+      use_custom_time: undefined,
       table_id: Number.parseInt(form.table_id, 10),
       guest_count: Number.parseInt(form.guest_count, 10),
+      duration_minutes: Number.parseInt(form.duration_minutes, 10) || DEFAULT_DURATION,
     }
     try {
       const path = isEdit && editing ? `/reservations/${editing.id}` : '/reservations'
@@ -763,14 +879,21 @@ export default function Reservations() {
 
   const handleDelete = async () => {
     if (!deleteTarget) return
+    const { customer_name: deletedName } = deleteTarget
     try {
       const response = await apiFetch(`/reservations/${deleteTarget.id}`, { method: 'DELETE' })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(data.message || t('reservations.errors.delete'))
       setDeleteTarget(null)
+      pushBanner?.({ title: t('common.deleted'), message: deletedName, tone: 'success' })
       await loadReservations()
     } catch (err) {
       setError(err.message || t('reservations.errors.delete'))
+      pushBanner?.({
+        title: t('common.deleteFailed'),
+        message: err.message || t('common.actionFailed'),
+        tone: 'error',
+      })
       setDeleteTarget(null)
     }
   }

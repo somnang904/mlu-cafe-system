@@ -3170,6 +3170,7 @@ app.get('/api/reservations/availability', requireReservationsAccess, async (req,
         const payload = await getAvailableTables(db, {
             date: req.query.date,
             timeSlot: req.query.time_slot,
+            durationMinutes: req.query.duration_minutes,
             excludeId: req.query.exclude_id,
         })
         res.status(200).json(payload)
@@ -3246,7 +3247,9 @@ app.post('/api/reservations/:id/confirmation-letter', requireReservationsAccess,
         await auditFromRequest(db, req, {
             action: 'reservation_letter_send',
             module: 'Reservations',
-            description: `Sent confirmation letter for booking #${reservation.id} (${reservation.customer_name}) to ${String(req.body?.email || '').trim()}`,
+            description: `Sent confirmation letter for booking #${reservation.id} (${reservation.customer_name}) to ${String(req.body?.email || '').trim()}${
+                String(req.body?.phone || '').trim() ? `, phone ${String(req.body.phone).trim()}` : ''
+            }`,
         })
         res.status(200).json({
             message: result.delivered

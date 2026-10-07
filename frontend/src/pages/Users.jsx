@@ -20,6 +20,7 @@ import {
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { apiFetch } from '../services/apiClient'
+import { useActionBanner } from '../hooks/useActionBanner'
 import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal'
 import FieldLabel from '../components/ui/FieldLabel'
 import IconSelect from '../components/ui/IconSelect'
@@ -418,6 +419,7 @@ function UserFormModal({ mode, user, onClose, onSave }) {
 export default function Users() {
   const { t } = useTranslation()
   const { user: currentUser, adoptSession } = useAuth()
+  const { notifyCreated, notifySaved, notifyDeleted, notifyFailed } = useActionBanner()
   const [users, setUsers] = useState([])
   const [usersPage, setUsersPage] = useState(0)
   const [search, setSearch] = useState('')
@@ -480,9 +482,12 @@ export default function Users() {
       }
 
       closeModal()
+      if (isEdit) notifySaved(payload.username)
+      else notifyCreated(payload.username)
       fetchUsers()
     } catch (err) {
       setError(err.message || t('users.errors.save'))
+      notifyFailed(err)
       throw err
     }
   }
@@ -504,11 +509,14 @@ export default function Users() {
       if (!res.ok) {
         throw new Error(data.message || t('users.errors.delete'))
       }
+      const deletedName = userToDelete.username
       setUserToDelete(null)
       if (selectedUser?.id === userToDelete.id) closeModal()
+      notifyDeleted(deletedName)
       fetchUsers()
     } catch (err) {
       setError(err.message || t('users.errors.delete'))
+      notifyFailed(err, 'delete')
       setUserToDelete(null)
     } finally {
       setIsDeleting(false)

@@ -821,6 +821,36 @@
     transition: none !important;
   }
 
+  /* Toast banners: drop in from above, then a bar counts the auto-dismiss down. */
+  .banner-toast {
+    animation: banner-in 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  @keyframes banner-in {
+    from {
+      opacity: 0;
+      transform: translateY(-14px) scale(0.97);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  .banner-countdown {
+    transform-origin: left center;
+    animation: banner-countdown linear forwards;
+  }
+
+  @keyframes banner-countdown {
+    from {
+      transform: scaleX(1);
+    }
+    to {
+      transform: scaleX(0);
+    }
+  }
+
   @keyframes beam-border-spin {
     to {
       rotate: 1turn;
@@ -832,8 +862,14 @@
     .animate-fade-in-up,
     .animate-fadeIn,
     .beam-border::before,
-    .icon-select-list {
+    .icon-select-list,
+    .banner-toast {
       animation: none;
+    }
+
+    .banner-countdown {
+      animation: none;
+      transform: scaleX(0);
     }
   }
 }

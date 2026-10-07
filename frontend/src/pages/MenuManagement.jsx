@@ -43,6 +43,7 @@ import { localizeDigits } from '../utils/dateTimeFormat'
 import { usePagedGrid } from '../hooks/usePagedGrid'
 import TruncatedText from '../components/ui/TruncatedText'
 import { useModalKeyboard } from '../hooks/useModalKeyboard'
+import { useActionBanner } from '../hooks/useActionBanner'
 import { compressImage, MENU_IMAGE_ACCEPT } from '../utils/compressImage'
 import { formatMenuPrice, isDrinkMenuCategory } from '../utils/drinkOptions'
 import { menuNameMatchesQuery, translateMenuName } from '../utils/menuNameTranslations'
@@ -120,6 +121,7 @@ function PriceInput({ id, value, onChange, required = false }) {
 
 export default function MenuManagement() {
   const { t, i18n } = useTranslation()
+  const { notifyCreated, notifySaved, notifyDeleted, notifyFailed } = useActionBanner()
   const [items, setItems] = useState([])
   const [isLoadingMenu, setIsLoadingMenu] = useState(true)
   const [usingFallbackMenu, setUsingFallbackMenu] = useState(false)
@@ -347,7 +349,7 @@ export default function MenuManagement() {
 
     const drink = isDrinkMenuCategory(form.category) || form.use_servings
     if (drink && form.hot_price === '' && form.iced_price === '') {
-      alert(t('menuAdmin.errors.servingPrice'))
+      notifyFailed(t('menuAdmin.errors.servingPrice'))
       return
     }
     if (!drink && !form.price) return
@@ -379,11 +381,13 @@ export default function MenuManagement() {
         if (response.ok) {
           fetchMenu()
           handleCloseDetailsModal()
+          notifySaved(payload.name)
         } else {
-          alert(data.message || t('menuAdmin.errors.update'))
+          notifyFailed(data.message || t('menuAdmin.errors.update'))
         }
       } catch (error) {
         console.error('Error updating item:', error)
+        notifyFailed(error)
       }
     } else {
       try {
@@ -398,16 +402,18 @@ export default function MenuManagement() {
         if (response.ok) {
           fetchMenu()
           handleCloseDetailsModal()
+          notifyCreated(payload.name)
         } else {
-          alert(data.message || t('menuAdmin.errors.save'))
+          notifyFailed(data.message || t('menuAdmin.errors.save'))
         }
       } catch (error) {
         console.error('Error adding item:', error)
+        notifyFailed(error)
       }
     }
   }
 
-  const handleDeleteItem = async (id) => {
+  const handleDeleteItem = async (id, name) => {
     try {
       const response = await apiFetch(`/menu/${id}`, {
         method: 'DELETE',
@@ -416,17 +422,20 @@ export default function MenuManagement() {
 
       if (response.ok) {
         setItems((prev) => prev.filter((item) => item.id !== id))
-        if (data.removed_stock_links > 0) {
-          showToast(t('menuAdmin.deletedWithStockLinks', { count: data.removed_stock_links }))
-        }
-      } else if (response.status === 409) {
-        fetchMenu()
-        alert(data.message || t('menuAdmin.errors.delete'))
+        // Say so when the menu item's stock links went with it.
+        notifyDeleted(
+          data.removed_stock_links > 0
+            ? `${name} · ${t('menuAdmin.deletedWithStockLinks', { count: data.removed_stock_links })}`
+            : name,
+        )
       } else {
-        alert(data.message || t('menuAdmin.errors.delete'))
+        // A 409 means the item changed under us, so reload the list to match.
+        if (response.status === 409) fetchMenu()
+        notifyFailed(data.message || t('menuAdmin.errors.delete'), 'delete')
       }
     } catch (error) {
       console.error('Error deleting item:', error)
+      notifyFailed(error, 'delete')
     }
   }
 
@@ -451,7 +460,7 @@ export default function MenuManagement() {
       }
     } catch (error) {
       setItems(previous)
-      alert(error.message || t('menuAdmin.errors.save'))
+      notifyFailed(error.message || t('menuAdmin.errors.save'))
     }
   }
 
@@ -478,9 +487,9 @@ export default function MenuManagement() {
 
   const confirmDeleteMenuItem = async () => {
     if (!menuDeleteTarget) return
-    const { id } = menuDeleteTarget
+    const { id, name } = menuDeleteTarget
     setMenuDeleteTarget(null)
-    await handleDeleteItem(id)
+    await handleDeleteItem(id, name)
   }
 
   const handleCloseDetailsModal = useCallback(() => {

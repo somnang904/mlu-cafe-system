@@ -5,6 +5,7 @@ import Modal from '../common/Modal'
 import ModalHeader from '../ui/ModalHeader'
 import CategoryChips, { groupCategories, inventoryCategoryLabel } from './CategoryChips'
 import { apiFetch, saveBlobAsDownload } from '../../services/apiClient'
+import { useActionBanner } from '../../hooks/useActionBanner'
 
 const WHOLE_UNITS = new Set(['bottles', 'bottle', 'cans', 'can', 'eggs', 'egg', 'coconuts', 'coconut', 'tea bags', 'tea bag'])
 
@@ -187,6 +188,7 @@ function sectionRank(section) {
 }
 
 export default function StocktakeModal({ items, onClose, onApplied }) {
+  const { notifyFailed } = useActionBanner()
   const { t } = useTranslation()
   const [search, setSearch] = useState('')
   const [activeCategory, setActiveCategory] = useState(null)
@@ -384,6 +386,7 @@ export default function StocktakeModal({ items, onClose, onApplied }) {
       onApplied()
     } catch (err) {
       setError(err.message)
+      notifyFailed(err)
     } finally {
       setSaving(false)
     }
@@ -406,6 +409,7 @@ export default function StocktakeModal({ items, onClose, onApplied }) {
       saveBlobAsDownload(blob, match?.[1] || 'Stocktake.xlsx')
     } catch (err) {
       setError(err.message)
+      notifyFailed(err)
     }
   }
 
@@ -446,7 +450,8 @@ export default function StocktakeModal({ items, onClose, onApplied }) {
       )}
       onClose={onClose}
       closeLabel={t('a11y.close')}
-      dismissible={!saving}      maxWidth="max-w-4xl"
+      dismissible={!saving}
+      maxWidth="max-w-4xl"
       footer={step === 'edit' ? (
         <div className="flex w-full flex-wrap items-center justify-between gap-x-6 gap-y-3 border-t border-border pt-4">
           {/* One bar: the chosen category's progress, or all categories with "All" or a search. */}

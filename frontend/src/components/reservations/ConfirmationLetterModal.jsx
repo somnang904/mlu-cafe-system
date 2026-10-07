@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Check, Download, Mail, ScrollText } from 'lucide-react'
+import { Check, Download, Mail, Phone, ScrollText } from 'lucide-react'
 import { useModalKeyboard } from '../../hooks/useModalKeyboard'
 import { useNotifications } from '../../context/NotificationContext'
 import { apiFetch } from '../../services/apiClient'
@@ -15,16 +15,18 @@ export default function ConfirmationLetterModal({ isOpen, reservation, onClose }
   const panelRef = useModalKeyboard({ isOpen, onEscape: onClose, primaryActionMode: 'never' })
   const { pushBanner } = useNotifications()
   const [email, setEmail] = useState('')
+  const [phone, setPhone] = useState('')
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState('')
 
   useEffect(() => {
     if (!isOpen) return undefined
     setEmail('')
+    setPhone(reservation?.phone || '')
     setSending(false)
     setSendError('')
     return undefined
-  }, [isOpen, reservation?.id])
+  }, [isOpen, reservation?.id, reservation?.phone])
 
   if (!isOpen || !reservation) return null
 
@@ -52,7 +54,7 @@ export default function ConfirmationLetterModal({ isOpen, reservation, onClose }
     try {
       const response = await apiFetch(`/reservations/${reservation.id}/confirmation-letter`, {
         method: 'POST',
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, phone: phone.trim() }),
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(data.message || 'Failed to send the letter')
@@ -184,6 +186,22 @@ export default function ConfirmationLetterModal({ isOpen, reservation, onClose }
                   onChange={(event) => setEmail(event.target.value)}
                   className="input-field px-3 py-2 text-sm"
                   placeholder="guest@email.com"
+                />
+              </div>
+              <div>
+                <FieldLabel icon={Phone} htmlFor="letter-phone">
+                  Customer phone (optional)
+                </FieldLabel>
+                <input
+                  id="letter-phone"
+                  name="phone"
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  value={phone}
+                  onChange={(event) => setPhone(event.target.value)}
+                  className="input-field px-3 py-2 text-sm"
+                  placeholder="099 333 225"
                 />
               </div>
               {sendError ? <p className="text-sm text-red-600 dark:text-red-400">{sendError}</p> : null}

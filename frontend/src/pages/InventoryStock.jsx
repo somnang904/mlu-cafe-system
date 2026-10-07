@@ -43,6 +43,7 @@ import ModalHeader from '../components/ui/ModalHeader'
 import { useAuth } from '../context/AuthContext'
 import { userHasPermission } from '../utils/permissions'
 import { apiFetch } from '../services/apiClient'
+import { useActionBanner } from '../hooks/useActionBanner'
 import { cacheInventoryItems, getInventoryFallback } from '../utils/offlineFallbacks'
 import { useModalKeyboard } from '../hooks/useModalKeyboard'
 import { STOCK_STATUS, getStockRatio, getStockStatus, stockStatusRank } from '../utils/stockStatus'
@@ -714,6 +715,7 @@ function HistoryModal({ item, onClose }) {
 
 function AdjustModal({ item, onClose, onSaved }) {
   const { t } = useTranslation()
+  const { notifySaved, notifyFailed } = useActionBanner()
   const [count, setCount] = useState(String(formatAmount(item.stock_quantity, item.is_weight)))
   const [reason, setReason] = useState('correction')
   const [note, setNote] = useState('')
@@ -741,10 +743,12 @@ function AdjustModal({ item, onClose, onSaved }) {
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(data.message || t('inventory.invalidAmount'))
+      notifySaved(item.item_name)
       onSaved()
       onClose()
     } catch (err) {
       setError(err.message)
+      notifyFailed(err)
     } finally {
       setSaving(false)
     }
@@ -755,7 +759,8 @@ function AdjustModal({ item, onClose, onSaved }) {
       title={t('inventory.adjustStock')}
       header={<ModalHeader icon={SlidersHorizontal} iconClassName="text-amber-600 dark:text-amber-400" titleId="stock-adjust-title" title={t('inventory.adjustStock')} subtitle={item.item_name} />}
       titleId="stock-adjust-title"
-      onClose={onClose}      closeLabel={t('a11y.close')}
+      onClose={onClose}
+      closeLabel={t('a11y.close')}
       maxWidth="max-w-md"
       footer={(
         <>
@@ -899,6 +904,7 @@ function SearchField({ id, icon, label, placeholder, query, onQuery, options, on
 
 function ItemFormModal({ mode, item, prefillName, stacked, onClose, onSaved, onUseExisting }) {
   const { t } = useTranslation()
+  const { notifyCreated, notifySaved, notifyFailed } = useActionBanner()
   const editing = mode === 'edit'
   const [name, setName] = useState(editing ? item.item_name : (prefillName || ''))
   const [category, setCategory] = useState(editing ? item.category : '')
@@ -988,9 +994,12 @@ function ItemFormModal({ mode, item, prefillName, stacked, onClose, onSaved, onU
         return
       }
       if (!response.ok) throw new Error(data.message || t('inventory.invalidAmount'))
+      if (editing) notifySaved(payload.item_name)
+      else notifyCreated(payload.item_name)
       onSaved(data.item)
     } catch (err) {
       setError(err.message)
+      notifyFailed(err)
     } finally {
       setSaving(false)
     }
@@ -1009,7 +1018,8 @@ function ItemFormModal({ mode, item, prefillName, stacked, onClose, onSaved, onU
         />
       )}
       titleId="stock-item-form-title"
-      onClose={onClose}      closeLabel={t('a11y.close')}
+      onClose={onClose}
+      closeLabel={t('a11y.close')}
       stacked={stacked}
       maxWidth="max-w-md"
       footer={(
@@ -1085,6 +1095,7 @@ function ItemFormModal({ mode, item, prefillName, stacked, onClose, onSaved, onU
 
 function LinkModal({ item, stockItems, pickedStock, onRequestCreate, onClose, onSaved, dismissible = true }) {
   const { t } = useTranslation()
+  const { notifySaved, notifyDeleted, notifyFailed } = useActionBanner()
   const [menuItems, setMenuItems] = useState([])
   const [menuQuery, setMenuQuery] = useState('')
   const [menuItemId, setMenuItemId] = useState('')
@@ -1132,10 +1143,12 @@ function LinkModal({ item, stockItems, pickedStock, onRequestCreate, onClose, on
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(data.message || t('inventory.invalidAmount'))
+      notifySaved(t('inventory.linkRecipe'))
       onSaved()
       onClose()
     } catch (err) {
       setError(err.message)
+      notifyFailed(err)
     } finally {
       setSaving(false)
     }
@@ -1143,14 +1156,17 @@ function LinkModal({ item, stockItems, pickedStock, onRequestCreate, onClose, on
 
   const removeLink = async (linkId) => {
     setError('')
-    const response = await apiFetch(`/inventory/links/${linkId}`, { method: 'DELETE' })
-    const data = await response.json().catch(() => ({}))
-    if (!response.ok) {
-      setError(data.message || t('inventory.invalidAmount'))
-      return
+    try {
+      const response = await apiFetch(`/inventory/links/${linkId}`, { method: 'DELETE' })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.message || t('inventory.invalidAmount'))
+      notifyDeleted(t('inventory.linkRecipe'))
+      onSaved()
+      onClose()
+    } catch (err) {
+      setError(err.message)
+      notifyFailed(err, 'delete')
     }
-    onSaved()
-    onClose()
   }
 
   return (
@@ -1158,7 +1174,8 @@ function LinkModal({ item, stockItems, pickedStock, onRequestCreate, onClose, on
       title={t('inventory.linkRecipe')}
       header={<ModalHeader icon={Link2} titleId="stock-link-title" title={t('inventory.linkRecipe')} />}
       titleId="stock-link-title"
-      onClose={onClose}      closeLabel={t('a11y.close')}
+      onClose={onClose}
+      closeLabel={t('a11y.close')}
       dismissible={dismissible}
       maxWidth="max-w-md"
       footer={(
@@ -1246,6 +1263,7 @@ function LinkModal({ item, stockItems, pickedStock, onRequestCreate, onClose, on
 export default function InventoryStock({ view = 'items', onNavigate }) {
   const { t } = useTranslation()
   const { user } = useAuth()
+  const { notifySaved, notifyFailed } = useActionBanner()
   const canManageItems = userHasPermission(user, 'inventory_stock')
   const canAdjustStock = canManageItems
   const [items, setItems] = useState([])
@@ -1302,9 +1320,13 @@ export default function InventoryStock({ view = 'items', onNavigate }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ quantity_received: newStock })
       })
-      if (response.ok) fetchInventory()
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.message || t('inventory.invalidAmount'))
+      notifySaved(items.find((entry) => entry.id === id)?.item_name)
+      fetchInventory()
     } catch (error) {
       console.error("Error submitting stock update:", error)
+      notifyFailed(error)
     }
   }
 
