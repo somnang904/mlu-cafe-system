@@ -137,7 +137,6 @@ const env = {
     // Only enable behind a real reverse proxy. If it is on without one, a client can
     // spoof X-Forwarded-For and walk straight past the rate limiter.
     trustProxy: String(process.env.TRUST_PROXY || '').toLowerCase() === 'true',
-    loginAttemptLimit: parseIntOr(process.env.LOGIN_ATTEMPT_LIMIT, 10),
     apiRequestLimit: parseIntOr(process.env.API_RATE_LIMIT, 2000),
     sensitiveOperationLimit: parseIntOr(process.env.SENSITIVE_RATE_LIMIT, 20),
     jsonBodyLimit: process.env.JSON_BODY_LIMIT || '1mb',

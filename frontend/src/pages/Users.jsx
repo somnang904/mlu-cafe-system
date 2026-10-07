@@ -56,7 +56,7 @@ const PERMISSION_LABEL_KEYS = {
   payment: 'nav.payment',
   menu: 'nav.menuManagement',
   settings: 'nav.settings',
-  backup_recovery: 'nav.backupRecovery',
+  backup_recovery: 'nav.backupRecoveryPermission',
   sales_history: 'nav.salesHistory',
   inventory_stock: 'nav.inventoryStock',
   reports: 'nav.reports',

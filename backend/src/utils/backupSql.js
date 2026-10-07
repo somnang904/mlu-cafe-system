@@ -65,6 +65,15 @@ function clientSafeDetail(error) {
   return String(line || 'the database tool reported an error').replace(/\s+/g, ' ').trim().slice(0, 180)
 }
 
+const SENSITIVE_DUMP_TABLES = [
+  'users',
+  'user_sessions',
+  'revoked_tokens',
+  'login_attempts',
+  'security_alerts',
+  'blocked_devices',
+]
+
 function publicError(status, message) {
   const error = new Error(message)
   error.status = status
@@ -78,12 +87,13 @@ function writeChunk(stream, text) {
   })
 }
 
-async function writeNodeDump(db, filePath) {
+async function writeNodeDump(db, filePath, skipTables = []) {
   const output = fs.createWriteStream(filePath)
   await writeChunk(output, `${headerLines()}\n`)
   const [tables] = await db.query("SHOW FULL TABLES WHERE Table_type = 'BASE TABLE'")
   for (const tableRow of tables) {
     const tableName = Object.values(tableRow)[0]
+    if (skipTables.includes(tableName)) continue
     const [[created]] = await db.query(`SHOW CREATE TABLE \`${tableName}\``)
     await writeChunk(output, `DROP TABLE IF EXISTS \`${tableName}\`;\n${created['Create Table']};\n\n`)
     const [columns] = await db.query(`SHOW COLUMNS FROM \`${tableName}\``)
@@ -132,11 +142,13 @@ async function writeNodeDump(db, filePath) {
   await new Promise((resolve, reject) => output.end((error) => (error ? reject(error) : resolve())))
 }
 
-async function writeFullDump(db, filePath) {
+async function writeFullDump(db, filePath, { excludeSensitive = false } = {}) {
   await fs.promises.writeFile(filePath, headerLines(), 'utf8')
   const mysqldump = resolveCliTool('mysqldump')
+  const skipTables = excludeSensitive ? SENSITIVE_DUMP_TABLES : []
   const args = [
     ...buildMysqlArgs(),
+    ...skipTables.map((table) => `--ignore-table=${getDatabaseName()}.${table}`),
     '--single-transaction',
     '--routines',
     '--triggers',
@@ -149,7 +161,7 @@ async function writeFullDump(db, filePath) {
   } catch (error) {
     await fs.promises.rm(filePath, { force: true })
     if (error.code === 'ENOENT') {
-      await writeNodeDump(db, filePath)
+      await writeNodeDump(db, filePath, skipTables)
       return { engine: 'node' }
     }
     throw error
@@ -158,10 +170,10 @@ async function writeFullDump(db, filePath) {
   return { engine: 'mysqldump' }
 }
 
-async function createDownloadDump(db) {
+async function createDownloadDump(db, options = {}) {
   const filename = uniqueSqlName(os.tmpdir(), 'Mlu_Backup')
   const filePath = path.join(os.tmpdir(), filename)
-  const result = await writeFullDump(db, filePath)
+  const result = await writeFullDump(db, filePath, options)
   return { filePath, filename, engine: result.engine }
 }
 
@@ -308,6 +320,7 @@ module.exports = {
   DUMP_MARKER,
   MAX_SQL_BYTES,
   createDownloadDump,
+  SENSITIVE_DUMP_TABLES,
   createSafetyBackup,
   pipeDownload,
   validateSqlFile,
