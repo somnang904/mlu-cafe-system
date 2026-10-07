@@ -19,9 +19,11 @@ function sourceFor(value) {
   return SOURCES.find((source) => source.id === value) || SOURCES[0]
 }
 
-export function PaidFromSelector({ value, onChange, idPrefix = 'expense' }) {
+/** `options` limits the choices (a cash expense comes from the drawer or the owner, never the bank). */
+export function PaidFromSelector({ value, onChange, idPrefix = 'expense', options = null }) {
   const { t } = useTranslation()
-  const selected = sourceFor(value)
+  const sources = options ? SOURCES.filter((source) => options.includes(source.id)) : SOURCES
+  const selected = sources.find((source) => source.id === value) || sources[0]
   const labelId = `${idPrefix}-paid-from-label`
   const hintId = `${idPrefix}-paid-from-hint`
 
@@ -35,9 +37,9 @@ export function PaidFromSelector({ value, onChange, idPrefix = 'expense' }) {
         role="group"
         aria-labelledby={labelId}
         aria-describedby={hintId}
-        className="grid grid-cols-3 gap-0.5 rounded-lg bg-stone-100 p-0.5 dark:bg-zinc-800"
+        className={`grid gap-0.5 rounded-lg bg-stone-100 p-0.5 dark:bg-zinc-800 ${sources.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}
       >
-        {SOURCES.map((source) => {
+        {sources.map((source) => {
           const Icon = source.icon
           const active = source.id === selected.id
           return (

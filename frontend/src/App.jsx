@@ -21,6 +21,7 @@ import MenuManagement from './pages/MenuManagement'
 import SalesHistory from './pages/SalesHistory'
 import InventoryStock from './pages/InventoryStock'
 import ReportsAnalysis from './pages/ReportsAnalysis'
+import Expenses from './pages/Expenses'
 import Users from './pages/Users'
 import Settings from './pages/Settings'
 import BackupRecovery from './pages/BackupRecovery'
@@ -115,9 +116,9 @@ function AuthenticatedApp() {
       case 'inventory_stocktake':
         return <InventoryStock view="stocktake" onNavigate={handleNavigate} />
       case 'inventory_expenses':
-        return <InventoryStock view="expenses" onNavigate={handleNavigate} />
+        return <Expenses />
       case 'reports_analysis':
-        return <ReportsAnalysis />
+        return <ReportsAnalysis onNavigate={handleNavigate} />
       case 'users':
         return <Users />
       case 'settings':
