@@ -29,5 +29,5 @@ export function usePagedGrid(gridRef, items, filterKey, rowsPerPage = 3) {
     [filterKey, totalPages],
   )
 
-  return { pageItems, currentPage, totalPages, goToPage }
+  return { pageItems, currentPage, totalPages, pageSize, goToPage }
 }

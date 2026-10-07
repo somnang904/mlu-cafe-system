@@ -37,6 +37,7 @@ import IconSelect from '../components/ui/IconSelect'
 import Tooltip from '../components/ui/Tooltip'
 import ScrollRow from '../components/ui/ScrollRow'
 import PaginationBar from '../components/ui/PaginationBar'
+import { localizeDigits } from '../utils/dateTimeFormat'
 import { usePagedGrid } from '../hooks/usePagedGrid'
 import TruncatedText from '../components/ui/TruncatedText'
 import { useModalKeyboard } from '../hooks/useModalKeyboard'
@@ -310,7 +311,7 @@ export default function MenuManagement() {
 
   const gridRef = useRef(null)
   const filterKey = `${activeCategory}|${search.trim().toLowerCase()}`
-  const { pageItems, currentPage, totalPages, goToPage } = usePagedGrid(gridRef, filtered, filterKey)
+  const { pageItems, currentPage, totalPages, pageSize, goToPage } = usePagedGrid(gridRef, filtered, filterKey)
 
   const changePage = (page) => {
     goToPage(page)
@@ -681,7 +682,26 @@ export default function MenuManagement() {
         ))}
       </div>
 
-      <PaginationBar currentPage={currentPage} totalPages={totalPages} onPageChange={changePage} />
+      {filtered.length > 0 ? (
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-muted shrink-0 text-xs tabular-nums">
+            {t('menuAdmin.showingRange', {
+              from: localizeDigits(currentPage * pageSize + 1),
+              to: localizeDigits(Math.min((currentPage + 1) * pageSize, filtered.length)),
+              total: localizeDigits(filtered.length),
+            })}
+            {filtered.length !== items.length
+              ? ` ${t('menuAdmin.ofTotalItems', { total: localizeDigits(items.length) })}`
+              : ''}
+          </p>
+          <PaginationBar
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={changePage}
+            className="sm:min-w-[22rem]"
+          />
+        </div>
+      ) : null}
 
       {isLoadingMenu && items.length === 0 && (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
