@@ -542,7 +542,7 @@ export default function Users() {
                   </td>
                   <td className="px-6 py-4" onClick={(event) => event.stopPropagation()}>
                     <div className="ml-auto flex w-fit items-center gap-0.5 rounded-full bg-white/90 p-0.5 shadow-sm ring-1 ring-slate-200 dark:bg-zinc-800/90 dark:ring-zinc-700">
-                      <Tooltip label={t('common.edit')}>
+                      <Tooltip label={t('common.edit')} side="left">
                         <button
                           type="button"
                           onClick={(event) => {
@@ -562,7 +562,7 @@ export default function Users() {
                             return (
                               <>
                                 <span className="h-4 w-px bg-slate-200 dark:bg-zinc-700" aria-hidden />
-                                <Tooltip label={canDelete ? t('common.delete') : title}>
+                                <Tooltip label={canDelete ? t('common.delete') : title} side="left">
                                   <button
                                     type="button"
                                     onClick={(event) => canDelete && requestDeleteUser(event, user)}
