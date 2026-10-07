@@ -1,9 +1,10 @@
 import { formatMonthYearFromKey } from './dateTimeFormat'
+import { phnomPenhMonthKey, recentMonthKeys } from './phnomPenhTime'
 
 export const DEFAULT_HISTORY_DAYS = 730
 
 export function getCurrentMonthKey(date = new Date()) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+  return phnomPenhMonthKey(date)
 }
 
 /** Build `/orders/history` query string. Accepts days number or `{ days | month }`. */
@@ -43,9 +44,7 @@ export function buildMonthFilterOptions(
 ) {
   const options = [{ value: 'all', label: allMonthsLabel }]
 
-  for (let i = 0; i < lookbackMonths; i += 1) {
-    const date = new Date(referenceDate.getFullYear(), referenceDate.getMonth() - i, 1)
-    const value = getCurrentMonthKey(date)
+  for (const value of recentMonthKeys(lookbackMonths, referenceDate)) {
     options.push({
       value,
       label: formatMonthLabel(value, t),

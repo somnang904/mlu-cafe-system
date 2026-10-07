@@ -1955,6 +1955,8 @@ function parseDayRange(rawFrom, rawTo) {
     return { start: from, endExclusive: end.toISOString().slice(0, 10) };
 }
 
+const HISTORY_ITEM_CHUNK = 1000;
+
 app.get('/api/orders/history', requireSalesHistoryAccess, async (req, res) => {
     const monthParam = typeof req.query.month === 'string' ? req.query.month.trim() : '';
     const monthMatch = /^(\d{4})-(\d{2})$/.exec(monthParam);
@@ -2034,25 +2036,30 @@ app.get('/api/orders/history', requireSalesHistoryAccess, async (req, res) => {
         }
 
         const orderIds = historyRows.map((row) => row.order_id);
-        const placeholders = orderIds.map(() => '?').join(', ');
-        const [itemRows] = await db.execute(
-            `
-            SELECT
-                oi.order_id,
-                oi.menu_item_id,
-                COALESCE(m.name, oi.item_name, 'Custom item') AS name,
-                m.category,
-                m.image_url,
-                oi.notes,
-                oi.quantity AS qty,
-                oi.price AS unitPrice,
-                (oi.quantity * oi.price) AS lineTotal
-            FROM order_items oi
-            LEFT JOIN menu_items m ON oi.menu_item_id = m.id
-            WHERE oi.order_id IN (${placeholders})
-            `,
-            orderIds,
-        );
+        const itemRows = [];
+        for (let offset = 0; offset < orderIds.length; offset += HISTORY_ITEM_CHUNK) {
+            const chunk = orderIds.slice(offset, offset + HISTORY_ITEM_CHUNK);
+            const placeholders = chunk.map(() => '?').join(', ');
+            const [chunkRows] = await db.execute(
+                `
+                SELECT
+                    oi.order_id,
+                    oi.menu_item_id,
+                    COALESCE(m.name, oi.item_name, 'Custom item') AS name,
+                    COALESCE(oi.item_category, m.category) AS category,
+                    m.image_url,
+                    oi.notes,
+                    oi.quantity AS qty,
+                    oi.price AS unitPrice,
+                    (oi.quantity * oi.price) AS lineTotal
+                FROM order_items oi
+                LEFT JOIN menu_items m ON oi.menu_item_id = m.id
+                WHERE oi.order_id IN (${placeholders})
+                `,
+                chunk,
+            );
+            for (const chunkRow of chunkRows) itemRows.push(chunkRow);
+        }
 
         const itemsByOrder = itemRows.reduce((acc, row) => {
             if (!acc[row.order_id]) acc[row.order_id] = [];
