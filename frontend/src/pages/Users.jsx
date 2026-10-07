@@ -18,8 +18,10 @@ import { apiFetch } from '../services/apiClient'
 import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal'
 import FieldLabel from '../components/ui/FieldLabel'
 import ModalHeader from '../components/ui/ModalHeader'
+import PaginationBar from '../components/ui/PaginationBar'
 import Tooltip from '../components/ui/Tooltip'
 import { useAuth } from '../context/AuthContext'
+import { localizeDigits } from '../utils/dateTimeFormat'
 import {
   CASHIER_DEFAULT_PERMISSIONS,
   defaultPermissionsForRole,
@@ -78,6 +80,7 @@ function sortUsersWithAdminsFirst(userList) {
 }
 
 const VISIBLE_PERMISSION_CHIPS = 3
+const USERS_PAGE_SIZE = 10
 
 const STATUS_BADGE_TONES = {
   active: {
@@ -410,6 +413,7 @@ export default function Users() {
   const { t } = useTranslation()
   const { user: currentUser, adoptSession } = useAuth()
   const [users, setUsers] = useState([])
+  const [usersPage, setUsersPage] = useState(0)
   const [modalMode, setModalMode] = useState(null)
   const [selectedUser, setSelectedUser] = useState(null)
   const [userToDelete, setUserToDelete] = useState(null)
@@ -503,6 +507,10 @@ export default function Users() {
     }
   }
 
+  const usersPageCount = Math.max(1, Math.ceil(users.length / USERS_PAGE_SIZE))
+  const activeUsersPage = Math.min(usersPage, usersPageCount - 1)
+  const pagedUsers = users.slice(activeUsersPage * USERS_PAGE_SIZE, (activeUsersPage + 1) * USERS_PAGE_SIZE)
+
   const adminCount = users.filter((account) => isAdminRole(account.role)).length
 
   const getDeleteGuard = (account) => {
@@ -553,7 +561,7 @@ export default function Users() {
               </tr>
             </thead>
             <tbody className="table-divider">
-              {users.map((user) => (
+              {pagedUsers.map((user) => (
                 <tr
                   key={user.id}
                   className="table-row hover:bg-stone-50/50 dark:hover:bg-obsidian-900/20"
@@ -625,6 +633,22 @@ export default function Users() {
               ))}
             </tbody>
           </table>
+        </div>
+        <div className="flex flex-col gap-3 border-t border-border/60 px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-muted shrink-0 text-xs tabular-nums">
+            {t('users.showingRange', {
+              from: localizeDigits(users.length === 0 ? 0 : activeUsersPage * USERS_PAGE_SIZE + 1),
+              to: localizeDigits(Math.min((activeUsersPage + 1) * USERS_PAGE_SIZE, users.length)),
+              total: localizeDigits(users.length),
+            })}
+          </p>
+          <PaginationBar
+            alwaysShow
+            currentPage={activeUsersPage}
+            totalPages={usersPageCount}
+            onPageChange={setUsersPage}
+            className="sm:min-w-[22rem]"
+          />
         </div>
       </div>
 
