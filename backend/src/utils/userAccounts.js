@@ -123,7 +123,14 @@ function normalizeUsername(value) {
   return String(value ?? '').trim().toLowerCase().replace(/\s+/g, '')
 }
 
+function displayNameValidationError(value) {
+  const name = typeof value === 'string' ? value.trim() : ''
+  if (!name || name.length > 100) return 'Display name must be 1-100 characters.'
+  return null
+}
+
 module.exports = {
+  displayNameValidationError,
   findUserIdsWithHistory,
   normalizeUsername,
   USERNAME_PATTERN,

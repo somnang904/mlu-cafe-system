@@ -204,11 +204,12 @@ function UserFormModal({ mode, user, onClose, onSave }) {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               placeholder={t('users.usernamePlaceholder')}
-              disabled={isAdminUser}
-              className="input-field px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-70"
+              className="input-field px-3 py-2 text-sm"
             />
-            {isEdit && !isAdminUser ? (
-              <p className="text-muted mt-1.5 text-2xs leading-snug">{t('users.usernameChangeHint')}</p>
+            {isEdit ? (
+              <p className="text-muted mt-1.5 text-2xs leading-snug">
+                {isAdminUser ? t('users.usernameChangeHintSelf') : t('users.usernameChangeHint')}
+              </p>
             ) : null}
           </div>
 

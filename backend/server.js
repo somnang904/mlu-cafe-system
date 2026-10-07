@@ -29,7 +29,7 @@ const {
     tableLockName,
 } = require('./src/utils/orderTargets');
 const { normalizeAllowedRole, passwordPolicyError, assignableRoleError } = require('./src/utils/accountPolicy');
-const { hashPassword, findUserIdsWithHistory, normalizeUsername, USERNAME_PATTERN } = require('./src/utils/userAccounts');
+const { hashPassword, findUserIdsWithHistory, normalizeUsername, displayNameValidationError, USERNAME_PATTERN } = require('./src/utils/userAccounts');
 const { saveMenuImage } = require('./src/utils/menuImage');
 const { downloadRemoteImage } = require('./src/utils/remoteImage');
 const {
@@ -355,6 +355,11 @@ app.post('/api/users', requireAdmin, async (req, res) => {
         return res.status(400).json({ message: "All identification boxes are required" });
     }
 
+    const createNameError = displayNameValidationError(display_name);
+    if (createNameError) {
+        return res.status(400).json({ message: createNameError });
+    }
+
     const trimmedPassword = String(password);
     const policyError = passwordPolicyError(trimmedPassword);
     if (policyError) {
@@ -376,7 +381,12 @@ app.post('/api/users', requireAdmin, async (req, res) => {
     }
 
     try {
-        const normalizedUsername = String(username).trim().toLowerCase();
+        const normalizedUsername = normalizeUsername(username);
+        if (!USERNAME_PATTERN.test(normalizedUsername)) {
+            return res.status(400).json({
+                message: 'Username must be 3-32 characters: letters, numbers, dot, dash or underscore.',
+            });
+        }
         const [existing] = await db.execute('SELECT id FROM users WHERE username = ?', [normalizedUsername]);
         if (existing.length > 0) {
             return res.status(400).json({ message: "Username is already taken" });
@@ -397,6 +407,9 @@ app.post('/api/users', requireAdmin, async (req, res) => {
 
         res.status(201).json({ message: "New user profile established securely!", id: created.insertId });
     } catch (error) {
+        if (error.code === 'ER_DUP_ENTRY') {
+            return res.status(400).json({ message: "Username is already taken" });
+        }
         console.error("❌ CREATE USER ERROR:", error.message);
         res.status(500).json({ message: "Failed to build secure user account" });
     }
@@ -413,6 +426,11 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
 
     if (!display_name || !role) {
         return res.status(400).json({ message: 'Display name and role are required' });
+    }
+
+    const displayNameError = displayNameValidationError(display_name);
+    if (displayNameError) {
+        return res.status(400).json({ message: displayNameError });
     }
 
     const allowedRole = normalizeAllowedRole(role);
@@ -472,6 +490,9 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
         let nextActive = previousActive;
         if (isActiveRaw !== undefined) {
             nextActive = !(isActiveRaw === false || isActiveRaw === 0 || isActiveRaw === '0');
+            if (!nextActive && Number(req.user?.id) === userId) {
+                return res.status(400).json({ message: 'You cannot disable your own account.' });
+            }
             if (
                 isAdminRole(previousRole)
                 && previousActive
@@ -490,9 +511,6 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
         let nextUsername = existing.username;
         if (usernameRaw !== undefined && normalizeUsername(usernameRaw) !== existing.username) {
             nextUsername = normalizeUsername(usernameRaw);
-            if (isAdminRole(previousRole)) {
-                return res.status(400).json({ message: 'The Admin username cannot be changed.' });
-            }
             if (!USERNAME_PATTERN.test(nextUsername)) {
                 return res.status(400).json({
                     message: 'Username must be 3-32 characters: letters, numbers, dot, dash or underscore.',
@@ -556,15 +574,7 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
             await auditFromRequest(db, req, {
                 action: 'user_username_change',
                 module: 'Users',
-                description: `Changed username from ${existing.username} to ${nextUsername}. The user was signed out.`,
-            });
-        }
-
-        if (previousActive !== nextActive) {
-            await auditFromRequest(db, req, {
-                action: nextActive ? 'user_enable' : 'user_disable',
-                module: 'Users',
-                description: `${nextActive ? 'Enabled' : 'Disabled'} user ${nextUsername}.`,
+                description: `Changed username from ${existing.username} to ${nextUsername}.`,
             });
         }
 
@@ -607,7 +617,7 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
             user: updatedUser,
         };
 
-        if (nextPassword && req.user?.id === userId) {
+        if ((nextPassword || usernameChanged) && req.user?.id === userId) {
             const issued = await signSessionToken(db, updatedUser);
             await createUserSession(db, { jti: issued.jti, userId, req });
             response.token = issued.token;
@@ -615,6 +625,9 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
 
         res.status(200).json(response);
     } catch (error) {
+        if (error.code === 'ER_DUP_ENTRY') {
+            return res.status(400).json({ message: 'Username is already taken' });
+        }
         console.error('❌ UPDATE USER ERROR:', error.message);
         res.status(500).json({ message: 'Failed to update user permissions' });
     }

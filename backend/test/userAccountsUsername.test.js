@@ -42,3 +42,15 @@ describe('findUserIdsWithHistory', () => {
     assert.equal((await findUserIdsWithHistory(db, [])).size, 0)
   })
 })
+
+describe('display name validation', () => {
+  const { displayNameValidationError } = require('../src/utils/userAccounts')
+
+  it('requires a non-empty string of at most 100 characters', () => {
+    assert.equal(displayNameValidationError('Sok Sara'), null)
+    assert.ok(displayNameValidationError('   '))
+    assert.ok(displayNameValidationError('x'.repeat(101)))
+    assert.ok(displayNameValidationError({ a: 1 }))
+    assert.ok(displayNameValidationError(null))
+  })
+})
