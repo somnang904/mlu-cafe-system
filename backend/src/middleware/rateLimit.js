@@ -1,30 +1,9 @@
 const rateLimit = require('express-rate-limit')
+const { ipKeyGenerator } = require('express-rate-limit')
 const { env } = require('../config/env')
 const { logSecurity } = require('../utils/logger')
 
 const FIFTEEN_MINUTES = 15 * 60 * 1000
-
-/**
- * Brute-force / dictionary protection for the login endpoint.
- * Only failed attempts count, so a busy till that logs in correctly is never locked out.
- */
-const loginLimiter = rateLimit({
-  windowMs: FIFTEEN_MINUTES,
-  limit: env.security.loginAttemptLimit,
-  skipSuccessfulRequests: true,
-  standardHeaders: 'draft-7',
-  legacyHeaders: false,
-  // Same wording as a bad password so the limiter can't be used to probe for valid usernames.
-  handler: (req, res) => {
-    logSecurity('login_rate_limited', {
-      ip: req.ip,
-      username: String(req.body?.username || '').slice(0, 64),
-    })
-    res.status(429).json({
-      message: 'Too many login attempts. Please wait a few minutes and try again.',
-    })
-  },
-})
 
 /** Public reset and admin password-reset routes. Counts every request. */
 function createPasswordResetLimiter() {
@@ -60,10 +39,11 @@ const apiLimiter = rateLimit({
 const sensitiveOperationLimiter = rateLimit({
   windowMs: FIFTEEN_MINUTES,
   limit: env.security.sensitiveOperationLimit,
+  keyGenerator: (req) => (req.user?.id != null ? `user:${req.user.id}` : ipKeyGenerator(req.ip)),
   standardHeaders: 'draft-7',
   legacyHeaders: false,
   handler: (req, res) => {
-    logSecurity('sensitive_rate_limited', { ip: req.ip, route: req.originalUrl })
+    logSecurity('sensitive_rate_limited', { ip: req.ip, userId: req.user?.id ?? null, route: req.originalUrl })
     res.status(429).json({ message: 'Too many requests for this operation. Try again later.' })
   },
 })
@@ -81,7 +61,6 @@ const settingsWriteLimiter = rateLimit({
 })
 
 module.exports = {
-  loginLimiter,
   passwordResetLimiter,
   createPasswordResetLimiter,
   apiLimiter,
