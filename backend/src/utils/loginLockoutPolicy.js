@@ -1,32 +1,67 @@
-/**
- * Login lockout.
- * 4 failures → the device is locked for 30 seconds and an admin alert is raised.
- * Once the lock expires the counter starts again from zero.
- */
-
 const INVALID_CREDENTIALS_MESSAGE = 'Username or password is incorrect.'
 const LOCKOUT_MESSAGE = 'Too many attempts. Please try again later.'
 
-const LOCK_RULE = { failures: 4, lockMs: 30 * 1000 }
+const SCOPE_DEVICE = 'device'
+const SCOPE_IP = 'ip'
+const SCOPE_USER = 'user'
+
+const FAILURE_WINDOW_MS = 15 * 60 * 1000
+const LOCK_LADDER_MS = [30 * 1000, 2 * 60 * 1000, 10 * 60 * 1000, 30 * 60 * 1000]
+const LEVEL_RESET_MS = 60 * 60 * 1000
+const ALERT_COOLDOWN_MS = 10 * 60 * 1000
+
+const LOCK_RULE = {
+  failures: 4,
+  lockMs: LOCK_LADDER_MS[0],
+  userWideFailures: 20,
+  userWideLockMs: 15 * 60 * 1000,
+}
 
 function emptyAttempt() {
-  return { failedCount: 0, stage: 1, lockedUntil: null }
+  return { failedCount: 0, stage: 1, lockedUntil: null, windowStartedAt: null }
+}
+
+function normalizeAttempt(attempt) {
+  if (!attempt) return emptyAttempt()
+  return {
+    failedCount: Number(attempt.failedCount) || 0,
+    stage: Math.min(LOCK_LADDER_MS.length, Math.max(1, Number(attempt.stage) || 1)),
+    lockedUntil: attempt.lockedUntil ?? null,
+    windowStartedAt: attempt.windowStartedAt ?? null,
+  }
 }
 
 function applyExpiry(attempt, nowMs) {
-  const current = attempt
-    ? {
-        failedCount: Number(attempt.failedCount) || 0,
-        stage: 1,
-        lockedUntil: attempt.lockedUntil ?? null,
-      }
-    : emptyAttempt()
+  const current = normalizeAttempt(attempt)
 
-  if (current.lockedUntil == null || current.lockedUntil > nowMs) {
+  if (current.lockedUntil != null && current.lockedUntil > nowMs) {
     return current
   }
 
-  return emptyAttempt()
+  if (current.lockedUntil != null) {
+    if (nowMs - current.lockedUntil >= LEVEL_RESET_MS) return emptyAttempt()
+    const restarted =
+      current.windowStartedAt != null && current.windowStartedAt > current.lockedUntil
+    if (!restarted) {
+      return {
+        failedCount: 0,
+        stage: current.stage,
+        lockedUntil: current.lockedUntil,
+        windowStartedAt: null,
+      }
+    }
+  }
+
+  if (current.windowStartedAt != null && nowMs - current.windowStartedAt >= FAILURE_WINDOW_MS) {
+    return {
+      failedCount: 0,
+      stage: current.stage,
+      lockedUntil: current.lockedUntil,
+      windowStartedAt: null,
+    }
+  }
+
+  return current
 }
 
 function lockRemainingSeconds(attempt, nowMs) {
@@ -38,17 +73,40 @@ function isLocked(attempt, nowMs) {
   return lockRemainingSeconds(attempt, nowMs) > 0
 }
 
-function registerFailure(attempt, nowMs) {
+function registerFailure(attempt, nowMs, scopeKind = SCOPE_DEVICE) {
   const current = applyExpiry(attempt, nowMs)
   if (isLocked(current, nowMs)) {
     return { attempt: current, triggeredLock: false, triggeredAlert: false, alreadyLocked: true }
   }
 
   const failedCount = current.failedCount + 1
+  const windowStartedAt = current.windowStartedAt ?? nowMs
+  const threshold = scopeKind === SCOPE_USER ? LOCK_RULE.userWideFailures : LOCK_RULE.failures
 
-  if (failedCount >= LOCK_RULE.failures) {
+  if (failedCount >= threshold) {
+    if (scopeKind === SCOPE_USER) {
+      return {
+        attempt: {
+          failedCount,
+          stage: 1,
+          lockedUntil: nowMs + LOCK_RULE.userWideLockMs,
+          windowStartedAt,
+        },
+        triggeredLock: true,
+        triggeredAlert: true,
+        alreadyLocked: false,
+      }
+    }
+
+    const hadLock = current.lockedUntil != null
+    const stage = hadLock ? Math.min(LOCK_LADDER_MS.length, current.stage + 1) : 1
     return {
-      attempt: { failedCount, stage: 1, lockedUntil: nowMs + LOCK_RULE.lockMs },
+      attempt: {
+        failedCount,
+        stage,
+        lockedUntil: nowMs + LOCK_LADDER_MS[stage - 1],
+        windowStartedAt,
+      },
       triggeredLock: true,
       triggeredAlert: true,
       alreadyLocked: false,
@@ -56,7 +114,7 @@ function registerFailure(attempt, nowMs) {
   }
 
   return {
-    attempt: { failedCount, stage: 1, lockedUntil: null },
+    attempt: { failedCount, stage: current.stage, lockedUntil: current.lockedUntil, windowStartedAt },
     triggeredLock: false,
     triggeredAlert: false,
     alreadyLocked: false,
@@ -67,6 +125,13 @@ module.exports = {
   INVALID_CREDENTIALS_MESSAGE,
   LOCKOUT_MESSAGE,
   LOCK_RULE,
+  LOCK_LADDER_MS,
+  FAILURE_WINDOW_MS,
+  LEVEL_RESET_MS,
+  ALERT_COOLDOWN_MS,
+  SCOPE_DEVICE,
+  SCOPE_IP,
+  SCOPE_USER,
   emptyAttempt,
   applyExpiry,
   lockRemainingSeconds,

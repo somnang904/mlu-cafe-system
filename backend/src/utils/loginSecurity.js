@@ -10,6 +10,11 @@ const {
   lockRemainingSeconds,
   isLocked,
   registerFailure,
+  ALERT_COOLDOWN_MS,
+  LEVEL_RESET_MS,
+  SCOPE_DEVICE,
+  SCOPE_IP,
+  SCOPE_USER,
 } = require('./loginLockoutPolicy')
 
 const USER_WIDE_IP = '*'
@@ -30,11 +35,20 @@ async function ensureLoginSecuritySchema(database = db) {
           stage TINYINT NOT NULL DEFAULT 1,
           locked_until DATETIME NULL,
           last_attempt_at DATETIME NOT NULL,
+          window_started_at DATETIME NULL,
           UNIQUE KEY uq_login_attempts_user_ip (username, ip_address),
           KEY idx_login_attempts_locked (locked_until),
           KEY idx_login_attempts_ip (ip_address)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
       `)
+      const [windowColumn] = await database.execute(
+        `SELECT 1 FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'login_attempts'
+           AND COLUMN_NAME = 'window_started_at' LIMIT 1`,
+      )
+      if (!windowColumn.length) {
+        await database.execute('ALTER TABLE login_attempts ADD COLUMN window_started_at DATETIME NULL')
+      }
       await database.execute(`
         CREATE TABLE IF NOT EXISTS security_alerts (
           id INT AUTO_INCREMENT PRIMARY KEY,
@@ -77,9 +91,9 @@ async function ensureLoginSecuritySchema(database = db) {
 
 function attemptScopes(username, ip) {
   return [
-    { username, ip: USER_WIDE_IP },
-    { username: IP_WIDE_USER, ip },
-    { username, ip },
+    { username, ip: USER_WIDE_IP, kind: SCOPE_USER },
+    { username: IP_WIDE_USER, ip, kind: SCOPE_IP },
+    { username, ip, kind: SCOPE_DEVICE },
   ]
 }
 
@@ -93,6 +107,7 @@ function toDate(value) {
 function mapAttemptRow(row) {
   if (!row) return null
   const locked = toDate(row.locked_until)
+  const windowStarted = toDate(row.window_started_at)
   return {
     username: row.username,
     ip: row.ip_address,
@@ -100,6 +115,7 @@ function mapAttemptRow(row) {
     failedCount: Number(row.failed_count) || 0,
     stage: Number(row.stage) || 1,
     lockedUntil: locked ? locked.getTime() : null,
+    windowStartedAt: windowStarted ? windowStarted.getTime() : null,
   }
 }
 
@@ -127,25 +143,37 @@ function createMysqlSecurityStore(database = db) {
     async getAttempt(username, ip) {
       await ensureLoginSecuritySchema(database)
       const [rows] = await database.execute(
-        `SELECT username, ip_address, device_fingerprint, failed_count, stage, locked_until
+        `SELECT username, ip_address, device_fingerprint, failed_count, stage, locked_until,
+                window_started_at
          FROM login_attempts WHERE username = ? AND ip_address = ? LIMIT 1`,
         [username, ip],
       )
       return mapAttemptRow(rows[0])
     },
 
-    async saveAttempt({ username, ip, fingerprint, failedCount, stage, lockedUntil, lastAttemptAt }) {
+    async saveAttempt({
+      username,
+      ip,
+      fingerprint,
+      failedCount,
+      stage,
+      lockedUntil,
+      lastAttemptAt,
+      windowStartedAt,
+    }) {
       await ensureLoginSecuritySchema(database)
       await database.execute(
         `INSERT INTO login_attempts
-           (username, ip_address, device_fingerprint, failed_count, stage, locked_until, last_attempt_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
+           (username, ip_address, device_fingerprint, failed_count, stage, locked_until,
+            last_attempt_at, window_started_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE
            device_fingerprint = VALUES(device_fingerprint),
            failed_count = VALUES(failed_count),
            stage = VALUES(stage),
            locked_until = VALUES(locked_until),
-           last_attempt_at = VALUES(last_attempt_at)`,
+           last_attempt_at = VALUES(last_attempt_at),
+           window_started_at = VALUES(window_started_at)`,
         [
           username,
           ip,
@@ -154,6 +182,7 @@ function createMysqlSecurityStore(database = db) {
           stage,
           lockedUntil ? new Date(lockedUntil) : null,
           new Date(lastAttemptAt),
+          windowStartedAt ? new Date(windowStartedAt) : null,
         ],
       )
     },
@@ -191,6 +220,15 @@ function createMysqlSecurityStore(database = db) {
         ],
       )
       return { ...alert, id: result.insertId, status: 'NEW', createdAt }
+    },
+
+    async hasRecentAlert(username, sinceMs) {
+      await ensureLoginSecuritySchema(database)
+      const [rows] = await database.execute(
+        'SELECT id FROM security_alerts WHERE username = ? AND created_at >= ? LIMIT 1',
+        [username, new Date(sinceMs)],
+      )
+      return rows.length > 0
     },
 
     async listAlerts({ status } = {}) {
@@ -264,9 +302,9 @@ function createMysqlSecurityStore(database = db) {
       await ensureLoginSecuritySchema(database)
       const [result] = await database.execute(
         `DELETE FROM login_attempts
-         WHERE locked_until IS NOT NULL
-           AND locked_until < ?`,
-        [new Date(nowMs)],
+         WHERE (locked_until IS NOT NULL AND locked_until < ?)
+            OR (locked_until IS NULL AND last_attempt_at < ?)`,
+        [new Date(nowMs - LEVEL_RESET_MS), new Date(nowMs - LEVEL_RESET_MS)],
       )
       return result.affectedRows || 0
     },
@@ -298,6 +336,8 @@ function createMemorySecurityStore() {
         failedCount: record.failedCount,
         stage: record.stage,
         lockedUntil: record.lockedUntil,
+        windowStartedAt: record.windowStartedAt ?? null,
+        lastAttemptAt: record.lastAttemptAt ?? null,
       })
     },
 
@@ -315,6 +355,12 @@ function createMemorySecurityStore() {
       nextAlertId += 1
       alerts.push(row)
       return row
+    },
+
+    async hasRecentAlert(username, sinceMs) {
+      return alerts.some(
+        (row) => row.username === username && new Date(row.createdAt).getTime() >= sinceMs,
+      )
     },
 
     async listAlerts({ status } = {}) {
@@ -358,7 +404,10 @@ function createMemorySecurityStore() {
     async cleanupExpired(nowMs) {
       let removed = 0
       for (const [key, row] of attempts) {
-        if (row.lockedUntil && row.lockedUntil < nowMs) {
+        const stale = row.lockedUntil
+          ? row.lockedUntil < nowMs - LEVEL_RESET_MS
+          : (row.lastAttemptAt ?? nowMs) < nowMs - LEVEL_RESET_MS
+        if (stale) {
           attempts.delete(key)
           removed += 1
         }
@@ -471,7 +520,7 @@ async function processLoginAttempt({
 
   const recorded = []
   for (const entry of active) {
-    const next = registerFailure(entry.attempt, now)
+    const next = registerFailure(entry.attempt, now, entry.scope.kind)
     await store.saveAttempt({
       username: entry.scope.username,
       ip: entry.scope.ip,
@@ -480,11 +529,16 @@ async function processLoginAttempt({
       stage: next.attempt.stage,
       lockedUntil: next.attempt.lockedUntil,
       lastAttemptAt: now,
+      windowStartedAt: next.attempt.windowStartedAt,
     })
     recorded.push(next)
   }
 
-  if (recorded.some((entry) => entry.triggeredAlert)) {
+  const alertDue =
+    recorded.some((entry) => entry.triggeredAlert) &&
+    !(await store.hasRecentAlert(username, now - ALERT_COOLDOWN_MS))
+
+  if (alertDue) {
     const agent = parseUserAgent(userAgent)
     let location = 'Unknown'
     try {
