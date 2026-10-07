@@ -1,6 +1,6 @@
 const { resolveStockStatus } = require('./inventorySchema')
-const { roundStock, applyStockChange, addReceivedStock, adjustStockToCount } = require('./stockLedger')
-const { deriveSingular } = require('./menuStockSimple')
+const { roundStock, applyStockChange, addReceivedStock, adjustStockToCount, MAX_STOCK_QUANTITY } = require('./stockLedger')
+const { deriveSingular, tombstoneInventoryRows, loadActiveInventoryNames } = require('./menuStockSimple')
 
 const DEFAULT_CATEGORY = 'Other'
 const DEFAULT_LOW_THRESHOLD = 5
@@ -35,6 +35,9 @@ function parseAmount(value, label) {
   const num = Number(value)
   if (typeof value === 'boolean' || value === null || value === undefined || value === '' || !Number.isFinite(num) || num < 0) {
     throw httpError(400, `${label} must be zero or more`)
+  }
+  if (num > MAX_STOCK_QUANTITY) {
+    throw httpError(400, `${label} cannot be more than ${MAX_STOCK_QUANTITY.toLocaleString('en-US')}`)
   }
   return roundStock(num)
 }
@@ -154,7 +157,7 @@ async function requireIngredient(conn, id, options) {
 
 async function createIngredient(conn, body, userId) {
   const value = parseCreateBody(body)
-  const [names] = await conn.execute('SELECT id, item_name FROM inventory')
+  const names = await loadActiveInventoryNames(conn)
   if (findDuplicateName(value.name, names)) {
     throw httpError(400, 'An item with this name already exists', 'duplicate_name')
   }
@@ -183,7 +186,7 @@ async function updateIngredient(conn, id, body) {
   const row = await requireIngredient(conn, id, { lock: true })
   const changes = parseUpdateBody(body)
   if (changes.name !== undefined) {
-    const [names] = await conn.execute('SELECT id, item_name FROM inventory')
+    const names = await loadActiveInventoryNames(conn)
     if (findDuplicateName(changes.name, names, id)) {
       throw httpError(400, 'An item with this name already exists', 'duplicate_name')
     }
@@ -236,6 +239,7 @@ async function adjustIngredient(conn, id, body, userId) {
 async function removeIngredient(conn, id) {
   const row = await requireIngredient(conn, id, { lock: true })
   await conn.execute('UPDATE inventory SET is_ingredient = 0 WHERE id = ?', [id])
+  await tombstoneInventoryRows(conn, [Number(row.id)])
   return { inventoryId: Number(row.id), itemName: row.item_name }
 }
 

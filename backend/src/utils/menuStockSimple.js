@@ -1,11 +1,13 @@
 const { resolveStockStatus } = require('./inventorySchema')
-const { roundStock, applyStockChange, addReceivedStock, adjustStockToCount } = require('./stockLedger')
+const { roundStock, applyStockChange, addReceivedStock, adjustStockToCount, MAX_STOCK_QUANTITY } = require('./stockLedger')
 
 const DEFAULT_UNIT_LABEL = 'portions'
 const DEFAULT_LOW_THRESHOLD = 5
 const MIN_MAX_STOCK = 50
 const MAX_UNIT_LABEL = 20
 const NAME_SUFFIX = ' (stock)'
+const MAX_INVENTORY_NAME = 100
+const ACTIVE_ROWS_SQL = 'archived_at IS NULL OR is_ingredient = 1'
 
 function httpError(status, message, code = null) {
   const error = new Error(message)
@@ -51,6 +53,26 @@ function uniqueInventoryName(baseName, existingNames) {
   return candidate
 }
 
+function tombstoneName(name, id) {
+  const suffix = ` [removed ${id}]`
+  const base = String(name || '').trim()
+  if (base.endsWith(suffix)) return base
+  return `${base.slice(0, MAX_INVENTORY_NAME - suffix.length)}${suffix}`
+}
+
+async function tombstoneInventoryRows(conn, ids) {
+  for (const id of ids) {
+    const [rows] = await conn.execute('SELECT item_name FROM inventory WHERE id = ? LIMIT 1', [id])
+    if (!rows.length) continue
+    await conn.execute('UPDATE inventory SET item_name = ? WHERE id = ?', [tombstoneName(rows[0].item_name, id), id])
+  }
+}
+
+async function loadActiveInventoryNames(conn) {
+  const [rows] = await conn.execute(`SELECT id, item_name FROM inventory WHERE ${ACTIVE_ROWS_SQL}`)
+  return rows
+}
+
 function parseUnitLabel(value) {
   if (typeof value !== 'string') throw httpError(400, 'Unit must be text')
   const label = value.trim()
@@ -73,6 +95,7 @@ function parseLowThreshold(value) {
   if (typeof value === 'boolean' || value === null || value === '' || !Number.isFinite(num) || num < 0) {
     throw httpError(400, 'Low stock level must be zero or more')
   }
+  if (num > MAX_STOCK_QUANTITY) throw httpError(400, `Low stock level cannot be more than ${MAX_STOCK_QUANTITY.toLocaleString('en-US')}`)
   return roundStock(num)
 }
 
@@ -81,6 +104,7 @@ function parseQuantity(value) {
   if (typeof value === 'boolean' || value === null || value === undefined || value === '' || !Number.isFinite(num) || num < 0) {
     throw httpError(400, 'Quantity must be zero or more')
   }
+  if (num > MAX_STOCK_QUANTITY) throw httpError(400, `Quantity cannot be more than ${MAX_STOCK_QUANTITY.toLocaleString('en-US')}`)
   return roundStock(num)
 }
 
@@ -138,6 +162,7 @@ function resolveRestock(body, row) {
     if (typeof input.packs === 'boolean' || input.packs === '' || !Number.isFinite(packs) || packs <= 0) {
       throw httpError(400, 'Packs must be greater than zero')
     }
+    if (packs > MAX_STOCK_QUANTITY) throw httpError(400, `Packs cannot be more than ${MAX_STOCK_QUANTITY.toLocaleString('en-US')}`)
     const size = Number(row?.pack_size)
     if (!Number.isInteger(size) || size < 2) {
       throw httpError(400, 'Set a pack size for this item first', 'no_pack_size')
@@ -253,7 +278,7 @@ async function trackMenuItem(conn, menuItemId, body, userId) {
   if (existing.has(Number(menuItemId))) throw httpError(409, 'This item already has a stock count', 'already_tracked')
 
   const value = parseTrackBody(body)
-  const [names] = await conn.execute('SELECT item_name FROM inventory')
+  const names = await loadActiveInventoryNames(conn)
   const itemName = uniqueInventoryName(menu.name, names.map((row) => row.item_name))
   const status = resolveStockStatus(0, value.low_threshold, null)
   const [result] = await conn.execute(
@@ -343,7 +368,19 @@ async function untrackMenuItem(conn, menuItemId) {
     [menuItemId, tracked.id],
   )
   await conn.execute('UPDATE inventory SET archived_at = NOW() WHERE id = ? AND archived_at IS NULL', [tracked.id])
+  await tombstoneInventoryRows(conn, [Number(tracked.id)])
   return { inventoryId: Number(tracked.id), itemName: tracked.item_name }
+}
+
+async function syncTrackedStockName(conn, menuItemId, menuName) {
+  const tracked = (await loadTrackedRows(conn, menuItemId, { lock: true })).get(Number(menuItemId))
+  if (!tracked) return null
+  const names = (await loadActiveInventoryNames(conn)).filter((row) => Number(row.id) !== Number(tracked.id))
+  const itemName = uniqueInventoryName(menuName, names.map((row) => row.item_name)).slice(0, MAX_INVENTORY_NAME)
+  if (itemName !== tracked.item_name) {
+    await conn.execute('UPDATE inventory SET item_name = ? WHERE id = ?', [itemName, tracked.id])
+  }
+  return itemName
 }
 
 async function archiveInventoryOnlyLinkedTo(conn, menuItemId) {
@@ -364,6 +401,7 @@ async function archiveInventoryOnlyLinkedTo(conn, menuItemId) {
     `UPDATE inventory SET archived_at = NOW() WHERE archived_at IS NULL AND id IN (${ids.map(() => '?').join(', ')})`,
     ids,
   )
+  await tombstoneInventoryRows(conn, ids)
   return Number(result.affectedRows)
 }
 
@@ -400,6 +438,9 @@ module.exports = {
   rowsToArchive,
   deriveSingular,
   uniqueInventoryName,
+  tombstoneName,
+  tombstoneInventoryRows,
+  loadActiveInventoryNames,
   parseTrackBody,
   parseSettingsBody,
   resolveRestock,
@@ -411,6 +452,7 @@ module.exports = {
   restockMenuItem,
   updateMenuStockSettings,
   untrackMenuItem,
+  syncTrackedStockName,
   archiveInventoryOnlyLinkedTo,
   archiveNonDirectInventory,
 }

@@ -1,6 +1,8 @@
 const { resolveStockStatus } = require('./inventorySchema')
 const { clearAlertsCache } = require('./alertEngine')
 
+const MAX_STOCK_QUANTITY = 1000000
+
 const ADJUST_REASONS = {
   waste: 'waste',
   correction: 'adjustment',
@@ -59,6 +61,9 @@ async function applyStockChange(conn, { inventoryId, change, reason, orderId = n
   if (amount == null || amount === 0) {
     throw httpError(400, 'Stock change must be a non-zero number')
   }
+  if (Math.abs(amount) > MAX_STOCK_QUANTITY) {
+    throw httpError(400, `Quantity cannot be more than ${MAX_STOCK_QUANTITY.toLocaleString('en-US')}`)
+  }
 
   const [rows] = await conn.execute(
     `SELECT stock_quantity, low_threshold, critical_threshold, item_name, unit_label
@@ -69,6 +74,9 @@ async function applyStockChange(conn, { inventoryId, change, reason, orderId = n
 
   const current = Number(rows[0].stock_quantity)
   const next = roundStock(current + amount)
+  if (amount > 0 && next > MAX_STOCK_QUANTITY) {
+    throw httpError(400, `Stock cannot be more than ${MAX_STOCK_QUANTITY.toLocaleString('en-US')}`)
+  }
   const critical = rows[0].critical_threshold != null ? Number(rows[0].critical_threshold) : null
   const status = resolveStockStatus(next, Number(rows[0].low_threshold ?? 0), critical)
 
@@ -235,6 +243,7 @@ async function withTransaction(pool, work, { locks = [] } = {}) {
 }
 
 module.exports = {
+  MAX_STOCK_QUANTITY,
   ADJUST_REASONS,
   roundStock,
   planStockDeltas,
