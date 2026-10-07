@@ -4,7 +4,11 @@ const { env } = require('../config/env')
 const { isAdminRole } = require('../constants/permissions')
 const { BCRYPT_COST } = require('./loginAuth')
 
+const { registerSchemaReset } = require('./schemaReset')
 let emailColumnReady = null
+registerSchemaReset(() => {
+  emailColumnReady = null
+})
 const TEMP_PASSWORD_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'
 
 async function ensureUsersEmailColumn(db) {

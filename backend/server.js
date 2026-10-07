@@ -63,7 +63,7 @@ const { createSalesPdf } = require('./src/utils/salesPdf');
 const { createReportExport } = require('./src/utils/reportExport');
 const { refundDateSql, refundedStatusSql, saleStatusSql } = require('./src/utils/salesTotals');
 const { createDownloadDump, pipeDownload, restoreDatabaseFromFile } = require('./src/utils/backupSql');
-const { ensureApplicationSchema } = require('./src/utils/ensureAppSchema');
+const { ensureApplicationSchema, refreshApplicationSchemaAfterRestore } = require('./src/utils/ensureAppSchema');
 const { applyStocktake, stocktakeNote, buildStocktakeWorkbook } = require('./src/utils/stocktake');
 const { isUnderMaintenance, maintenanceMessage } = require('./src/utils/maintenance');
 const { parseBackupPeriod, buildBackupFilename } = require('./src/utils/backupPeriod');
@@ -2835,7 +2835,7 @@ app.post('/api/system/backup/restore', sensitiveOperationLimiter, requireAdmin, 
                 return res.status(400).json({ message: 'Only a .sql backup from this system can be restored' });
             }
             const result = await restoreDatabaseFromFile(db, uploadedPath, {
-                afterRestore: () => ensureApplicationSchema(db),
+                afterRestore: () => refreshApplicationSchemaAfterRestore(db),
             });
             await auditFromRequest(db, req, {
                 action: 'restore_sql_backup',

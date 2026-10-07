@@ -35,7 +35,11 @@ const LEGACY_CATEGORY_NAMES = {
 // Receipt photos are stored as <name>-<time>-<random>.webp by saveMenuImage.
 const RECEIPT_FILE_PATTERN = /^[a-zA-Z0-9_-]{1,80}\.(webp|jpe?g|png|gif|avif)$/
 
+const { registerSchemaReset } = require('./schemaReset')
 let schemaReadyPromise = null
+registerSchemaReset(() => {
+  schemaReadyPromise = null
+})
 
 function badRequest(message, field) {
   return Object.assign(new Error(message), { status: 400, field })

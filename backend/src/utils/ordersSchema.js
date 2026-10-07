@@ -1,4 +1,11 @@
+const { registerSchemaReset } = require('./schemaReset')
+const { ensureAppSettingsSchema } = require('./appSettings')
+
+const SALE_DATE_REPAIR_FLAG = 'orders_sale_date_repair_done'
 let schemaReadyPromise = null
+registerSchemaReset(() => {
+  schemaReadyPromise = null
+})
 
 async function getUpdatedAtColumn(db) {
   const [rows] = await db.execute(
@@ -86,17 +93,13 @@ async function ensureOrdersSchema(db) {
         await db.execute('ALTER TABLE orders ADD COLUMN staff_name VARCHAR(120) NULL AFTER staff_id')
       }
 
-      const [result] = await db.execute(
-        `
-        UPDATE orders
-        SET updated_at = created_at
-        WHERE created_at IS NOT NULL
-          AND updated_at IS NOT NULL
-          AND updated_at > DATE_ADD(created_at, INTERVAL 1 DAY)
-        `,
+      await ensureAppSettingsSchema(db)
+      await db.execute(
+        "INSERT IGNORE INTO app_settings (setting_key, setting_value) VALUES (?, '1')",
+        [SALE_DATE_REPAIR_FLAG],
       )
 
-      return Number(result.affectedRows || 0)
+      return 0
     })().catch((error) => {
       schemaReadyPromise = null
       throw error
@@ -107,6 +110,7 @@ async function ensureOrdersSchema(db) {
 }
 
 module.exports = {
+  SALE_DATE_REPAIR_FLAG,
   ensureOrdersSchema,
   columnExists,
 }

@@ -1,4 +1,8 @@
+const { registerSchemaReset } = require('./schemaReset')
 let schemaReadyPromise = null
+registerSchemaReset(() => {
+  schemaReadyPromise = null
+})
 
 async function ensureAdminNotificationsSchema(db) {
   if (!schemaReadyPromise) {

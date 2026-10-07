@@ -3,7 +3,11 @@ const { columnExists } = require('./ordersSchema')
 const { summarizeCashOrders, computeCashDifference } = require('./cashDrawer')
 const { ensureExpensesSchema } = require('./expenses')
 
+const { registerSchemaReset } = require('./schemaReset')
 let shiftsSchemaReady = null
+registerSchemaReset(() => {
+  shiftsSchemaReady = null
+})
 
 async function ensureShiftsSchema(db) {
   if (!shiftsSchemaReady) {
