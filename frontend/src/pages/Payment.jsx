@@ -209,6 +209,7 @@ function BillManager({
           </p>
         ) : null}
         <PaymentModule
+          key={bill.id}
           disabled={bill.items.length === 0 || !serverReachable}
           billTotal={total}
           onConfirm={(method, options) => onPaymentComplete(method, options)}
