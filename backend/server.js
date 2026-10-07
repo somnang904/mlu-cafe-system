@@ -2703,7 +2703,7 @@ function rejectIfMaintenance(res) {
     return true;
 }
 
-app.get('/api/system/backup/excel', sensitiveOperationLimiter, requireBackupDownloadAccess, async (req, res) => {
+app.get('/api/system/backup/excel', requireBackupDownloadAccess, sensitiveOperationLimiter, async (req, res) => {
     const filePath = path.join(os.tmpdir(), `mlu-excel-${Date.now()}.xlsx`);
     let periodLabel = 'All Time';
     try {
@@ -2736,7 +2736,7 @@ app.get('/api/system/backup/excel', sensitiveOperationLimiter, requireBackupDown
     }
 });
 
-app.get('/api/system/backup/sales-pdf', sensitiveOperationLimiter, requireBackupDownloadAccess, async (req, res) => {
+app.get('/api/system/backup/sales-pdf', requireBackupDownloadAccess, sensitiveOperationLimiter, async (req, res) => {
     let periodLabel = 'All Time';
     try {
         const { buffer, filename, periodLabel: label } = await createSalesPdf(db, req.query, req.user);
@@ -2762,13 +2762,14 @@ app.get('/api/system/backup/sales-pdf', sensitiveOperationLimiter, requireBackup
     }
 });
 
-app.get('/api/system/backup/sql', sensitiveOperationLimiter, requireBackupDownloadAccess, async (req, res) => {
+app.get('/api/system/backup/sql', requireBackupDownloadAccess, sensitiveOperationLimiter, async (req, res) => {
     try {
-        const { filePath, filename } = await createDownloadDump(db);
+        const businessOnly = !isAdminRole(req.user?.role);
+        const { filePath, filename } = await createDownloadDump(db, { excludeSensitive: businessOnly });
         await auditFromRequest(db, req, {
             action: 'export_sql_backup',
             module: 'Backup',
-            description: `SQL backup period=All Time result=ok file=${filename}`,
+            description: `SQL backup period=All Time scope=${businessOnly ? 'business' : 'full'} result=ok file=${filename}`,
         });
         pipeDownload(res, filePath, filename, 'application/sql; charset=utf-8');
     } catch (error) {
@@ -2781,7 +2782,7 @@ app.get('/api/system/backup/sql', sensitiveOperationLimiter, requireBackupDownlo
     }
 });
 
-app.post('/api/system/backup/restore', sensitiveOperationLimiter, requireAdmin, (req, res) => {
+app.post('/api/system/backup/restore', requireAdmin, sensitiveOperationLimiter, (req, res) => {
     sqlUpload.single('sqlFile')(req, res, async (uploadError) => {
         if (uploadError) {
             const tooLarge = uploadError.code === 'LIMIT_FILE_SIZE';
@@ -2865,7 +2866,7 @@ app.get('/api/expenses/overview', requireExpenseAccess, async (req, res) => {
     }
 });
 
-app.get('/api/expenses/export/:kind', sensitiveOperationLimiter, requireExpenseAccess, async (req, res) => {
+app.get('/api/expenses/export/:kind', requireExpenseAccess, sensitiveOperationLimiter, async (req, res) => {
     const kind = req.params.kind === 'excel' ? 'xlsx' : req.params.kind;
     if (kind !== 'pdf' && kind !== 'xlsx') {
         return res.status(400).json({ message: 'Invalid export type.' });
@@ -3142,7 +3143,7 @@ app.get('/api/tables', requireReservationsAccess, async (_req, res) => {
     }
 })
 
-app.post('/api/tables', requireReservationsAccess, async (req, res) => {
+app.post('/api/tables', requireAdmin, async (req, res) => {
     try {
         const rawName = String(req.body?.name || '').trim();
         const section = String(req.body?.section || 'standard').trim().toLowerCase() === 'vip' ? 'vip' : 'standard';
@@ -3481,7 +3482,7 @@ app.post('/api/tables/:id/clear', requirePosFloorAccess, async (req, res) => {
     }
 });
 
-app.delete('/api/tables/:id', requireReservationsAccess, async (req, res) => {
+app.delete('/api/tables/:id', requireAdmin, async (req, res) => {
     const tableId = Number.parseInt(req.params.id, 10);
     if (!Number.isInteger(tableId) || tableId <= 0) {
         return res.status(400).json({ message: 'Invalid table ID' });
@@ -3537,7 +3538,7 @@ app.get('/api/reports', requireReportsAccess, async (req, res) => {
     }
 })
 
-app.get('/api/reports/export/:kind', sensitiveOperationLimiter, requireReportsAccess, async (req, res) => {
+app.get('/api/reports/export/:kind', requireReportsAccess, sensitiveOperationLimiter, async (req, res) => {
     const kind = req.params.kind === 'excel' ? 'xlsx' : req.params.kind
     if (kind !== 'pdf' && kind !== 'xlsx') {
         return res.status(400).json({ message: 'Invalid export type.' })
