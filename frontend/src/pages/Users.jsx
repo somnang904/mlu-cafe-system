@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   AtSign,
+  CheckCircle2,
+  CircleX,
   Eye,
   EyeOff,
   KeyRound,
+  ListFilter,
   Lock,
+  Search,
   ShieldCheck,
   SquarePen,
   Trash2,
@@ -18,6 +22,7 @@ import { useTranslation } from 'react-i18next'
 import { apiFetch } from '../services/apiClient'
 import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal'
 import FieldLabel from '../components/ui/FieldLabel'
+import IconSelect from '../components/ui/IconSelect'
 import ModalHeader from '../components/ui/ModalHeader'
 import PaginationBar from '../components/ui/PaginationBar'
 import Tooltip from '../components/ui/Tooltip'
@@ -415,6 +420,8 @@ export default function Users() {
   const { user: currentUser, adoptSession } = useAuth()
   const [users, setUsers] = useState([])
   const [usersPage, setUsersPage] = useState(0)
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
   const [modalMode, setModalMode] = useState(null)
   const [selectedUser, setSelectedUser] = useState(null)
   const [userToDelete, setUserToDelete] = useState(null)
@@ -508,9 +515,26 @@ export default function Users() {
     }
   }
 
-  const usersPageCount = Math.max(1, Math.ceil(users.length / USERS_PAGE_SIZE))
+  const filteredUsers = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    return users.filter((account) => {
+      const isActive = account.is_active !== false
+      if (statusFilter === 'active' && !isActive) return false
+      if (statusFilter === 'disabled' && isActive) return false
+      if (!query) return true
+      return `${account.display_name} ${account.username}`.toLowerCase().includes(query)
+    })
+  }, [users, search, statusFilter])
+
+  const statusFilterOptions = [
+    { value: 'all', label: t('users.allStatuses'), icon: ListFilter },
+    { value: 'active', label: t('users.statusActive'), icon: CheckCircle2 },
+    { value: 'disabled', label: t('users.statusDisabled'), icon: CircleX },
+  ]
+
+  const usersPageCount = Math.max(1, Math.ceil(filteredUsers.length / USERS_PAGE_SIZE))
   const activeUsersPage = Math.min(usersPage, usersPageCount - 1)
-  const pagedUsers = users.slice(activeUsersPage * USERS_PAGE_SIZE, (activeUsersPage + 1) * USERS_PAGE_SIZE)
+  const pagedUsers = filteredUsers.slice(activeUsersPage * USERS_PAGE_SIZE, (activeUsersPage + 1) * USERS_PAGE_SIZE)
 
   const adminCount = users.filter((account) => isAdminRole(account.role)).length
 
@@ -553,6 +577,32 @@ export default function Users() {
       )}
 
       <div className="table-shell overflow-hidden">
+        <div className="flex flex-col gap-3 border-b border-border/60 px-6 py-4 sm:flex-row sm:items-center">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-slate-500 dark:text-zinc-400" aria-hidden />
+            <input
+              value={search}
+              onChange={(event) => {
+                setSearch(event.target.value)
+                setUsersPage(0)
+              }}
+              placeholder={t('users.searchPlaceholder')}
+              aria-label={t('users.searchPlaceholder')}
+              className="input-field w-full min-w-0 py-2 pl-10 pr-3 text-sm"
+            />
+          </div>
+          <div className="w-full shrink-0 sm:w-52">
+            <IconSelect
+              value={statusFilter}
+              options={statusFilterOptions}
+              onChange={(value) => {
+                setStatusFilter(value)
+                setUsersPage(0)
+              }}
+              className="w-full px-3 py-2 text-sm"
+            />
+          </div>
+        </div>
         <div className="overflow-x-auto lg:min-h-[53rem]">
           <table className="w-full min-w-[640px] text-left text-sm">
             <thead>
@@ -565,6 +615,13 @@ export default function Users() {
               </tr>
             </thead>
             <tbody className="table-divider">
+              {filteredUsers.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="h-72 px-6 text-center text-sm text-muted-foreground">
+                    {t('users.noMatches')}
+                  </td>
+                </tr>
+              ) : null}
               {pagedUsers.map((user) => (
                 <tr
                   key={user.id}
@@ -641,9 +698,9 @@ export default function Users() {
         <div className="flex flex-col gap-3 border-t border-border/60 px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-muted shrink-0 text-xs tabular-nums">
             {t('users.showingRange', {
-              from: localizeDigits(users.length === 0 ? 0 : activeUsersPage * USERS_PAGE_SIZE + 1),
-              to: localizeDigits(Math.min((activeUsersPage + 1) * USERS_PAGE_SIZE, users.length)),
-              total: localizeDigits(users.length),
+              from: localizeDigits(filteredUsers.length === 0 ? 0 : activeUsersPage * USERS_PAGE_SIZE + 1),
+              to: localizeDigits(Math.min((activeUsersPage + 1) * USERS_PAGE_SIZE, filteredUsers.length)),
+              total: localizeDigits(filteredUsers.length),
             })}
           </p>
           <PaginationBar
