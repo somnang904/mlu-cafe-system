@@ -12,6 +12,8 @@ frontend/node_modules/
 menu-photos/*
 !menu-photos/README.txt
 backend/uploads/
+# Expense receipt photos (financial records, served only to signed-in users)
+backend/private-uploads/
 
 # Database dumps contain customer data and password hashes; never commit them.
 /*.sql

@@ -170,7 +170,7 @@ export default function IconSelect({ id, value, options, onChange, placeholder, 
                 bottom: position.bottom,
                 maxHeight: position.maxHeight,
               }}
-              className="icon-select-list z-[90] overflow-y-auto rounded-xl bg-slate-900 p-1.5 text-sm text-white shadow-2xl ring-1 ring-black/5 dark:bg-zinc-100 dark:text-zinc-900"
+              className="icon-select-list z-[130] overflow-y-auto rounded-xl bg-slate-900 p-1.5 text-sm text-white shadow-2xl ring-1 ring-black/5 dark:bg-zinc-100 dark:text-zinc-900"
             >
               {options.map((option, index) => {
                 if (option.header) {

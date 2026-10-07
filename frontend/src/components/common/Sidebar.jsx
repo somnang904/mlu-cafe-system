@@ -26,7 +26,7 @@ import {
   LogOut,
   X,
   Package,
-  ClipboardList,
+  Carrot,
   Wallet,
 } from 'lucide-react'
 
@@ -47,12 +47,13 @@ const sidebarNavigation = [
     icon: Layers,
     children: [
       { id: 'inventory', labelKey: 'nav.stockItems', icon: Package, roles: WORK_ROLES },
-      { id: 'inventory_stocktake', labelKey: 'nav.stocktake', icon: ClipboardList, roles: WORK_ROLES },
-      { id: 'inventory_expenses', labelKey: 'nav.expenses', icon: Wallet, roles: WORK_ROLES },
+      { id: 'inventory_ingredients', labelKey: 'nav.ingredients', icon: Carrot, roles: WORK_ROLES },
     ],
   },
   { id: 'menu', labelKey: 'nav.menuManagement', icon: UtensilsCrossed, roles: WORK_ROLES },
   { id: 'reports_analysis', labelKey: 'nav.reports', icon: FileBarChart, roles: WORK_ROLES },
+  // Expenses has its own page (it used to sit under Stock); route id kept so saved views and permissions still work.
+  { id: 'inventory_expenses', labelKey: 'nav.expenses', icon: Wallet, roles: WORK_ROLES },
   { id: 'users', labelKey: 'nav.users', icon: Users, roles: ['admin'], adminOnly: true },
   {
     id: 'settings_group',

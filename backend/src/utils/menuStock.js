@@ -42,7 +42,8 @@ async function loadMenuStock(db) {
   const [links] = await db.execute(
     `SELECT l.menu_item_id, l.quantity_per_unit, i.stock_quantity, i.stock_status
      FROM menu_item_stock_links l
-     JOIN inventory i ON i.id = l.inventory_id`,
+     JOIN inventory i ON i.id = l.inventory_id
+     WHERE i.archived_at IS NULL`,
   )
   return summarizeMenuStock(links)
 }

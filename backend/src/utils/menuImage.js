@@ -25,11 +25,11 @@ function uniqueSuffix() {
 }
 
 /**
- * Write an uploaded image buffer into `dir`, downscaled to MAX_SIDE and re-encoded
+ * Write an uploaded image buffer into `dir`, downscaled to `maxSide` (default MAX_SIDE) and re-encoded
  * as WebP with metadata (EXIF/GPS) stripped. Returns the stored file name.
  * Throws an error with `status = 400` when the buffer is not a decodable image.
  */
-async function saveMenuImage(buffer, originalName, dir) {
+async function saveMenuImage(buffer, originalName, dir, { maxSide = MAX_SIDE } = {}) {
   const base = `${safeBaseName(originalName)}-${uniqueSuffix()}`
 
   if (!sharp) {
@@ -50,7 +50,7 @@ async function saveMenuImage(buffer, originalName, dir) {
   try {
     await sharp(buffer, { failOn: 'error' })
       .rotate() // apply EXIF orientation before metadata is dropped
-      .resize({ width: MAX_SIDE, height: MAX_SIDE, fit: 'inside', withoutEnlargement: true })
+      .resize({ width: maxSide, height: maxSide, fit: 'inside', withoutEnlargement: true })
       .webp({ quality: WEBP_QUALITY })
       .toFile(path.join(dir, filename))
   } catch (error) {

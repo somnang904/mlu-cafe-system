@@ -34,6 +34,7 @@ test('stocktake writes one movement per changed count and leaves blanks alone', 
        FOR UPDATE`,
     )
     assert.equal(picked.length, 4)
+    await conn.execute(`UPDATE inventory SET archived_at = NULL WHERE id IN (${picked.map(() => '?').join(',')})`, picked.map((row) => row.id))
     const byName = new Map(picked.map((row) => [row.item_name, row]))
     const garlic = byName.get('Fresh Garlic')
     const eggs = byName.get('Chicken Eggs')

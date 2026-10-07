@@ -78,7 +78,8 @@ async function resolveTableForeignKey(db, tableRef) {
   return null
 }
 
-async function createPendingOrder(db, target, explicitTableId = undefined) {
+/** `staff` is the signed-in user who took the order (req.user), stored for Reports → Staff. */
+async function createPendingOrder(db, target, explicitTableId = undefined, staff = null) {
   let tableId = null
 
   if (target.sourceType !== 'Take Out') {
@@ -87,9 +88,15 @@ async function createPendingOrder(db, target, explicitTableId = undefined) {
   }
 
   const [result] = await db.execute(
-    `INSERT INTO orders (target_id, table_id, source_type, payment_type, status, total_amount)
-     VALUES (?, ?, ?, 'Cash', 'Pending', 0)`,
-    [target.targetId, tableId, target.sourceType],
+    `INSERT INTO orders (target_id, table_id, source_type, payment_type, status, total_amount, staff_id, staff_name)
+     VALUES (?, ?, ?, 'Cash', 'Pending', 0, ?, ?)`,
+    [
+      target.targetId,
+      tableId,
+      target.sourceType,
+      staff?.id ?? null,
+      String(staff?.display_name || staff?.username || '').slice(0, 120) || null,
+    ],
   )
   return result.insertId
 }

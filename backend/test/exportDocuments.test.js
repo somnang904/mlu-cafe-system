@@ -125,3 +125,84 @@ test('sales PDF lists refunds made in the month', async () => {
   })
   assert.equal(buffer.subarray(0, 5).toString(), '%PDF-')
 })
+
+test('report period takes from/to before month and labels whole months by name', () => {
+  const { parseReportPeriod } = require('../src/utils/exportParams')
+  const range = parseReportPeriod({ from: '2026-10-01', to: '2026-10-06', month: '2026-09' })
+  assert.equal(range.scope, 'range')
+  assert.equal(range.startDate, '2026-10-01')
+  assert.equal(range.endDate, '2026-10-07')
+  assert.equal(range.label, '1 Oct 2026 - 6 Oct 2026')
+  assert.equal(parseReportPeriod({ from: '2026-09-01', to: '2026-09-30' }).label, 'September 2026')
+  assert.equal(parseReportPeriod({ month: '2026-09' }).scope, 'month')
+  assert.throws(() => parseReportPeriod({ from: '2026-10-06', to: '2026-10-01' }), /on or before/)
+  assert.throws(() => parseReportPeriod({ from: '2026-02-30', to: '2026-03-01' }), /Invalid date range/)
+  assert.throws(() => parseReportPeriod({ from: '2020-01-01', to: '2026-01-01' }), /two years/)
+})
+
+test('previous period: same days last month from the 1st, otherwise the days just before', () => {
+  const { parseReportPeriod, previousPeriod } = require('../src/utils/exportParams')
+  const prev = (from, to) => {
+    const period = previousPeriod(parseReportPeriod({ from, to }))
+    return [period.startDate, period.endDate]
+  }
+  // This month so far → same days last month.
+  assert.deepEqual(prev('2026-10-01', '2026-10-06'), ['2026-09-01', '2026-09-07'])
+  // A whole month → the whole previous month (31 → 30 days, and across a year).
+  assert.deepEqual(prev('2026-10-01', '2026-10-31'), ['2026-09-01', '2026-10-01'])
+  assert.deepEqual(prev('2026-01-01', '2026-01-31'), ['2025-12-01', '2026-01-01'])
+  // 31st clamps to a shorter month.
+  assert.deepEqual(prev('2026-03-01', '2026-03-30'), ['2026-02-01', '2026-03-01'])
+  // Last 7 days → the 7 days before.
+  assert.deepEqual(prev('2026-09-30', '2026-10-06'), ['2026-09-23', '2026-09-30'])
+  assert.deepEqual(previousPeriod(parseReportPeriod({ month: '2026-09' })).label, 'August 2026')
+  assert.equal(previousPeriod({ scope: 'all' }), null)
+})
+
+test('report with compare adds previous and change columns', async () => {
+  const data = {
+    period: { scope: 'range', label: 'October 2026' },
+    summary: { revenue: 120, refunds: 0, net: 120, expenses: 30, profit: 90, orders: 6, refundOrders: 0 },
+    previous: {
+      period: { label: 'September 2026' },
+      summary: { revenue: 100, refunds: 0, net: 100, expenses: 0, profit: 100, orders: 5, refundOrders: 0 },
+    },
+    breakdown: [],
+    breakdownLabel: 'Daily breakdown',
+    spending: [],
+  }
+  const buffer = await buildReportWorkbook(data, ['income', 'expenses'])
+  const workbook = new ExcelJS.Workbook()
+  await workbook.xlsx.load(buffer)
+  const sheet = workbook.getWorksheet('Summary')
+  assert.deepEqual(sheet.getRow(1).values.slice(1), ['Metric', 'October 2026', 'Previous (September 2026)', 'Change'])
+  assert.deepEqual(sheet.getRow(2).values.slice(1), ['Sales', 120, 100, '+20.0%'])
+  // No base to compare with.
+  assert.equal(sheet.getRow(5).getCell(4).value, 'n/a')
+  const pdf = await buildReportPdfBuffer(data, ['income', 'expenses'], 'admin')
+  assert.equal(pdf.subarray(0, 5).toString(), '%PDF-')
+})
+
+test('report "all" covers all time: no date filter, months from the first sale or expense', async () => {
+  const { loadReportData } = require('../src/utils/reportExport')
+  const calls = []
+  const db = {
+    async execute(sql, params = []) {
+      calls.push({ sql, params })
+      if (/FROM orders/.test(sql)) {
+        return [/updated_at, '%Y-%m'/.test(sql) ? [{ bucket: '2023-02', orders: 1, amount: 10 }] : []]
+      }
+      // Expenses: schema checks, category links, repeats and the list itself.
+      if (/information_schema\.COLUMNS/.test(sql)) return [[{ 1: 1 }]]
+      if (/SELECT DISTINCT category/.test(sql) || /WHERE is_recurring = 1 AND recurring_parent_id IS NULL/.test(sql)) return [[]]
+      if (/FROM expenses e/.test(sql)) return [[]]
+      return [{}]
+    },
+  }
+  const data = await loadReportData(db, parseReportMonth('all'))
+  const orderQueries = calls.filter((call) => /FROM orders/.test(call.sql))
+  assert.ok(orderQueries.every((call) => /1 = 1/.test(call.sql) && call.params.length === 0))
+  assert.equal(data.breakdown[0].label, 'February 2023')
+  assert.equal(data.summary.revenue, 10)
+  assert.equal(parseReportMonth('all').label, 'All time')
+})

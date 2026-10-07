@@ -78,6 +78,14 @@ async function ensureOrdersSchema(db) {
         await db.execute('ALTER TABLE orders ADD COLUMN voided_at TIMESTAMP NULL AFTER voided_by')
       }
 
+      // Who took the order (Reports → Staff). Orders placed before this column existed stay NULL.
+      if (!(await columnExists(db, 'orders', 'staff_id'))) {
+        await db.execute('ALTER TABLE orders ADD COLUMN staff_id INT NULL AFTER voided_at')
+      }
+      if (!(await columnExists(db, 'orders', 'staff_name'))) {
+        await db.execute('ALTER TABLE orders ADD COLUMN staff_name VARCHAR(120) NULL AFTER staff_id')
+      }
+
       const [result] = await db.execute(
         `
         UPDATE orders

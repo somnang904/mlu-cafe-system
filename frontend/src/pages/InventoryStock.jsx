@@ -35,7 +35,6 @@ import Modal from '../components/common/Modal'
 import StocktakeModal from '../components/inventory/StocktakeModal'
 import { groupCategories } from '../components/inventory/CategoryChips'
 import { CategoryFilter, StatusTabs } from '../components/inventory/StockFilters'
-import ExpenseLogModal from '../components/finance/ExpenseLogModal'
 import StatusBadge from '../components/common/StatusBadge'
 import FieldLabel from '../components/ui/FieldLabel'
 import IconSelect from '../components/ui/IconSelect'
@@ -1261,9 +1260,8 @@ export default function InventoryStock({ view = 'items', onNavigate }) {
   const [linkItem, setLinkItem] = useState(null)
   const [linkPick, setLinkPick] = useState(null)
   const [itemForm, setItemForm] = useState(null)
-  // Stocktake and Expenses are sidebar entries; their modals sit over the item list.
+  // Stocktake is a sidebar entry; its modal sits over the item list.
   const stocktakeOpen = view === 'stocktake'
-  const expenseOpen = view === 'expenses'
   const backToItems = () => onNavigate?.('inventory')
 
   const fetchInventory = useCallback(async () => {
@@ -1441,9 +1439,6 @@ export default function InventoryStock({ view = 'items', onNavigate }) {
           onClose={backToItems}
           onApplied={fetchInventory}
         />
-      ) : null}
-      {expenseOpen && canManageItems ? (
-        <ExpenseLogModal onClose={backToItems} />
       ) : null}
       {restockItem && (
         <RestockModal
