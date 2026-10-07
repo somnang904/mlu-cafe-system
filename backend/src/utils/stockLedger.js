@@ -98,10 +98,12 @@ async function loadDirectLinks(conn, menuIds) {
   if (!menuIds.length) return []
   const placeholders = menuIds.map(() => '?').join(', ')
   const [rows] = await conn.execute(
-    `SELECT menu_item_id, inventory_id, quantity_per_unit
-     FROM menu_item_stock_links
-     WHERE variant = '' AND option_key = '' AND option_value = ''
-       AND menu_item_id IN (${placeholders})`,
+    `SELECT l.menu_item_id, l.inventory_id, l.quantity_per_unit
+     FROM menu_item_stock_links l
+     JOIN inventory i ON i.id = l.inventory_id
+     WHERE l.variant = '' AND l.option_key = '' AND l.option_value = ''
+       AND i.archived_at IS NULL
+       AND l.menu_item_id IN (${placeholders})`,
     menuIds,
   )
   return rows

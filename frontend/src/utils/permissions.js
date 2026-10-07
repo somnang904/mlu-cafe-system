@@ -43,6 +43,7 @@ export const VIEW_PERMISSION_MAP = {
   sales_history: 'sales_history',
   inventory: 'inventory_stock',
   inventory_stocktake: 'inventory_stock',
+  inventory_ingredients: 'inventory_stock',
   // Stock users log expenses; Reports users also see, edit and delete them (same as the API).
   inventory_expenses: ['inventory_stock', 'reports'],
   reports_analysis: 'reports',

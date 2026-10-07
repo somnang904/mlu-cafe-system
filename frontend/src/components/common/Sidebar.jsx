@@ -26,7 +26,7 @@ import {
   LogOut,
   X,
   Package,
-  ClipboardList,
+  Carrot,
   Wallet,
 } from 'lucide-react'
 
@@ -47,7 +47,7 @@ const sidebarNavigation = [
     icon: Layers,
     children: [
       { id: 'inventory', labelKey: 'nav.stockItems', icon: Package, roles: WORK_ROLES },
-      { id: 'inventory_stocktake', labelKey: 'nav.stocktake', icon: ClipboardList, roles: WORK_ROLES },
+      { id: 'inventory_ingredients', labelKey: 'nav.ingredients', icon: Carrot, roles: WORK_ROLES },
     ],
   },
   { id: 'menu', labelKey: 'nav.menuManagement', icon: UtensilsCrossed, roles: WORK_ROLES },

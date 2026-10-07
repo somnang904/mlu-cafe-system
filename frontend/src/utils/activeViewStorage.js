@@ -13,6 +13,7 @@ export const VALID_VIEWS = new Set([
   'sales_history',
   'inventory',
   'inventory_stocktake',
+  'inventory_ingredients',
   'inventory_expenses',
   'reports_analysis',
   'backup_recovery',

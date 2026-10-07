@@ -97,6 +97,24 @@ const {
 const { planSplitCheckout } = require('./src/utils/splitCheckout');
 const { loadMenuStock } = require('./src/utils/menuStock');
 const {
+    listMenuStock,
+    loadMenuStockItem,
+    trackMenuItem,
+    restockMenuItem,
+    updateMenuStockSettings,
+    untrackMenuItem,
+    archiveInventoryOnlyLinkedTo,
+} = require('./src/utils/menuStockSimple');
+const {
+    listIngredients,
+    loadIngredient,
+    serializeIngredient,
+    createIngredient,
+    updateIngredient,
+    adjustIngredient,
+    removeIngredient,
+} = require('./src/utils/ingredients');
+const {
     assertRefundable,
     createApprovalLimiter,
     resolveRefundApprover,
@@ -1096,6 +1114,7 @@ app.delete('/api/menu/:id', requirePermission('menu'), async (req, res) => {
         }
 
         const { removedStockLinks, affectedRows } = await withTransaction(db, async (conn) => {
+            await archiveInventoryOnlyLinkedTo(conn, itemId);
             const [linkResult] = await conn.execute('DELETE FROM menu_item_stock_links WHERE menu_item_id = ?', [itemId]);
             const [result] = await conn.execute('DELETE FROM menu_items WHERE id = ?', [itemId]);
             return { removedStockLinks: Number(linkResult.affectedRows), affectedRows: result.affectedRows };
@@ -1181,7 +1200,8 @@ app.get('/api/orders/stock-levels', requireOrderWriteAccess, async (_req, res) =
             `SELECT l.menu_item_id, i.item_name, i.stock_quantity
              FROM menu_item_stock_links l
              JOIN inventory i ON i.id = l.inventory_id
-             WHERE l.variant = '' AND l.option_key = '' AND l.option_value = ''`,
+             WHERE l.variant = '' AND l.option_key = '' AND l.option_value = ''
+               AND i.archived_at IS NULL`,
         );
         res.status(200).json(rows.map((row) => ({
             menu_item_id: row.menu_item_id,
@@ -2171,7 +2191,10 @@ app.patch('/api/notifications/:id/read', async (req, res) => {
 
 app.get('/api/inventory', requirePermission('inventory_stock'), async (req, res) => {
     try {
-        const [items] = await db.execute('SELECT * FROM inventory ORDER BY section, category, item_name');
+        const includeArchived = req.query.include_archived === '1';
+        const [items] = await db.execute(
+            `SELECT * FROM inventory ${includeArchived ? '' : 'WHERE archived_at IS NULL'} ORDER BY section, category, item_name`,
+        );
         const [links] = await db.execute(
             `SELECT l.id, l.inventory_id, l.menu_item_id, l.quantity_per_unit, m.name AS menu_name
              FROM menu_item_stock_links l
@@ -2197,6 +2220,172 @@ app.get('/api/inventory', requirePermission('inventory_stock'), async (req, res)
     } catch (error) {
         console.error('❌ INVENTORY FETCH ERROR:', error.message);
         res.status(500).json({ message: 'Failed to load inventory logs' });
+    }
+});
+
+app.get('/api/inventory/menu-stock', requirePermission('inventory_stock'), async (_req, res) => {
+    try {
+        res.status(200).json(await listMenuStock(db));
+    } catch (error) {
+        sendInventoryError(res, error, 'Failed to load menu stock');
+    }
+});
+
+function parseMenuItemParam(req, res) {
+    const menuItemId = Number.parseInt(req.params.menuItemId, 10);
+    if (!Number.isInteger(menuItemId) || menuItemId <= 0) {
+        res.status(400).json({ message: 'Invalid menu item id' });
+        return null;
+    }
+    return menuItemId;
+}
+
+app.post('/api/inventory/menu-stock/:menuItemId/track', requireStockAccess, async (req, res) => {
+    const menuItemId = parseMenuItemParam(req, res);
+    if (menuItemId == null) return;
+    try {
+        const created = await withTransaction(db, (conn) => trackMenuItem(conn, menuItemId, req.body, req.user?.id ?? null));
+        const item = await loadMenuStockItem(db, menuItemId);
+        await auditFromRequest(db, req, {
+            action: 'menu_stock_track',
+            module: 'Inventory',
+            description: `Started counting stock for menu item #${menuItemId} "${item?.name ?? ''}" at ${created.quantity} ${item?.unit_label ?? ''} (inventory #${created.inventoryId}).`,
+        });
+        res.status(201).json({ item });
+    } catch (error) {
+        sendInventoryError(res, error, 'Failed to start counting stock');
+    }
+});
+
+app.post('/api/inventory/menu-stock/:menuItemId/restock', requireStockAccess, async (req, res) => {
+    const menuItemId = parseMenuItemParam(req, res);
+    if (menuItemId == null) return;
+    try {
+        const result = await withTransaction(db, (conn) => restockMenuItem(conn, menuItemId, req.body, req.user?.id ?? null));
+        const item = await loadMenuStockItem(db, menuItemId);
+        await auditFromRequest(db, req, {
+            action: 'menu_stock_restock',
+            module: 'Inventory',
+            description: `Restocked menu item #${menuItemId} "${item?.name ?? ''}" (${result.mode}): ${result.before} → ${result.after}.`,
+        });
+        res.status(200).json({ item });
+    } catch (error) {
+        sendInventoryError(res, error, 'Failed to restock the item');
+    }
+});
+
+app.patch('/api/inventory/menu-stock/:menuItemId/settings', requireStockAccess, async (req, res) => {
+    const menuItemId = parseMenuItemParam(req, res);
+    if (menuItemId == null) return;
+    try {
+        await withTransaction(db, (conn) => updateMenuStockSettings(conn, menuItemId, req.body));
+        const item = await loadMenuStockItem(db, menuItemId);
+        await auditFromRequest(db, req, {
+            action: 'menu_stock_settings',
+            module: 'Inventory',
+            description: `Changed stock settings for menu item #${menuItemId} "${item?.name ?? ''}".`,
+        });
+        res.status(200).json({ item });
+    } catch (error) {
+        sendInventoryError(res, error, 'Failed to save the stock settings');
+    }
+});
+
+app.post('/api/inventory/menu-stock/:menuItemId/untrack', requireStockAccess, async (req, res) => {
+    const menuItemId = parseMenuItemParam(req, res);
+    if (menuItemId == null) return;
+    try {
+        const result = await withTransaction(db, (conn) => untrackMenuItem(conn, menuItemId));
+        await auditFromRequest(db, req, {
+            action: 'menu_stock_untrack',
+            module: 'Inventory',
+            description: `Stopped counting stock for menu item #${menuItemId} (inventory #${result.inventoryId} "${result.itemName}" archived).`,
+        });
+        res.status(200).json({ message: 'Stock counting stopped.' });
+    } catch (error) {
+        sendInventoryError(res, error, 'Failed to stop counting stock');
+    }
+});
+
+function parseIngredientParam(req, res) {
+    const id = Number.parseInt(req.params.id, 10);
+    if (!Number.isInteger(id) || id <= 0) {
+        res.status(400).json({ message: 'Invalid ingredient id' });
+        return null;
+    }
+    return id;
+}
+
+app.get('/api/ingredients', requirePermission('inventory_stock'), async (_req, res) => {
+    try {
+        res.status(200).json(await listIngredients(db));
+    } catch (error) {
+        sendInventoryError(res, error, 'Failed to load ingredients');
+    }
+});
+
+app.post('/api/ingredients', requireStockAccess, async (req, res) => {
+    try {
+        const created = await withTransaction(db, (conn) => createIngredient(conn, req.body, req.user?.id ?? null));
+        const item = serializeIngredient(await loadIngredient(db, created.inventoryId));
+        await auditFromRequest(db, req, {
+            action: 'ingredient_create',
+            module: 'Inventory',
+            description: `Added ingredient "${created.itemName}" (#${created.inventoryId}) with quantity ${created.quantity}.`,
+        });
+        res.status(201).json({ item });
+    } catch (error) {
+        sendInventoryError(res, error, 'Failed to add the ingredient');
+    }
+});
+
+app.patch('/api/ingredients/:id', requireStockAccess, async (req, res) => {
+    const id = parseIngredientParam(req, res);
+    if (id == null) return;
+    try {
+        const result = await withTransaction(db, (conn) => updateIngredient(conn, id, req.body));
+        const item = serializeIngredient(await loadIngredient(db, id));
+        await auditFromRequest(db, req, {
+            action: 'ingredient_update',
+            module: 'Inventory',
+            description: `Changed ingredient #${id} "${result.itemName}".`,
+        });
+        res.status(200).json({ item });
+    } catch (error) {
+        sendInventoryError(res, error, 'Failed to save the ingredient');
+    }
+});
+
+app.post('/api/ingredients/:id/adjust', requireStockAccess, async (req, res) => {
+    const id = parseIngredientParam(req, res);
+    if (id == null) return;
+    try {
+        const result = await withTransaction(db, (conn) => adjustIngredient(conn, id, req.body, req.user?.id ?? null));
+        const item = serializeIngredient(await loadIngredient(db, id));
+        await auditFromRequest(db, req, {
+            action: 'ingredient_adjust',
+            module: 'Inventory',
+            description: `Ingredient #${id} "${result.itemName}" (${result.mode}): ${result.before} → ${result.after}.`,
+        });
+        res.status(200).json({ item });
+    } catch (error) {
+        sendInventoryError(res, error, 'Failed to update the ingredient amount');
+    }
+});
+
+app.delete('/api/ingredients/:id', requireStockAccess, async (req, res) => {
+    const id = parseIngredientParam(req, res);
+    if (id == null) return;
+    try {
+        const result = await withTransaction(db, (conn) => removeIngredient(conn, id));
+        await auditFromRequest(db, req, {
+            action: 'ingredient_remove',
+            module: 'Inventory',
+            description: `Removed ingredient #${result.inventoryId} "${result.itemName}" from the list.`,
+        });
+        res.status(200).json({ message: 'Ingredient removed.' });
+    } catch (error) {
+        sendInventoryError(res, error, 'Failed to remove the ingredient');
     }
 });
 
