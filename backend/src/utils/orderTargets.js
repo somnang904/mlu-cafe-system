@@ -301,11 +301,22 @@ async function assertItemsOnSale(db, items, orderId = null) {
   if (!requested.size) return
 
   const ids = [...requested.keys()]
+  const placeholders = ids.map(() => '?').join(', ')
   const [offSale] = await db.execute(
-    `SELECT id, name FROM menu_items WHERE is_available = 0 AND id IN (${ids.map(() => '?').join(', ')})`,
+    `SELECT id, name FROM menu_items WHERE is_available = 0 AND id IN (${placeholders})`,
     ids,
   )
-  if (!offSale.length) return
+  const [noStock] = await db.execute(
+    `SELECT m.id, m.name FROM menu_items m
+     WHERE m.id IN (${placeholders}) AND m.is_available = 1 AND m.stock_unlimited = 0
+       AND NOT EXISTS (
+         SELECT 1 FROM menu_item_stock_links l
+         JOIN inventory i ON i.id = l.inventory_id AND i.archived_at IS NULL
+         WHERE l.menu_item_id = m.id AND l.variant = '' AND l.option_key = '' AND l.option_value = ''
+       )`,
+    ids,
+  )
+  if (!offSale.length && !noStock.length) return
 
   const onBill = new Map()
   if (orderId) {
@@ -316,10 +327,19 @@ async function assertItemsOnSale(db, items, orderId = null) {
     for (const row of rows) onBill.set(Number(row.menu_item_id), Number(row.qty))
   }
 
-  const blocked = offSale.filter((row) => requested.get(row.id) > (onBill.get(row.id) || 0))
-  if (!blocked.length) return
-  const names = blocked.map((row) => row.name).join(', ')
-  throw lineHttpError(409, `Not on sale right now: ${names}. Remove ${blocked.length === 1 ? 'it' : 'them'} from the order.`)
+  const isNewQuantity = (row) => requested.get(row.id) > (onBill.get(row.id) || 0)
+  const blocked = offSale.filter(isNewQuantity)
+  if (blocked.length) {
+    const names = blocked.map((row) => row.name).join(', ')
+    throw lineHttpError(409, `Not on sale right now: ${names}. Remove ${blocked.length === 1 ? 'it' : 'them'} from the order.`)
+  }
+  const unstocked = noStock.filter(isNewQuantity)
+  if (unstocked.length) {
+    const names = unstocked.map((row) => row.name).join(', ')
+    const error = lineHttpError(409, `No stock for: ${names}. Add stock in Stock > Menu stock first.`)
+    error.code = 'not_stocked'
+    throw error
+  }
 }
 
 function validateOrderLine(item, { isAdmin }) {

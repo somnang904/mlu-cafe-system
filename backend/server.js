@@ -889,6 +889,7 @@ app.get('/api/menu', async (req, res) => {
             ...serializeMenuItem(item, now),
             stock_left: stock.get(Number(item.id))?.stock_left ?? null,
             stock_status: stock.get(Number(item.id))?.stock_status ?? null,
+            stock_tracked: stock.has(Number(item.id)),
         })));
     } catch (error) {
         console.error("Error fetching menu items:", error);
@@ -2332,6 +2333,30 @@ app.post('/api/inventory/menu-stock/:menuItemId/restock', requireStockAccess, as
         res.status(200).json({ item });
     } catch (error) {
         sendInventoryError(res, error, 'Failed to restock the item');
+    }
+});
+
+app.patch('/api/inventory/menu-stock/:menuItemId/unlimited', requireStockAccess, async (req, res) => {
+    const menuItemId = parseMenuItemParam(req, res);
+    if (menuItemId == null) return;
+    const unlimited = req.body?.unlimited;
+    if (typeof unlimited !== 'boolean') {
+        return res.status(400).json({ message: 'unlimited must be true or false' });
+    }
+    try {
+        const [result] = await db.execute('UPDATE menu_items SET stock_unlimited = ? WHERE id = ?', [unlimited ? 1 : 0, menuItemId]);
+        if (!result.affectedRows) {
+            return res.status(404).json({ message: 'Menu item not found' });
+        }
+        const item = await loadMenuStockItem(db, menuItemId);
+        await auditFromRequest(db, req, {
+            action: 'menu_stock_unlimited',
+            module: 'Inventory',
+            description: `${unlimited ? 'Allowed' : 'Stopped'} selling menu item #${menuItemId} "${item?.name ?? ''}" without a stock count.`,
+        });
+        res.status(200).json({ item });
+    } catch (error) {
+        sendInventoryError(res, error, 'Failed to update the item');
     }
 });
 

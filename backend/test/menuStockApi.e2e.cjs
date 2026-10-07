@@ -119,6 +119,8 @@ async function run() {
     password: '',
     database: DB_NAME,
   });
+  await conn.query('ALTER TABLE menu_items ALTER stock_unlimited SET DEFAULT 1');
+  await conn.query('UPDATE menu_items SET stock_unlimited = 1');
   const itemIds = [];
   const orderIds = [];
 
@@ -358,6 +360,25 @@ async function run() {
     check('lowering low_threshold to 5 returns 200', relax.status === 200, relax);
     const okRow = await stockRow(id);
     check('quantity 14 with low_threshold 5 reports IN_STOCK', okRow?.stock_status === 'IN_STOCK', okRow);
+
+    const [untrackedRows] = await conn.query(
+      `SELECT m.id, m.name FROM menu_items m WHERE m.is_available = 1 AND NOT EXISTS (
+         SELECT 1 FROM menu_item_stock_links l JOIN inventory i ON i.id = l.inventory_id AND i.archived_at IS NULL
+         WHERE l.menu_item_id = m.id) ORDER BY m.id LIMIT 1`,
+    );
+    const plain = untrackedRows[0];
+    const offUnlimited = await call('PATCH', `/inventory/menu-stock/${plain.id}/unlimited`, { token, body: { unlimited: false } });
+    check('PATCH unlimited false returns 200 and stock_unlimited false', offUnlimited.status === 200 && offUnlimited.body?.item?.stock_unlimited === false, offUnlimited);
+    const noStockSale = await sell(plain.id, plain.name, 1);
+    check('an item with no stock and not unlimited is refused with 409 not_stocked', noStockSale.placed.status === 409 && noStockSale.placed.body?.code === 'not_stocked', noStockSale.placed);
+    const menuNoStock = (await call('GET', '/menu', { token })).body.find((m) => m.id === plain.id);
+    check('GET /menu marks it stock_tracked false and stock_unlimited false', menuNoStock?.stock_tracked === false && menuNoStock?.stock_unlimited === false, menuNoStock);
+    const onUnlimited = await call('PATCH', `/inventory/menu-stock/${plain.id}/unlimited`, { token, body: { unlimited: true } });
+    check('PATCH unlimited true returns 200', onUnlimited.status === 200 && onUnlimited.body?.item?.stock_unlimited === true, onUnlimited);
+    const unlimitedSale = await sell(plain.id, plain.name, 1);
+    check('the same item sells once marked unlimited', unlimitedSale.placed.status === 201, unlimitedSale.placed);
+    const badUnlimited = await call('PATCH', `/inventory/menu-stock/${plain.id}/unlimited`, { token, body: { unlimited: 'yes' } });
+    check('PATCH unlimited with a non-boolean is 400', badUnlimited.status === 400, badUnlimited);
 
     const over = await sell(id, name, 20);
     check('ordering 20 when only 14 are left is refused with 409 insufficient_stock', over.placed.status === 409 && over.placed.body?.code === 'insufficient_stock', over.placed);

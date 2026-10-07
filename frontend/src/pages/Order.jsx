@@ -181,7 +181,16 @@ export default function Order() {
         setMenuItems((prev) =>
           prev.map((item) => {
             const fresh = byId.get(Number(item.id))
-            return fresh ? { ...item, stock_left: fresh.stock_left, stock_status: fresh.stock_status } : item
+            return fresh
+              ? {
+                  ...item,
+                  stock_left: fresh.stock_left,
+                  stock_status: fresh.stock_status,
+                  stock_tracked: fresh.stock_tracked,
+                  stock_unlimited: fresh.stock_unlimited,
+                  is_available: fresh.is_available,
+                }
+              : item
           }),
         )
       })
@@ -289,7 +298,10 @@ export default function Order() {
 
   function stockLeftFor(menuItemId) {
     const linked = stockByMenu[menuItemId] || []
-    if (!linked.length) return Infinity
+    if (!linked.length) {
+      const menuItem = menuItems.find((entry) => Number(entry.id) === Number(menuItemId))
+      return menuItem && menuItem.stock_tracked === false && !menuItem.stock_unlimited ? 0 : Infinity
+    }
     return Math.min(...linked.map((st) => Number(st.stock)))
   }
 

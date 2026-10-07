@@ -318,6 +318,7 @@ function serializeMenuItem(row, now = new Date()) {
     image_url: normalizeMenuImageUrl(row.image_url),
     is_available: row.is_available === 0 || row.is_available === false ? false : true,
     unavailable_since: toIso(row.unavailable_since),
+    stock_unlimited: Number(row.stock_unlimited) === 1,
     has_sales: hasSales,
     ...computeMenuDeleteEligibility({
       has_sales: hasSales,
@@ -329,7 +330,7 @@ function serializeMenuItem(row, now = new Date()) {
 }
 
 const MENU_ITEM_SELECT = `SELECT m.id, m.name, m.category, m.price, m.hot_price, m.iced_price, m.image_url, m.is_available,
-       m.unavailable_since,
+       m.unavailable_since, m.stock_unlimited,
        EXISTS (SELECT 1 FROM order_items oi WHERE oi.menu_item_id = m.id) AS has_sales
 FROM menu_items m`
 
@@ -368,6 +369,9 @@ async function ensureMenuItemsSchema(db) {
       await db.execute(
         'UPDATE menu_items SET unavailable_since = NOW() WHERE is_available = 0 AND unavailable_since IS NULL',
       )
+      if (!(await columnExists(db, 'menu_items', 'stock_unlimited'))) {
+        await db.execute('ALTER TABLE menu_items ADD COLUMN stock_unlimited TINYINT(1) NOT NULL DEFAULT 0')
+      }
 
       if (!(await columnExists(db, 'order_items', 'item_category'))) {
         await db.execute('ALTER TABLE order_items ADD COLUMN item_category VARCHAR(100) NULL')
