@@ -1,3 +1,4 @@
+import i18n from '../i18n'
 import { apiFetch } from '../services/apiClient'
 import { formatOrderDate, formatTime12Hour } from './dateTimeFormat'
 import { getFloorTableLabel } from '../data/tables'
@@ -91,7 +92,7 @@ export async function fetchReceiptTransaction(order) {
 
   try {
     const response = await apiFetch('/orders/history?days=730')
-    if (!response.ok) throw new Error('Failed to load order history')
+    if (!response.ok) throw new Error(i18n.t('sales.receiptLoadFailed'))
     const rows = await response.json()
     const match = rows.find(
       (row) =>

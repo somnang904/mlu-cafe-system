@@ -45,4 +45,3 @@ export function categoryColorClass(color) {
 }
 
 export const EXPENSE_METHODS = ['cash', 'aba_khqr', 'card', 'bank_transfer']
-export const EXPENSE_STATUSES = ['paid', 'unpaid']

@@ -20,6 +20,13 @@ function signedKhr(amount) {
   return `${value < 0 ? '−' : '+'}${formatKhr(Math.abs(value))}`
 }
 
+function parseCount(raw) {
+  const text = String(raw ?? '').trim()
+  if (text === '') return null
+  const value = Number(text)
+  return Number.isFinite(value) && value >= 0 ? value : null
+}
+
 export default function ShiftModal({ isOpen, onClose }) {
   const { t } = useTranslation()
   const shopRate = useExchangeRate()
@@ -31,6 +38,8 @@ export default function ShiftModal({ isOpen, onClose }) {
   const [closingShiftResult, setClosingShiftResult] = useState(null)
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [loadFailed, setLoadFailed] = useState(false)
+  const [countError, setCountError] = useState('')
 
   // Start shift form state
   const [openUsd, setOpenUsd] = useState('')
@@ -46,12 +55,13 @@ export default function ShiftModal({ isOpen, onClose }) {
     setError('')
     try {
       const res = await apiFetch('/shifts/current')
-      if (res.ok) {
-        const data = await res.json()
-        setShift(data.shift)
-      }
+      if (!res.ok) throw new Error(`Server status returned ${res.status}`)
+      const data = await res.json()
+      setShift(data.shift)
+      setLoadFailed(false)
     } catch (err) {
       console.error('Failed to load current shift:', err)
+      setLoadFailed(true)
     } finally {
       setLoading(false)
     }
@@ -61,6 +71,7 @@ export default function ShiftModal({ isOpen, onClose }) {
     if (isOpen) {
       setStep('view')
       setClosingShiftResult(null)
+      setCountError('')
       fetchCurrentShift()
     }
   }, [isOpen])
@@ -86,7 +97,7 @@ export default function ShiftModal({ isOpen, onClose }) {
         }),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.message || 'Failed to start shift')
+      if (!res.ok) throw new Error(data.message || t('shifts.startFailed'))
       setShift(data.shift)
       setOpenUsd('')
       setOpenKhr('')
@@ -100,6 +111,17 @@ export default function ShiftModal({ isOpen, onClose }) {
   const handleEndShift = async (e) => {
     e.preventDefault()
     if (!shift) return
+    const usdValue = parseCount(countedUsd)
+    const khrValue = countedKhr.trim() === '' ? 0 : parseCount(countedKhr)
+    if (usdValue === null) {
+      setCountError(t('shifts.countedUsdInvalid'))
+      return
+    }
+    if (khrValue === null) {
+      setCountError(t('shifts.countedKhrInvalid'))
+      return
+    }
+    setCountError('')
     setSubmitting(true)
     setError('')
     try {
@@ -108,13 +130,13 @@ export default function ShiftModal({ isOpen, onClose }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           shift_id: shift.id,
-          closing_cash_usd: parseFloat(countedUsd) || 0,
-          closing_cash_khr: parseFloat(countedKhr) || 0,
+          closing_cash_usd: usdValue,
+          closing_cash_khr: khrValue,
           notes,
         }),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.message || 'Failed to close shift')
+      if (!res.ok) throw new Error(data.message || t('shifts.closeFailed'))
       // Stamp the end time once here; computing it during render made it tick on every re-render.
       setClosingShiftResult({ ...data.shift, end_time: data.shift?.end_time ?? new Date().toISOString() })
       setStep('z_report')
@@ -167,6 +189,13 @@ export default function ShiftModal({ isOpen, onClose }) {
           {loading ? (
             <div className="py-12 text-center text-sm text-slate-400">
               {t('common.loading', { defaultValue: 'Loading shift status...' })}
+            </div>
+          ) : loadFailed && step !== 'z_report' ? (
+            <div className="space-y-3 py-8 text-center">
+              <p className="text-sm text-red-700 dark:text-red-300">{t('shifts.loadFailed')}</p>
+              <button type="button" onClick={fetchCurrentShift} className="btn-secondary px-4 py-2 text-sm">
+                {t('shifts.retry')}
+              </button>
             </div>
           ) : !shift && step !== 'z_report' ? (
             /* =================== NO OPEN SHIFT (START SHIFT FORM) =================== */
@@ -286,7 +315,7 @@ export default function ShiftModal({ isOpen, onClose }) {
                     {t('shifts.expectedCash', { defaultValue: 'Expected Cash in Drawer' })}
                   </span>
                   <span className="text-xs text-emerald-700 dark:text-emerald-400">
-                    {shift.order_count} orders completed
+                    {t('shifts.ordersCompleted', { count: Number(shift.order_count) || 0 })}
                   </span>
                 </div>
                 <div className="mt-2 flex items-baseline justify-between">
@@ -304,7 +333,7 @@ export default function ShiftModal({ isOpen, onClose }) {
                 )}
                 {shift.cash_refunds_usd > 0 && (
                   <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">
-                    - {formatUsd(shift.cash_refunds_usd)} refunded for earlier shifts&apos; cash sales
+                    {t('shifts.earlierRefundsDeducted', { amount: formatUsd(shift.cash_refunds_usd) })}
                   </p>
                 )}
               </div>
@@ -358,7 +387,10 @@ export default function ShiftModal({ isOpen, onClose }) {
                       required
                       placeholder="0.00"
                       value={countedUsd}
-                      onChange={(e) => setCountedUsd(e.target.value)}
+                      onChange={(e) => {
+                        setCountedUsd(e.target.value)
+                        setCountError('')
+                      }}
                       className="w-full rounded-xl border border-slate-200 bg-white p-2.5 pl-7 text-sm font-semibold tabular-nums focus:border-emerald-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
                     />
                   </div>
@@ -376,7 +408,10 @@ export default function ShiftModal({ isOpen, onClose }) {
                       min="0"
                       placeholder="0"
                       value={countedKhr}
-                      onChange={(e) => setCountedKhr(e.target.value)}
+                      onChange={(e) => {
+                        setCountedKhr(e.target.value)
+                        setCountError('')
+                      }}
                       className="w-full rounded-xl border border-slate-200 bg-white p-2.5 pr-7 text-sm font-semibold tabular-nums focus:border-emerald-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
                     />
                     <span className="absolute right-3 top-1/2 -translate-y-1/2 font-semibold text-slate-400">៛</span>
@@ -384,23 +419,29 @@ export default function ShiftModal({ isOpen, onClose }) {
                 </div>
               </div>
 
+              {countError ? (
+                <p role="alert" className="text-xs font-semibold text-red-700 dark:text-red-300">{countError}</p>
+              ) : countedKhr.trim() === '' ? (
+                <p className="text-xs text-slate-500 dark:text-zinc-400">{t('shifts.khrEmptyCountsZero')}</p>
+              ) : null}
+
               {/* Live difference preview */}
               {countedUsd !== '' && (
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs dark:border-zinc-800 dark:bg-zinc-900">
                   <div className="flex justify-between">
-                    <span className="text-slate-500">Expected:</span>
+                    <span className="text-slate-500">{t('shifts.expectedLabel')}</span>
                     <span className="font-semibold tabular-nums">
                       {formatUsd(shift.expected_cash_usd)} / {formatKhr(shift.expected_cash_khr)}
                     </span>
                   </div>
                   <div className="flex justify-between mt-1">
-                    <span className="text-slate-500">Difference (Over/Short):</span>
+                    <span className="text-slate-500">{t('shifts.differenceLabel')}</span>
                     <span className="font-semibold tabular-nums">
                       {formatUsd(previewDiffUsd)} / {formatKhr(previewDiffKhr)}
                     </span>
                   </div>
                   <div className="flex justify-between mt-1">
-                    <span className="text-slate-500">Total Difference (in $):</span>
+                    <span className="text-slate-500">{t('shifts.totalDifferenceLabel')}</span>
                     <span
                       className={`font-bold tabular-nums ${
                         previewDiffTotalUsd >= 0
@@ -455,27 +496,27 @@ export default function ShiftModal({ isOpen, onClose }) {
               <div className="rounded-2xl border border-emerald-500/30 bg-white p-5 text-stone-900 shadow-sm print:border-none print:p-0">
                 <div className="border-b border-dashed border-stone-200 pb-3 text-center">
                   <h2 className="text-lg font-bold">{STORE.officialName}</h2>
-                  <p className="text-xs text-stone-500">Z-REPORT · END OF SHIFT</p>
+                  <p className="text-xs text-stone-500">{t('shifts.zReportHeading')}</p>
                   <p className="mt-1 text-2xs text-stone-400">
-                    Shift #{closingShiftResult?.id} · {closingShiftResult?.cashier_name}
+                    {t('shifts.shiftNumber', { id: closingShiftResult?.id })} · {closingShiftResult?.cashier_name}
                   </p>
                 </div>
 
                 <div className="py-3 text-xs space-y-1.5 border-b border-dashed border-stone-200">
                   <div className="flex justify-between">
-                    <span className="text-stone-500">Start Time:</span>
+                    <span className="text-stone-500">{t('shifts.startTimeLabel')}</span>
                     <span className="tabular-nums font-medium">
                       {new Date(closingShiftResult?.start_time).toLocaleString()}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-stone-500">End Time:</span>
+                    <span className="text-stone-500">{t('shifts.endTimeLabel')}</span>
                     <span className="tabular-nums font-medium">
                       {new Date(closingShiftResult?.end_time).toLocaleString()}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-stone-500">Opening Float:</span>
+                    <span className="text-stone-500">{t('shifts.openingFloatLabel')}</span>
                     <span className="tabular-nums font-medium">
                       {formatUsd(closingShiftResult?.opening_float_usd)} / {formatKhr(closingShiftResult?.opening_float_khr)}
                     </span>
@@ -484,11 +525,11 @@ export default function ShiftModal({ isOpen, onClose }) {
 
                 <div className="py-3 text-xs space-y-1.5 border-b border-dashed border-stone-200">
                   <div className="flex justify-between">
-                    <span className="text-stone-500">Cash Sales:</span>
+                    <span className="text-stone-500">{t('shifts.cashSalesLabel')}</span>
                     <span className="tabular-nums font-medium">{formatUsd(closingShiftResult?.cash_sales_usd)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-stone-500">Bank Scan Sales:</span>
+                    <span className="text-stone-500">{t('shifts.bankSalesLabel')}</span>
                     <span className="tabular-nums font-medium">{formatUsd(closingShiftResult?.bank_sales_usd)}</span>
                   </div>
                   <div className="flex justify-between">
@@ -499,14 +540,14 @@ export default function ShiftModal({ isOpen, onClose }) {
                   </div>
                   {closingShiftResult?.cash_refunds_usd > 0 && (
                     <div className="flex justify-between">
-                      <span className="text-stone-500">Earlier Sales Refunded:</span>
+                      <span className="text-stone-500">{t('shifts.earlierRefundsLabel')}</span>
                       <span className="tabular-nums font-medium text-rose-600">
                         -{formatUsd(closingShiftResult.cash_refunds_usd)}
                       </span>
                     </div>
                   )}
                   <div className="flex justify-between font-bold pt-1 border-t border-stone-100">
-                    <span>Expected in Drawer:</span>
+                    <span>{t('shifts.expectedInDrawerLabel')}</span>
                     <span className="tabular-nums">
                       {formatUsd(closingShiftResult?.expected_cash_usd)} / {formatKhr(closingShiftResult?.expected_cash_khr)}
                     </span>
@@ -515,19 +556,19 @@ export default function ShiftModal({ isOpen, onClose }) {
 
                 <div className="py-3 text-xs space-y-1.5">
                   <div className="flex justify-between font-bold">
-                    <span>Actual Counted Cash:</span>
+                    <span>{t('shifts.actualCountedLabel')}</span>
                     <span className="tabular-nums">
                       {formatUsd(closingShiftResult?.closing_cash_usd)} / {formatKhr(closingShiftResult?.closing_cash_khr)}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-stone-500">Difference (Over/Short):</span>
+                    <span className="text-stone-500">{t('shifts.differenceLabel')}</span>
                     <span className="tabular-nums font-medium">
                       {formatUsd(closingShiftResult?.difference_usd)} / {formatKhr(closingShiftResult?.difference_khr)}
                     </span>
                   </div>
                   <div className="flex justify-between font-bold text-sm">
-                    <span>Total Difference (in $):</span>
+                    <span>{t('shifts.totalDifferenceLabel')}</span>
                     <span
                       className={`tabular-nums ${
                         Number(closingShiftResult?.difference_total_usd) >= 0 ? 'text-emerald-700' : 'text-rose-700'
@@ -538,7 +579,7 @@ export default function ShiftModal({ isOpen, onClose }) {
                   </div>
                   {closingShiftResult?.notes && (
                     <p className="mt-2 text-2xs text-stone-500 italic">
-                      Note: {closingShiftResult.notes}
+                      {t('shifts.noteLabel')} {closingShiftResult.notes}
                     </p>
                   )}
                 </div>

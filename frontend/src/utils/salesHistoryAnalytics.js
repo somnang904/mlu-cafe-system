@@ -120,11 +120,6 @@ export function getOrderMonthKey(order) {
   return normalized ? normalized.slice(0, 7) : null
 }
 
-export function filterOrdersByMonth(orders, monthKey) {
-  if (!monthKey || monthKey === 'all') return orders
-  return orders.filter((order) => getOrderMonthKey(order) === monthKey)
-}
-
 function orderStatus(order) {
   return String(order?.status || '').trim().toLowerCase()
 }

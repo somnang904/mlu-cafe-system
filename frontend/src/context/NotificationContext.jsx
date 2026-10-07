@@ -1,9 +1,11 @@
 import { createContext, useCallback, useContext, useMemo, useState } from 'react'
 import { AlertCircle, AlertTriangle, CheckCircle2, X } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 
 const NotificationContext = createContext(null)
 
 export function NotificationProvider({ children }) {
+  const { t } = useTranslation()
   const [banners, setBanners] = useState([])
 
   const dismissBanner = useCallback((id) => {
@@ -67,7 +69,7 @@ export function NotificationProvider({ children }) {
                 type="button"
                 onClick={() => dismissBanner(banner.id)}
                 className="rounded-full p-1 opacity-60 transition hover:bg-black/5 hover:opacity-100 dark:hover:bg-white/10"
-                aria-label="Dismiss notification"
+                aria-label={t('common.dismissNotification')}
               >
                 <X className="h-4 w-4" />
               </button>
