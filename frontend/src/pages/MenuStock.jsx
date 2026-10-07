@@ -6,6 +6,7 @@ import {
   CircleOff,
   ClipboardList,
   Hash,
+  History,
   ListChecks,
   ListFilter,
   Package,
@@ -144,10 +145,12 @@ function RestockModal({ item, displayName, onClose, onSaved }) {
   const [mode, setMode] = useState('set')
   const [quantity, setQuantity] = useState(mode === 'set' ? String(item.stock_quantity ?? 0) : '')
   const [packs, setPacks] = useState('')
+  const [reason, setReason] = useState('mistake')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const hasPack = Number(item.pack_size) >= 2
   const unit = item.unit_label || ''
+  const onHand = Number(item.stock_quantity ?? 0)
 
   const switchMode = (next) => {
     setMode(next)
@@ -163,7 +166,9 @@ function RestockModal({ item, displayName, onClose, onSaved }) {
   const valid =
     mode === 'set'
       ? quantity !== '' && quantityValue !== null
-      : quantityValue !== null && packsValue !== null && addTotal > 0
+      : mode === 'remove'
+        ? quantityValue !== null && quantityValue > 0 && quantityValue <= onHand
+        : quantityValue !== null && packsValue !== null && addTotal > 0
 
   const handleSubmit = async (event) => {
     event.preventDefault()
@@ -171,7 +176,12 @@ function RestockModal({ item, displayName, onClose, onSaved }) {
     setSaving(true)
     setError('')
     try {
-      const body = mode === 'set' ? { mode: 'set', quantity: quantityValue } : { mode: 'add' }
+      const body =
+        mode === 'set'
+          ? { mode: 'set', quantity: quantityValue }
+          : mode === 'remove'
+            ? { mode: 'remove', quantity: quantityValue, reason }
+            : { mode: 'add' }
       if (mode === 'add') {
         if (quantityValue) body.quantity = quantityValue
         if (hasPack && packsValue) body.packs = packsValue
@@ -213,11 +223,18 @@ function RestockModal({ item, displayName, onClose, onSaved }) {
           <ModeButton active={mode === 'add'} onClick={() => switchMode('add')}>
             {t('menuStock.modeAdd')}
           </ModeButton>
+          <ModeButton active={mode === 'remove'} onClick={() => switchMode('remove')}>
+            {t('menuStock.modeRemove')}
+          </ModeButton>
         </div>
 
         <div>
           <FieldLabel icon={Hash} htmlFor="menu-stock-quantity">
-            {mode === 'set' ? t('menuStock.quantityNew') : t('menuStock.quantityAdd')}
+            {mode === 'set'
+              ? t('menuStock.quantityNew')
+              : mode === 'remove'
+                ? t('menuStock.quantityRemove')
+                : t('menuStock.quantityAdd')}
           </FieldLabel>
           <div className="relative flex items-center">
             <input
@@ -234,6 +251,27 @@ function RestockModal({ item, displayName, onClose, onSaved }) {
             {unit ? <span className="text-muted pointer-events-none absolute right-10 text-xs">{unit}</span> : null}
           </div>
         </div>
+
+        {mode === 'remove' ? (
+          <div>
+            <p className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-zinc-400">
+              {t('menuStock.removeReason')}
+            </p>
+            <div className="flex gap-2">
+              <ModeButton active={reason === 'mistake'} onClick={() => setReason('mistake')}>
+                {t('menuStock.reasonMistake')}
+              </ModeButton>
+              <ModeButton active={reason === 'waste'} onClick={() => setReason('waste')}>
+                {t('menuStock.reasonWaste')}
+              </ModeButton>
+            </div>
+            {quantityValue !== null && quantityValue > onHand ? (
+              <p className="mt-1.5 text-xs font-medium text-red-600 dark:text-red-400">
+                {t('menuStock.removeExceeds', { count: localizeDigits(onHand), unit })}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
 
         {hasPack && mode === 'add' ? (
           <div>
@@ -267,6 +305,102 @@ function RestockModal({ item, displayName, onClose, onSaved }) {
           submitLabel={saving ? t('menuStock.saving') : t('menuStock.saveStock')}
         />
       </form>
+    </Backdrop>
+  )
+}
+
+const MOVEMENT_REASON_KEYS = {
+  sale: 'menuStock.moveSale',
+  restock: 'menuStock.moveRestock',
+  cancel: 'menuStock.moveCancel',
+  adjustment: 'menuStock.moveAdjustment',
+  waste: 'menuStock.moveWaste',
+}
+
+function HistoryModal({ item, displayName, onClose }) {
+  const { t, i18n } = useTranslation()
+  const panelRef = useModalKeyboard({ isOpen: true, onEscape: onClose, primaryActionMode: 'never' })
+  const [rows, setRows] = useState(null)
+  const [error, setError] = useState('')
+  const unit = item.unit_label || ''
+
+  useEffect(() => {
+    let cancelled = false
+    apiFetch(`/inventory/${item.inventory_id}/movements`)
+      .then(async (response) => {
+        const data = await response.json().catch(() => [])
+        if (!response.ok) throw new Error(data.message || t('menuStock.errors.history'))
+        if (!cancelled) setRows(Array.isArray(data) ? data : [])
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err.message || t('menuStock.errors.history'))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [item.inventory_id, t])
+
+  const formatWhen = (value) =>
+    new Date(value).toLocaleString(i18n.language === 'km' ? 'km-KH' : 'en-GB', {
+      day: 'numeric',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+
+  return (
+    <Backdrop panelRef={panelRef} titleId="menu-stock-history-title">
+      <ModalHeader
+        icon={History}
+        title={t('menuStock.historyTitle')}
+        subtitle={displayName}
+        titleId="menu-stock-history-title"
+        onClose={onClose}
+      />
+      <div className="mt-5 max-h-[22rem] overflow-y-auto">
+        {error ? <p className="text-xs font-medium text-red-600 dark:text-red-400">{error}</p> : null}
+        {!error && rows === null ? <p className="text-muted text-sm">{t('menuStock.loading')}</p> : null}
+        {rows && rows.length === 0 ? <p className="text-muted text-sm">{t('menuStock.historyEmpty')}</p> : null}
+        {rows && rows.length > 0 ? (
+          <ul className="divide-y divide-border/60">
+            {rows.map((row) => {
+              const change = Number(row.change_amount)
+              const label = t(MOVEMENT_REASON_KEYS[row.reason] || 'menuStock.moveAdjustment')
+              return (
+                <li key={row.id} className="flex items-start justify-between gap-3 py-2.5">
+                  <div className="min-w-0">
+                    <p className="text-heading text-sm font-medium">{label}</p>
+                    <p className="text-muted text-2xs tabular-nums">
+                      {formatWhen(row.created_at)}
+                      {row.display_name ? ` · ${row.display_name}` : ''}
+                      {row.invoice_id ? ` · #${row.invoice_id}` : ''}
+                    </p>
+                    {row.note ? <p className="text-muted mt-0.5 break-words text-2xs">{row.note}</p> : null}
+                  </div>
+                  <div className="shrink-0 text-right tabular-nums">
+                    <p
+                      className={`text-sm font-bold ${
+                        change < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'
+                      }`}
+                    >
+                      {change > 0 ? '+' : ''}
+                      {localizeDigits(change)}
+                    </p>
+                    <p className="text-muted text-2xs">
+                      {localizeDigits(Number(row.quantity_after))} {unit}
+                    </p>
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+        ) : null}
+      </div>
+      <div className="mt-4">
+        <button type="button" onClick={onClose} className="btn-secondary w-full py-2 text-xs font-semibold">
+          {t('common.close')}
+        </button>
+      </div>
     </Backdrop>
   )
 }
@@ -834,6 +968,17 @@ export default function MenuStock() {
                                 </button>
                               </Tooltip>
                               <span className="h-4 w-px bg-slate-200 dark:bg-zinc-700" aria-hidden />
+                              <Tooltip label={t('menuStock.history')} side="left">
+                                <button
+                                  type="button"
+                                  onClick={() => setModal({ type: 'history', item })}
+                                  aria-label={t('menuStock.history')}
+                                  className={ACTION_BUTTON}
+                                >
+                                  <History className="h-4 w-4" aria-hidden />
+                                </button>
+                              </Tooltip>
+                              <span className="h-4 w-px bg-slate-200 dark:bg-zinc-700" aria-hidden />
                               <Tooltip label={t('menuStock.settings')} side="left">
                                 <button
                                   type="button"
@@ -894,6 +1039,14 @@ export default function MenuStock() {
           displayName={nameOf(modal.item)}
           onClose={() => setModal(null)}
           onSaved={applyItem}
+        />
+      ) : null}
+      {modal?.type === 'history' ? (
+        <HistoryModal
+          key={modal.item.menu_item_id}
+          item={modal.item}
+          displayName={nameOf(modal.item)}
+          onClose={() => setModal(null)}
         />
       ) : null}
       {modal?.type === 'track' ? (

@@ -312,6 +312,20 @@ async function run() {
     check('settings unit_label over 20 chars is 400', longLabelSettings.status === 400, longLabelSettings);
     await restock(id, { mode: 'set', quantity: 17 });
 
+    const removeMistake = await restock(id, { mode: 'remove', quantity: 2, reason: 'mistake' });
+    check('remove 2 (entered by mistake) lowers quantity from 17 to 15', removeMistake.status === 200 && Number(removeMistake.body?.item?.stock_quantity) === 15, removeMistake);
+    const removeWaste = await restock(id, { mode: 'remove', quantity: 3, reason: 'waste' });
+    check('remove 3 (spoiled) lowers quantity from 15 to 12', removeWaste.status === 200 && Number(removeWaste.body?.item?.stock_quantity) === 12, removeWaste);
+    const removeTooMany = await restock(id, { mode: 'remove', quantity: 999, reason: 'mistake' });
+    check('remove more than on hand is 400 exceeds_stock', removeTooMany.status === 400 && removeTooMany.body?.code === 'exceeds_stock', removeTooMany);
+    const removeNoReason = await restock(id, { mode: 'remove', quantity: 1 });
+    check('remove without a reason is 400 invalid_reason', removeNoReason.status === 400 && removeNoReason.body?.code === 'invalid_reason', removeNoReason);
+    const removeZero = await restock(id, { mode: 'remove', quantity: 0, reason: 'mistake' });
+    check('remove 0 is 400', removeZero.status === 400, removeZero);
+    const [removeMoves] = await conn.query("SELECT reason, change_amount, note FROM stock_movements WHERE inventory_id = ? AND note LIKE 'Removed:%' ORDER BY id", [inventoryId]);
+    check('remove writes a history entry per removal with the reason note', removeMoves.length === 2 && removeMoves[0].reason === 'adjustment' && Number(removeMoves[0].change_amount) === -2 && removeMoves[1].reason === 'waste' && Number(removeMoves[1].change_amount) === -3, removeMoves);
+    await restock(id, { mode: 'set', quantity: 17 });
+
     const sale = await sell(id, name, 3);
     check('order of 3 portions placed (201) and paid (200)', sale.placed.status === 201 && sale.paid?.status === 200, { placed: sale.placed, paid: sale.paid });
     const afterSale = await stockRow(id);

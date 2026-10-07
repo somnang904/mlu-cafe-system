@@ -159,3 +159,13 @@ test('summary counts tracked, low and out', () => {
   ]
   assert.deepEqual(summarizeMenuStockItems(items), { total: 4, tracked: 3, untracked: 1, low: 1, out: 1 })
 })
+
+test('remove mode needs a positive amount, a reason and enough on hand', () => {
+  const row = { stock_quantity: 10 }
+  assert.deepEqual(resolveRestock({ mode: 'remove', quantity: 3, reason: 'waste' }, row), { mode: 'remove', quantity: 3, reason: 'waste' })
+  assert.deepEqual(resolveRestock({ mode: 'remove', quantity: 10, reason: 'mistake' }, row), { mode: 'remove', quantity: 10, reason: 'mistake' })
+  assert.throws(() => resolveRestock({ mode: 'remove', quantity: 0, reason: 'mistake' }, row), (error) => error.status === 400)
+  assert.throws(() => resolveRestock({ mode: 'remove', quantity: 2 }, row), (error) => error.code === 'invalid_reason')
+  assert.throws(() => resolveRestock({ mode: 'remove', quantity: 2, reason: 'other' }, row), (error) => error.code === 'invalid_reason')
+  assert.throws(() => resolveRestock({ mode: 'remove', quantity: 11, reason: 'mistake' }, row), (error) => error.code === 'exceeds_stock')
+})

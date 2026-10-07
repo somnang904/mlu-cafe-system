@@ -117,9 +117,20 @@ function parseSettingsBody(body) {
 function resolveRestock(body, row) {
   const input = body || {}
   const mode = input.mode
-  if (mode !== 'set' && mode !== 'add') throw httpError(400, 'Choose set or add')
+  if (mode !== 'set' && mode !== 'add' && mode !== 'remove') throw httpError(400, 'Choose set, add or remove')
   if (mode === 'set') {
     return { mode, quantity: parseQuantity(input.quantity) }
+  }
+  if (mode === 'remove') {
+    const quantity = parseQuantity(input.quantity)
+    if (quantity <= 0) throw httpError(400, 'Quantity to remove must be greater than zero')
+    const reason = input.reason === 'waste' || input.reason === 'mistake' ? input.reason : null
+    if (!reason) throw httpError(400, 'Choose a reason: entered by mistake, or spoiled or wasted', 'invalid_reason')
+    const onHand = Number(row?.stock_quantity)
+    if (Number.isFinite(onHand) && quantity > onHand) {
+      throw httpError(400, 'You cannot remove more than the amount on hand', 'exceeds_stock')
+    }
+    return { mode, quantity, reason }
   }
   const hasPacks = input.packs !== undefined && input.packs !== null
   if (hasPacks) {
@@ -278,6 +289,15 @@ async function restockMenuItem(conn, menuItemId, body, userId) {
   let after = before
   if (plan.mode === 'add') {
     const result = await addReceivedStock(conn, { inventoryId: tracked.id, quantity: plan.quantity, userId })
+    after = result.quantity
+  } else if (plan.mode === 'remove') {
+    const result = await applyStockChange(conn, {
+      inventoryId: tracked.id,
+      change: -plan.quantity,
+      reason: plan.reason === 'waste' ? 'waste' : 'adjustment',
+      note: plan.reason === 'waste' ? 'Removed: spoiled or wasted' : 'Removed: entered by mistake',
+      userId,
+    })
     after = result.quantity
   } else if (roundStock(plan.quantity) !== roundStock(before)) {
     const result = await adjustStockToCount(conn, {
