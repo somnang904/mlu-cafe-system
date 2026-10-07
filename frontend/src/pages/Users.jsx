@@ -1,25 +1,33 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   AtSign,
+  CheckCircle2,
+  CircleX,
   Eye,
   EyeOff,
   KeyRound,
+  ListFilter,
   Lock,
+  Search,
   ShieldCheck,
   SquarePen,
   Trash2,
   User,
   UserCheck,
   UserPlus,
+  Users as UsersIcon,
   Wallet,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { apiFetch } from '../services/apiClient'
 import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal'
 import FieldLabel from '../components/ui/FieldLabel'
+import IconSelect from '../components/ui/IconSelect'
 import ModalHeader from '../components/ui/ModalHeader'
+import PaginationBar from '../components/ui/PaginationBar'
 import Tooltip from '../components/ui/Tooltip'
 import { useAuth } from '../context/AuthContext'
+import { localizeDigits } from '../utils/dateTimeFormat'
 import {
   CASHIER_DEFAULT_PERMISSIONS,
   defaultPermissionsForRole,
@@ -78,6 +86,7 @@ function sortUsersWithAdminsFirst(userList) {
 }
 
 const VISIBLE_PERMISSION_CHIPS = 3
+const USERS_PAGE_SIZE = 10
 
 const STATUS_BADGE_TONES = {
   active: {
@@ -410,6 +419,9 @@ export default function Users() {
   const { t } = useTranslation()
   const { user: currentUser, adoptSession } = useAuth()
   const [users, setUsers] = useState([])
+  const [usersPage, setUsersPage] = useState(0)
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
   const [modalMode, setModalMode] = useState(null)
   const [selectedUser, setSelectedUser] = useState(null)
   const [userToDelete, setUserToDelete] = useState(null)
@@ -503,6 +515,27 @@ export default function Users() {
     }
   }
 
+  const filteredUsers = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    return users.filter((account) => {
+      const isActive = account.is_active !== false
+      if (statusFilter === 'active' && !isActive) return false
+      if (statusFilter === 'disabled' && isActive) return false
+      if (!query) return true
+      return `${account.display_name} ${account.username}`.toLowerCase().includes(query)
+    })
+  }, [users, search, statusFilter])
+
+  const statusFilterOptions = [
+    { value: 'all', label: t('users.allStatuses'), icon: ListFilter },
+    { value: 'active', label: t('users.statusActive'), icon: CheckCircle2 },
+    { value: 'disabled', label: t('users.statusDisabled'), icon: CircleX },
+  ]
+
+  const usersPageCount = Math.max(1, Math.ceil(filteredUsers.length / USERS_PAGE_SIZE))
+  const activeUsersPage = Math.min(usersPage, usersPageCount - 1)
+  const pagedUsers = filteredUsers.slice(activeUsersPage * USERS_PAGE_SIZE, (activeUsersPage + 1) * USERS_PAGE_SIZE)
+
   const adminCount = users.filter((account) => isAdminRole(account.role)).length
 
   const getDeleteGuard = (account) => {
@@ -523,7 +556,10 @@ export default function Users() {
   return (
     <div className="space-y-6">
       <div className="space-y-4">
-        <h3 className="text-heading text-lg font-bold">{t('nav.users')}</h3>
+        <div className="flex items-center gap-3">
+          <UsersIcon className="h-6 w-6 shrink-0 text-forest-600 dark:text-forest-400" aria-hidden />
+          <h3 className="page-title">{t('nav.users')}</h3>
+        </div>
         <button
           type="button"
           onClick={openCreateModal}
@@ -541,7 +577,33 @@ export default function Users() {
       )}
 
       <div className="table-shell overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="flex flex-col gap-3 border-b border-border/60 px-6 py-4 sm:flex-row sm:items-center">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-slate-500 dark:text-zinc-400" aria-hidden />
+            <input
+              value={search}
+              onChange={(event) => {
+                setSearch(event.target.value)
+                setUsersPage(0)
+              }}
+              placeholder={t('users.searchPlaceholder')}
+              aria-label={t('users.searchPlaceholder')}
+              className="input-field w-full min-w-0 py-2 pl-10 pr-3 text-sm"
+            />
+          </div>
+          <div className="w-full shrink-0 sm:w-52">
+            <IconSelect
+              value={statusFilter}
+              options={statusFilterOptions}
+              onChange={(value) => {
+                setStatusFilter(value)
+                setUsersPage(0)
+              }}
+              className="w-full px-3 py-2 text-sm"
+            />
+          </div>
+        </div>
+        <div className="overflow-x-auto lg:min-h-[53rem]">
           <table className="w-full min-w-[640px] text-left text-sm">
             <thead>
               <tr className="table-head text-xs uppercase tracking-wider">
@@ -553,21 +615,28 @@ export default function Users() {
               </tr>
             </thead>
             <tbody className="table-divider">
-              {users.map((user) => (
+              {filteredUsers.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="h-72 px-6 text-center text-sm text-muted-foreground">
+                    {t('users.noMatches')}
+                  </td>
+                </tr>
+              ) : null}
+              {pagedUsers.map((user) => (
                 <tr
                   key={user.id}
                   className="table-row hover:bg-stone-50/50 dark:hover:bg-obsidian-900/20"
                 >
-                  <td className="px-6 py-4">
+                  <td className="px-6 py-3">
                     <p className="text-heading text-sm font-semibold">{user.display_name}</p>
                     <p className="text-xs text-stone-400">@{user.username}</p>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-6 py-3">
                     <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ${roleColors[user.role] || roleColors.Staff}`}>
                       {roleLabel(t, user.role)}
                     </span>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-6 py-3">
                     <div className="flex flex-wrap gap-1.5">
                       {isAdminRole(user.role) ? (
                         <span className="rounded-lg bg-emerald-50 px-2 py-0.5 text-2xs font-medium text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400">
@@ -580,10 +649,10 @@ export default function Users() {
                       )}
                     </div>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-6 py-3">
                     <StatusBadge active={user.is_active !== false} t={t} />
                   </td>
-                  <td className="px-6 py-4" onClick={(event) => event.stopPropagation()}>
+                  <td className="px-6 py-3" onClick={(event) => event.stopPropagation()}>
                     <div className="ml-auto flex w-fit items-center gap-0.5 rounded-full bg-white/90 p-0.5 shadow-sm ring-1 ring-slate-200 dark:bg-zinc-800/90 dark:ring-zinc-700">
                       <Tooltip label={t('common.edit')} side="left">
                         <button
@@ -625,6 +694,22 @@ export default function Users() {
               ))}
             </tbody>
           </table>
+        </div>
+        <div className="flex flex-col gap-3 border-t border-border/60 px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-muted shrink-0 text-xs tabular-nums">
+            {t('users.showingRange', {
+              from: localizeDigits(filteredUsers.length === 0 ? 0 : activeUsersPage * USERS_PAGE_SIZE + 1),
+              to: localizeDigits(Math.min((activeUsersPage + 1) * USERS_PAGE_SIZE, filteredUsers.length)),
+              total: localizeDigits(filteredUsers.length),
+            })}
+          </p>
+          <PaginationBar
+            alwaysShow
+            currentPage={activeUsersPage}
+            totalPages={usersPageCount}
+            onPageChange={setUsersPage}
+            className="sm:min-w-[22rem]"
+          />
         </div>
       </div>
 
