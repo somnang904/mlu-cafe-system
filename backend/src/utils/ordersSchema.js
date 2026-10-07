@@ -62,6 +62,11 @@ async function ensureOrdersSchema(db) {
         await db.execute('ALTER TABLE orders ADD COLUMN exchange_rate DECIMAL(10,2) NULL AFTER change_khr')
       }
 
+      // Which bank a Bank Scan sale was received on (null for cash and older sales)
+      if (!(await columnExists(db, 'orders', 'payment_bank'))) {
+        await db.execute('ALTER TABLE orders ADD COLUMN payment_bank VARCHAR(30) NULL')
+      }
+
       // Ensure void / refund columns exist
       if (!(await columnExists(db, 'orders', 'void_reason'))) {
         await db.execute('ALTER TABLE orders ADD COLUMN void_reason VARCHAR(255) NULL AFTER exchange_rate')

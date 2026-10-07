@@ -108,6 +108,7 @@ export default function SalesHistory() {
       (order) =>
         (order.id || '').toLowerCase().includes(search.toLowerCase()) ||
         (order.payment || '').toLowerCase().includes(search.toLowerCase()) ||
+        (order.payment_bank || '').toLowerCase().includes(search.toLowerCase()) ||
         (order.status || '').toLowerCase().includes(search.toLowerCase()) ||
         (order.source ?? '').toLowerCase().includes(search.toLowerCase()),
     )
@@ -239,7 +240,7 @@ export default function SalesHistory() {
                       <p className="min-w-0 whitespace-nowrap font-semibold text-forest-600 dark:text-forest-400">
                         {order.id}
                       </p>
-                      <PaymentMethodBadge method={order.payment} />
+                      <PaymentMethodBadge method={order.payment} bank={order.payment_bank} />
                     </div>
                     <p className="mt-2 min-w-0 break-words text-sm text-stone-600 dark:text-stone-300">
                       {order.source ?? '—'}
@@ -343,7 +344,7 @@ export default function SalesHistory() {
                           <span className="block whitespace-nowrap">{formatTime12Hour(order.time)}</span>
                         </td>
                         <td className="px-2 py-3">
-                          <PaymentMethodBadge method={order.payment} />
+                          <PaymentMethodBadge method={order.payment} bank={order.payment_bank} />
                         </td>
                         <td className="whitespace-nowrap px-2 py-3 font-semibold tabular-nums text-heading">
                           ${(order.total || 0).toFixed(2)}

@@ -28,7 +28,8 @@ import { apiFetch, apiFetchDownload, saveBlobAsDownload } from '../services/apiC
 import { categoryColorClass, expenseCategoryLabel } from '../utils/expenseCategories'
 import { userHasPermission } from '../utils/permissions'
 import { presetRange, toDayKey } from '../utils/reportRange'
-import { DEFAULT_EXCHANGE_RATE, formatKhr, usdToKhr } from '../utils/currency'
+import { formatKhr, usdToKhr } from '../utils/currency'
+import { useExchangeRate } from '../hooks/useExchangeRate'
 
 const PAGE_SIZE = 20
 const PERIODS = ['all', 'day', 'month', 'year', 'custom']
@@ -116,6 +117,8 @@ export default function Expenses() {
   const { t } = useTranslation()
   const { user } = useAuth()
   const { pushBanner } = useNotifications()
+  // The shop's USD → riel rate (set on the Dashboard), shared with the till.
+  const exchangeRate = useExchangeRate()
   // The list (and edit/delete) needs Reports access, as on the server; Stock users can still add.
   const canView = userHasPermission(user, 'reports')
 
@@ -351,7 +354,7 @@ export default function Expenses() {
             <p className="text-heading mt-1.5 flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 text-2xl font-bold tabular-nums">
               <span>{formatMoney(total)}</span>
               <span className="font-normal text-slate-300 dark:text-zinc-600" aria-hidden>/</span>
-              <span>{formatKhr(usdToKhr(total, DEFAULT_EXCHANGE_RATE))}</span>
+              <span>{formatKhr(usdToKhr(total, exchangeRate))}</span>
             </p>
             {byCategory.length ? (
               <>
@@ -371,7 +374,7 @@ export default function Expenses() {
                       <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${categoryColorClass(entry.color)}`} aria-hidden />
                       <span className="min-w-0 flex-1 truncate">{categoryName(entry.name)}</span>
                       <span className="text-heading font-semibold tabular-nums">{formatMoney(entry.amount)}</span>
-                      <span className="text-muted tabular-nums">/ {formatKhr(usdToKhr(entry.amount, DEFAULT_EXCHANGE_RATE))}</span>
+                      <span className="text-muted tabular-nums">/ {formatKhr(usdToKhr(entry.amount, exchangeRate))}</span>
                       <span className="text-muted w-14 text-right tabular-nums">{formatPercent(entry.percent)}</span>
                     </li>
                   ))}

@@ -129,8 +129,6 @@ function viewRequiresAnyPermission(user, requiredPermissions) {
 export function canAccessView(user, viewId) {
   if (!user) return false
   if (viewId === 'users' || viewId === 'security_alerts') return isAdminRole(user.role)
-  // Appearance (Settings page shell) is available to every signed-in user.
-  if (viewId === 'settings') return true
 
   const requiredPermission = VIEW_PERMISSION_MAP[viewId]
   if (!requiredPermission) return false
@@ -149,7 +147,7 @@ export function canSeeNavItem(user, item) {
 }
 
 export function getAccessibleViews(user) {
-  const views = [...Object.keys(VIEW_PERMISSION_MAP), 'settings', 'users', 'security_alerts']
+  const views = [...Object.keys(VIEW_PERMISSION_MAP), 'users', 'security_alerts']
   return [...new Set(views)].filter((viewId) => canAccessView(user, viewId))
 }
 

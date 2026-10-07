@@ -539,6 +539,15 @@
     -webkit-backdrop-filter: blur(10px);
   }
 
+  .dark .btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.2);
+  }
+
+  .dark .btn-secondary:active {
+    background: rgba(255, 255, 255, 0.14);
+  }
+
   .badge-olive {
     @apply cursor-default select-none rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600
            ring-1 ring-slate-200
@@ -844,13 +853,16 @@
     visibility: visible !important;
   }
 
+  /* left + right 0 with auto side margins centres the slip on any paper. On an 80mm
+     thermal roll the page is exactly as wide as the slip, so it still sits flush. */
   #receipt-print-area {
     position: fixed !important;
     left: 0 !important;
+    right: 0 !important;
     top: 0 !important;
     width: 72mm !important;
     max-width: 72mm !important;
-    margin: 0 !important;
+    margin: 0 auto !important;
     padding: 4mm !important;
     background: white !important;
     color: black !important;

@@ -15,7 +15,6 @@ export const VALID_VIEWS = new Set([
   'inventory_stocktake',
   'inventory_expenses',
   'reports_analysis',
-  'settings',
   'backup_recovery',
   'security_alerts',
 ])

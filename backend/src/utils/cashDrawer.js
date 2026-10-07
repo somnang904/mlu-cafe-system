@@ -150,6 +150,8 @@ function computeCashDifference({ expectedUsd, expectedKhr, countedUsd, countedKh
 
 module.exports = {
   DEFAULT_EXCHANGE_RATE,
+  MIN_EXCHANGE_RATE,
+  MAX_EXCHANGE_RATE,
   splitChange,
   normalizeCheckoutPayment,
   cashDrawerDelta,

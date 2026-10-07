@@ -1,3 +1,13 @@
+import i18n from '../i18n'
+
+const KHMER_DIGITS = ['០', '១', '២', '៣', '៤', '៥', '៦', '៧', '៨', '៩']
+
+export function localizeDigits(value) {
+  const text = String(value ?? '')
+  if (!String(i18n.language || '').startsWith('km')) return text
+  return text.replace(/d/g, (digit) => KHMER_DIGITS[Number(digit)])
+}
+
 const DATE_ISO_REGEX = /^\d{4}-\d{2}-\d{2}$/
 const TIME_24H_REGEX = /^(\d{1,2}):(\d{2})$/
 const TIME_12H_REGEX = /^(\d{1,2}):(\d{2})\s*(AM|PM)$/i
@@ -103,14 +113,14 @@ const MONTH_KEYS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep
 export function formatMonthYear(date, t) {
   return t('dates.monthYear', {
     month: t(`dates.months.${MONTH_KEYS[date.getMonth()]}`),
-    year: date.getFullYear(),
+    year: localizeDigits(date.getFullYear()),
   })
 }
 
 export function formatLongDate(date, t) {
   return t('dates.longDate', {
     weekday: t(`dates.weekdaysLong.${WEEKDAY_KEYS[date.getDay()]}`),
-    day: date.getDate(),
+    day: localizeDigits(date.getDate()),
     month: t(`dates.months.${MONTH_KEYS[date.getMonth()]}`),
   })
 }

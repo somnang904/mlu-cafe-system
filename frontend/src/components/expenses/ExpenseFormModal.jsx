@@ -23,7 +23,8 @@ import IconSelect from '../ui/IconSelect'
 import { apiFetch } from '../../services/apiClient'
 import { expenseCategoryLabel, EXPENSE_METHODS } from '../../utils/expenseCategories'
 import { toDayKey } from '../../utils/reportRange'
-import { DEFAULT_EXCHANGE_RATE, formatKhr, formatUsd, khrToUsd, usdToKhr } from '../../utils/currency'
+import { formatKhr, formatUsd, khrToUsd, usdToKhr } from '../../utils/currency'
+import { useExchangeRate } from '../../hooks/useExchangeRate'
 
 export const METHOD_ICONS = { cash: Banknote, aba_khqr: QrCode, card: CreditCard, bank_transfer: Landmark }
 
@@ -55,21 +56,21 @@ function initialForm(expense, categories) {
 }
 
 /**
- * The amount in dollars, which is what is stored. Riel is converted at the app's rate
- * (4,100 ៛ = $1, as at the till); null when the field is empty or not a number.
+ * The amount in dollars, which is what is stored. Riel is converted at the shop's rate
+ * (the same one the till uses); null when the field is empty or not a number.
  */
-function amountInUsd(form) {
+function amountInUsd(form, rate) {
   if (form.amount === '') return null
   const value = Number(form.amount)
   if (!Number.isFinite(value)) return null
-  return form.currency === 'khr' ? khrToUsd(value, DEFAULT_EXCHANGE_RATE) : Math.round(value * 100) / 100
+  return form.currency === 'khr' ? khrToUsd(value, rate) : Math.round(value * 100) / 100
 }
 
 /** The client-side checks; the server repeats them and answers with the field that is wrong. */
-function validate(form, t) {
+function validate(form, t, rate) {
   const errors = {}
   if (!/^\d{4}-\d{2}-\d{2}$/.test(form.expense_date)) errors.date = t('expenses.form.errors.date')
-  const amount = amountInUsd(form)
+  const amount = amountInUsd(form, rate)
   if (amount == null || amount <= 0) {
     errors.amount = form.currency === 'khr' ? t('expenses.form.errors.amountKhr') : t('expenses.form.errors.amount')
   }
@@ -93,6 +94,7 @@ function FieldError({ id, message }) {
  */
 export default function ExpenseFormModal({ expense = null, categories, onClose, onSaved }) {
   const { t } = useTranslation()
+  const rate = useExchangeRate()
   const editing = Boolean(expense)
   const [form, setForm] = useState(() => initialForm(expense, categories))
   const [errors, setErrors] = useState({})
@@ -108,7 +110,7 @@ export default function ExpenseFormModal({ expense = null, categories, onClose, 
 
   const save = async () => {
     if (saving) return
-    const found = validate(form, t)
+    const found = validate(form, t, rate)
     setErrors(found)
     setFormError('')
     if (Object.keys(found).length) return
@@ -116,7 +118,7 @@ export default function ExpenseFormModal({ expense = null, categories, onClose, 
     try {
       const body = {
         expense_date: form.expense_date,
-        amount: amountInUsd(form),
+        amount: amountInUsd(form, rate),
         category_id: Number(form.category_id),
         title: form.title,
         vendor: form.vendor,
@@ -235,8 +237,8 @@ export default function ExpenseFormModal({ expense = null, categories, onClose, 
                       const converted = form.amount === '' || !Number.isFinite(value)
                         ? form.amount
                         : option.id === 'khr'
-                          ? String(usdToKhr(value, DEFAULT_EXCHANGE_RATE))
-                          : String(khrToUsd(value, DEFAULT_EXCHANGE_RATE))
+                          ? String(usdToKhr(value, rate))
+                          : String(khrToUsd(value, rate))
                       setForm((current) => ({ ...current, currency: option.id, amount: converted }))
                     }}
                     className={`h-6 min-w-7 rounded-md px-2 text-xs font-bold transition ${
@@ -269,11 +271,11 @@ export default function ExpenseFormModal({ expense = null, categories, onClose, 
             ) : (
               // What will be saved in the other currency, at the till's rate.
               <p id={`${ids.amount}-hint`} className="text-muted mt-1 text-xs tabular-nums">
-                {amountInUsd(form) > 0
+                {amountInUsd(form, rate) > 0
                   ? form.currency === 'khr'
-                    ? t('expenses.form.inUsd', { amount: formatUsd(amountInUsd(form)) })
-                    : t('expenses.form.inKhr', { amount: formatKhr(usdToKhr(amountInUsd(form), DEFAULT_EXCHANGE_RATE)) })
-                  : t('expenses.form.rateHint', { rate: DEFAULT_EXCHANGE_RATE.toLocaleString('en-US') })}
+                    ? t('expenses.form.inUsd', { amount: formatUsd(amountInUsd(form, rate)) })
+                    : t('expenses.form.inKhr', { amount: formatKhr(usdToKhr(amountInUsd(form, rate), rate)) })
+                  : t('expenses.form.rateHint', { rate: rate.toLocaleString('en-US') })}
               </p>
             )}
           </div>
