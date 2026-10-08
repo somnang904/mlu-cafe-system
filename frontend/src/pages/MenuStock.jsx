@@ -4,6 +4,7 @@ import {
   Boxes,
   Check,
   CircleOff,
+  CircleX,
   ClipboardList,
   ChefHat,
   Hash,
@@ -806,11 +807,11 @@ export default function MenuStock() {
     { value: 'out', label: t('menuStock.filterOut'), icon: AlertTriangle },
   ]
 
-  const summaryChips = [
-    { key: 'total', label: t('menuStock.summaryTotal'), value: counts.total, tone: NEUTRAL_PILL },
-    { key: 'tracked', label: t('menuStock.summaryTracked'), value: counts.tracked, tone: STATUS_TONES.IN_STOCK.pill },
-    { key: 'low', label: t('menuStock.summaryLow'), value: counts.low, tone: STATUS_TONES.LOW_STOCK.pill },
-    { key: 'out', label: t('menuStock.summaryOut'), value: counts.out, tone: STATUS_TONES.OUT_OF_STOCK.pill },
+  const summaryCards = [
+    { key: 'total', label: t('menuStock.summaryTotal'), value: counts.total, icon: Package, iconTone: 'text-slate-500 dark:text-zinc-400' },
+    { key: 'tracked', label: t('menuStock.summaryTracked'), value: counts.tracked, icon: PackageCheck, iconTone: 'text-forest-600 dark:text-forest-400' },
+    { key: 'low', label: t('menuStock.summaryLow'), value: counts.low, icon: AlertTriangle, iconTone: 'text-amber-500 dark:text-amber-400' },
+    { key: 'out', label: t('menuStock.summaryOut'), value: counts.out, icon: CircleX, iconTone: 'text-rose-500 dark:text-rose-400' },
   ]
 
   const nameOf = (item) => translateMenuName(item.name, i18n.language, t)
@@ -835,16 +836,21 @@ export default function MenuStock() {
               <p className="text-muted text-xs">{t('menuStock.subtitle')}</p>
             </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {summaryChips.map((chip) => (
-              <span
-                key={chip.key}
-                className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold leading-none ring-1 ${chip.tone}`}
-              >
-                {chip.label}
-                <span className="tabular-nums">{localizeDigits(chip.value)}</span>
-              </span>
-            ))}
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
+            {summaryCards.map((card) => {
+              const Icon = card.icon
+              return (
+                <div key={card.key} className="surface-card flex items-center gap-4 p-4">
+                  <span className={`flex shrink-0 items-center justify-center ${card.iconTone}`}>
+                    <Icon className="h-10 w-10" strokeWidth={1.75} aria-hidden />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-muted truncate text-xs font-semibold uppercase tracking-wide">{card.label}</p>
+                    <p className="text-heading mt-0.5 text-2xl font-bold tabular-nums">{localizeDigits(card.value)}</p>
+                  </div>
+                </div>
+              )
+            })}
           </div>
         </div>
 
@@ -933,7 +939,6 @@ export default function MenuStock() {
                           />
                           <div className="min-w-0">
                             <p className="text-heading text-sm font-semibold">{nameOf(item)}</p>
-                            {item.category ? <span className="badge-olive mt-1 inline-block">{item.category}</span> : null}
                           </div>
                         </div>
                       </td>
