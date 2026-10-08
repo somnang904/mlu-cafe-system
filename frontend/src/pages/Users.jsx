@@ -727,7 +727,7 @@ export default function Users() {
         title={t('users.deleteTitle')}
         itemName={userToDelete ? `${userToDelete.display_name} (@${userToDelete.username})` : ''}
         message={t('users.deleteMessage')}
-        confirmLabel={isDeleting ? t('common.deleting') : t('common.delete')}
+        confirmLabel={isDeleting ? t('common.deleting') : t('common.deleteConfirm')}
         onCancel={() => !isDeleting && setUserToDelete(null)}
         onConfirm={confirmDeleteUser}
       />

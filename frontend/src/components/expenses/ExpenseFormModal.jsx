@@ -1,15 +1,32 @@
 import { useId, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Calendar, DollarSign, Loader2, Receipt, StickyNote, Store, Tag, Type } from 'lucide-react'
+import {
+  Banknote,
+  Calendar,
+  CircleCheck,
+  CreditCard,
+  DollarSign,
+  Landmark,
+  Loader2,
+  QrCode,
+  Receipt,
+  StickyNote,
+  Store,
+  Tag,
+  Type,
+  Wallet,
+} from 'lucide-react'
 import Modal from '../common/Modal'
 import ModalHeader from '../ui/ModalHeader'
 import FieldLabel from '../ui/FieldLabel'
 import IconSelect from '../ui/IconSelect'
 import { apiFetch } from '../../services/apiClient'
-import { expenseCategoryLabel } from '../../utils/expenseCategories'
+import { expenseCategoryLabel, EXPENSE_METHODS } from '../../utils/expenseCategories'
 import { toDayKey } from '../../utils/reportRange'
 import { formatKhr, formatUsd, khrToUsd, usdToKhr } from '../../utils/currency'
 import { useExchangeRate } from '../../hooks/useExchangeRate'
+
+export const METHOD_ICONS = { cash: Banknote, aba_khqr: QrCode, card: CreditCard, bank_transfer: Landmark }
 
 function initialForm(expense, categories) {
   if (expense) {
@@ -18,9 +35,10 @@ function initialForm(expense, categories) {
       amount: String(expense.amount),
       currency: 'usd',
       category_id: expense.category_id ?? '',
-      // Older expenses may have no title; start from what the table shows for them.
-      title: expense.title || expense.vendor || expense.note || '',
+      title: expense.title || '',
       vendor: expense.vendor || '',
+      method: expense.method || 'cash',
+      status: expense.status || 'paid',
       note: expense.note || '',
     }
   }
@@ -31,6 +49,8 @@ function initialForm(expense, categories) {
     category_id: categories[0]?.id ?? '',
     title: '',
     vendor: '',
+    method: 'cash',
+    status: 'paid',
     note: '',
   }
 }
@@ -49,7 +69,6 @@ function amountInUsd(form, rate) {
 /** The client-side checks; the server repeats them and answers with the field that is wrong. */
 function validate(form, t, rate) {
   const errors = {}
-  if (!form.title.trim()) errors.title = t('expenses.form.errors.title')
   if (!/^\d{4}-\d{2}-\d{2}$/.test(form.expense_date)) errors.date = t('expenses.form.errors.date')
   const amount = amountInUsd(form, rate)
   if (amount == null || amount <= 0) {
@@ -69,10 +88,9 @@ function FieldError({ id, message }) {
 }
 
 /**
- * Add or edit one expense: title, category, amount, date, vendor and note.
- * `expense` is null to add. `onSaved(expense)` runs after the API saved it. Fields the form leaves
- * out (payment method, status, receipt, repeat) are not sent: a new expense is paid in
- * cash from the drawer, and editing keeps whatever they were (the API keeps fields it isn't sent).
+ * Add or edit one expense. `expense` is null to add. `onSaved(expense)` runs after the API saved it.
+ * The form leaves out "paid from", the receipt photo and "repeat monthly": a new cash expense comes
+ * from the cash drawer, and editing keeps whatever those were (the API keeps fields it isn't sent).
  */
 export default function ExpenseFormModal({ expense = null, categories, onClose, onSaved }) {
   const { t } = useTranslation()
@@ -82,7 +100,7 @@ export default function ExpenseFormModal({ expense = null, categories, onClose, 
   const [errors, setErrors] = useState({})
   const [formError, setFormError] = useState('')
   const [saving, setSaving] = useState(false)
-  const ids = { title: useId(), date: useId(), amount: useId(), category: useId(), vendor: useId(), note: useId() }
+  const ids = { title: useId(), date: useId(), amount: useId(), category: useId(), vendor: useId(), method: useId(), note: useId() }
 
   const update = (key, value) => {
     setForm((current) => ({ ...current, [key]: value }))
@@ -102,8 +120,10 @@ export default function ExpenseFormModal({ expense = null, categories, onClose, 
         expense_date: form.expense_date,
         amount: amountInUsd(form, rate),
         category_id: Number(form.category_id),
-        title: form.title.trim(),
+        title: form.title,
         vendor: form.vendor,
+        method: form.method,
+        status: form.status,
         note: form.note,
       }
       const response = await apiFetch(editing ? `/expenses/${expense.id}` : '/expenses', {
@@ -165,38 +185,34 @@ export default function ExpenseFormModal({ expense = null, categories, onClose, 
       >
         <div>
           <FieldLabel icon={Type} htmlFor={ids.title}>
-            {t('expenses.form.title')} <span className="text-red-600" aria-hidden>*</span>
+            {t('expenses.form.title')}
           </FieldLabel>
           <input
             id={ids.title}
             value={form.title}
             maxLength={160}
-            required
             onChange={(event) => update('title', event.target.value)}
-            aria-invalid={errors.title ? true : undefined}
-            aria-describedby={describedBy('title')}
             className="input-field w-full rounded-xl px-3 py-2 text-sm"
             placeholder={t('expenses.form.titlePlaceholder')}
           />
-          <FieldError id={`${ids.title}-error`} message={errors.title} />
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
-            <FieldLabel icon={Tag} htmlFor={ids.category}>
-              {t('expenses.form.category')} <span className="text-red-600" aria-hidden>*</span>
+            <FieldLabel icon={Calendar} htmlFor={ids.date}>
+              {t('expenses.form.date')} <span className="text-red-600" aria-hidden>*</span>
             </FieldLabel>
-            <IconSelect
-              id={ids.category}
-              value={form.category_id}
-              onChange={(value) => update('category_id', value)}
-              placeholder={t('expenses.form.chooseCategory')}
-              options={categories.map((category) => ({
-                value: category.id,
-                label: expenseCategoryLabel(category.name, t),
-              }))}
+            <input
+              id={ids.date}
+              type="date"
+              required
+              value={form.expense_date}
+              onChange={(event) => update('expense_date', event.target.value)}
+              aria-invalid={errors.date ? true : undefined}
+              aria-describedby={describedBy('date')}
+              className="input-field w-full rounded-xl px-3 py-2 text-sm"
             />
-            <FieldError id={`${ids.category}-error`} message={errors.category} />
+            <FieldError id={`${ids.date}-error`} message={errors.date} />
           </div>
           <div>
             <div className="flex items-start justify-between gap-2">
@@ -267,20 +283,20 @@ export default function ExpenseFormModal({ expense = null, categories, onClose, 
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
-            <FieldLabel icon={Calendar} htmlFor={ids.date}>
-              {t('expenses.form.date')} <span className="text-red-600" aria-hidden>*</span>
+            <FieldLabel icon={Tag} htmlFor={ids.category}>
+              {t('expenses.form.category')} <span className="text-red-600" aria-hidden>*</span>
             </FieldLabel>
-            <input
-              id={ids.date}
-              type="date"
-              required
-              value={form.expense_date}
-              onChange={(event) => update('expense_date', event.target.value)}
-              aria-invalid={errors.date ? true : undefined}
-              aria-describedby={describedBy('date')}
-              className="input-field w-full rounded-xl px-3 py-2 text-sm"
+            <IconSelect
+              id={ids.category}
+              value={form.category_id}
+              onChange={(value) => update('category_id', value)}
+              placeholder={t('expenses.form.chooseCategory')}
+              options={categories.map((category) => ({
+                value: category.id,
+                label: expenseCategoryLabel(category.name, t),
+              }))}
             />
-            <FieldError id={`${ids.date}-error`} message={errors.date} />
+            <FieldError id={`${ids.category}-error`} message={errors.category} />
           </div>
           <div>
             <FieldLabel icon={Store} htmlFor={ids.vendor}>
@@ -294,6 +310,48 @@ export default function ExpenseFormModal({ expense = null, categories, onClose, 
               className="input-field w-full rounded-xl px-3 py-2 text-sm"
               placeholder={t('expenses.form.vendorPlaceholder')}
             />
+          </div>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <FieldLabel icon={Wallet} htmlFor={ids.method}>
+              {t('expenses.form.method')}
+            </FieldLabel>
+            <IconSelect
+              id={ids.method}
+              value={form.method}
+              onChange={(value) => update('method', value)}
+              options={EXPENSE_METHODS.map((method) => ({
+                value: method,
+                label: t(`expenses.methods.${method}`),
+                icon: METHOD_ICONS[method],
+              }))}
+            />
+          </div>
+          <div>
+            <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-zinc-400">
+              <CircleCheck className="h-4 w-4 shrink-0 text-forest-600 dark:text-forest-400" aria-hidden />
+              {t('expenses.form.status')}
+            </p>
+            <div role="radiogroup" aria-label={t('expenses.form.status')} className="grid grid-cols-2 gap-0.5 rounded-lg bg-stone-100 p-0.5 dark:bg-zinc-800">
+              {['paid', 'unpaid'].map((status) => (
+                <button
+                  key={status}
+                  type="button"
+                  role="radio"
+                  aria-checked={form.status === status}
+                  onClick={() => update('status', status)}
+                  className={`min-h-9 rounded-md px-2 py-1.5 text-sm font-medium transition ${
+                    form.status === status
+                      ? 'bg-white text-forest-700 shadow-sm dark:bg-zinc-700 dark:text-forest-300'
+                      : 'text-stone-500 hover:text-stone-800 dark:text-zinc-400 dark:hover:text-zinc-200'
+                  }`}
+                >
+                  {t(`expenses.status.${status}`)}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
