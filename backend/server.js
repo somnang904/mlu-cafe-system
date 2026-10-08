@@ -3373,7 +3373,7 @@ app.delete('/api/expenses/:id', requireExpenseAccess, async (req, res) => {
 // ==========================================
 
 const requireReservationsAccess = requireAnyPermission('reservations', 'table')
-const requireTableManage = requireAnyPermission('table')
+const requireTableManage = requireAdmin
 const requireReportsAccess = requirePermission('reports')
 
 app.get('/api/tables', requireReservationsAccess, async (_req, res) => {
