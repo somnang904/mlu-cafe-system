@@ -1299,7 +1299,7 @@ app.post('/api/orders', requireOrderWriteAccess, async (req, res) => {
             }
             await combineDuplicateLines(conn, id);
             const [lines] = await conn.execute(
-                'SELECT menu_item_id, quantity FROM order_items WHERE order_id = ?',
+                'SELECT menu_item_id, quantity, notes FROM order_items WHERE order_id = ?',
                 [id],
             );
             await reconcileOrderStock(conn, id, lines, req.user?.id ?? null, { blockShortage: true });
@@ -1408,7 +1408,7 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
             }
 
             const [lines] = await conn.execute(
-                'SELECT menu_item_id, quantity, price FROM order_items WHERE order_id = ?',
+                'SELECT menu_item_id, quantity, price, notes FROM order_items WHERE order_id = ?',
                 [orderId],
             );
             if (!lines.length) {
@@ -1928,7 +1928,7 @@ app.put('/api/orders/items', requireOrderWriteAccess, async (req, res) => {
             }
             await combineDuplicateLines(conn, id);
             const [stockLines] = await conn.execute(
-                'SELECT menu_item_id, quantity FROM order_items WHERE order_id = ?',
+                'SELECT menu_item_id, quantity, notes FROM order_items WHERE order_id = ?',
                 [id],
             );
             await reconcileOrderStock(conn, id, stockLines, req.user?.id ?? null, { blockShortage: true });
@@ -3527,7 +3527,7 @@ app.post('/api/tables/merge', requirePosFloorAccess, async (req, res) => {
                 );
                 await combineDuplicateLines(conn, destOrderId);
                 const [mergedLines] = await conn.execute(
-                    'SELECT menu_item_id, quantity FROM order_items WHERE order_id = ?',
+                    'SELECT menu_item_id, quantity, notes FROM order_items WHERE order_id = ?',
                     [destOrderId],
                 );
                 await reconcileOrderStock(conn, destOrderId, mergedLines, req.user?.id ?? null);

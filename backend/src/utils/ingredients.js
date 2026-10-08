@@ -170,13 +170,14 @@ async function listIngredients(db) {
      FROM menu_item_stock_links l
      JOIN inventory i ON i.id = l.inventory_id AND i.is_ingredient = 1
      JOIN menu_items m ON m.id = l.menu_item_id
-     WHERE l.variant = '' AND l.option_key = '' AND l.option_value = ''
      ORDER BY m.name`,
   )
   const usedIn = new Map()
   for (const use of uses) {
     const list = usedIn.get(Number(use.inventory_id)) || []
-    list.push({ menu_item_id: Number(use.menu_item_id), name: use.name, quantity: Number(use.quantity_per_unit) })
+    if (!list.some((entry) => entry.menu_item_id === Number(use.menu_item_id))) {
+      list.push({ menu_item_id: Number(use.menu_item_id), name: use.name, quantity: Number(use.quantity_per_unit) })
+    }
     usedIn.set(Number(use.inventory_id), list)
   }
   const items = rows.map((row) => ({ ...serializeIngredient(row), used_in: usedIn.get(Number(row.id)) || [] }))
@@ -194,13 +195,17 @@ function parseRecipeLines(body) {
   return lines.map((line) => {
     const ingredientId = Number(line?.ingredient_id)
     const quantity = Number(line?.quantity)
+    const variant = line?.variant == null || line.variant === '' ? '' : String(line.variant)
+    if (variant !== '' && variant !== 'hot' && variant !== 'iced') throw httpError(400, 'Serving must be all, hot or iced', 'invalid_variant')
+    const sugar = line?.sugar === true
     if (!Number.isInteger(ingredientId) || ingredientId <= 0) throw httpError(400, 'Choose an ingredient for every line')
     if (typeof line?.quantity === 'boolean' || !Number.isFinite(quantity) || quantity <= 0 || quantity > MAX_RECIPE_QUANTITY) {
       throw httpError(400, `Amount per serving must be more than 0 and at most ${MAX_RECIPE_QUANTITY}`)
     }
-    if (seen.has(ingredientId)) throw httpError(400, 'Each ingredient can appear only once', 'duplicate_ingredient')
-    seen.add(ingredientId)
-    return { ingredient_id: ingredientId, quantity: Math.round(quantity * 1e6) / 1e6 }
+    const key = `${ingredientId}:${variant}`
+    if (seen.has(key)) throw httpError(400, 'Each ingredient can appear only once per serving', 'duplicate_ingredient')
+    seen.add(key)
+    return { ingredient_id: ingredientId, quantity: Math.round(quantity * 1e6) / 1e6, variant, sugar }
   })
 }
 
@@ -208,11 +213,11 @@ async function loadRecipe(conn, menuItemId) {
   const [menus] = await conn.execute('SELECT id, name FROM menu_items WHERE id = ? LIMIT 1', [menuItemId])
   if (!menus.length) throw httpError(404, 'Menu item not found')
   const [rows] = await conn.execute(
-    `SELECT l.inventory_id, l.quantity_per_unit, i.item_name, i.unit_label, i.unit_singular, i.stock_quantity
+    `SELECT l.inventory_id, l.quantity_per_unit, l.variant, l.option_key, i.item_name, i.unit_label, i.unit_singular, i.stock_quantity
      FROM menu_item_stock_links l
      JOIN inventory i ON i.id = l.inventory_id AND i.is_ingredient = 1
-     WHERE l.menu_item_id = ? AND l.variant = '' AND l.option_key = '' AND l.option_value = ''
-     ORDER BY i.item_name`,
+     WHERE l.menu_item_id = ?
+     ORDER BY FIELD(l.variant, '', 'hot', 'iced'), i.item_name`,
     [menuItemId],
   )
   return {
@@ -225,6 +230,8 @@ async function loadRecipe(conn, menuItemId) {
       unit_singular: row.unit_singular,
       stock_quantity: Number(row.stock_quantity),
       quantity: Number(row.quantity_per_unit),
+      variant: row.variant || '',
+      sugar: row.option_key === 'sugar',
     })),
   }
 }
@@ -234,7 +241,7 @@ async function saveRecipe(conn, menuItemId, body) {
   const [menus] = await conn.execute('SELECT id FROM menu_items WHERE id = ? LIMIT 1 FOR UPDATE', [menuItemId])
   if (!menus.length) throw httpError(404, 'Menu item not found')
   if (lines.length) {
-    const ids = lines.map((line) => line.ingredient_id)
+    const ids = [...new Set(lines.map((line) => line.ingredient_id))]
     const [found] = await conn.execute(
       `SELECT id FROM inventory WHERE is_ingredient = 1 AND id IN (${ids.map(() => '?').join(', ')})`,
       ids,
@@ -244,14 +251,14 @@ async function saveRecipe(conn, menuItemId, body) {
   await conn.execute(
     `DELETE l FROM menu_item_stock_links l
      JOIN inventory i ON i.id = l.inventory_id AND i.is_ingredient = 1
-     WHERE l.menu_item_id = ? AND l.variant = '' AND l.option_key = '' AND l.option_value = ''`,
+     WHERE l.menu_item_id = ?`,
     [menuItemId],
   )
   for (const line of lines) {
     await conn.execute(
       `INSERT INTO menu_item_stock_links (menu_item_id, variant, option_key, option_value, inventory_id, quantity_per_unit)
-       VALUES (?, '', '', '', ?, ?)`,
-      [menuItemId, line.ingredient_id, line.quantity],
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [menuItemId, line.variant, line.sugar ? 'sugar' : '', line.sugar ? 'scaled' : '', line.ingredient_id, line.quantity],
     )
   }
   return loadRecipe(conn, menuItemId)

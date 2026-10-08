@@ -394,6 +394,46 @@ async function run() {
     } else {
       console.log(`INFO  refund route returned ${refund.status}; refund restore check skipped`);
     }
+    const mkIng = async (nm, unit, qty) => (await call('POST', '/ingredients', { token, body: { name: `${nm} ${RUN}`, unit_label: unit, quantity: qty } })).body?.item?.id;
+    const vCoffee = await mkIng('E2E V Coffee', 'g', 1000);
+    const vIce = await mkIng('E2E V Ice', 'g', 1000);
+    const vCup = await mkIng('E2E V Cup', 'pcs', 100);
+    const vSugar = await mkIng('E2E V Sugar', 'g', 1000);
+    const badVariant = await call('PUT', `/menu-recipes/${newMenuId}`, { token, body: { lines: [{ ingredient_id: vCoffee, quantity: 1, variant: 'warm' }] } });
+    check('recipe with an unknown serving is 400', badVariant.status === 400, badVariant);
+    const vRecipe = await call('PUT', `/menu-recipes/${newMenuId}`, { token, body: { lines: [
+      { ingredient_id: vCoffee, quantity: 18 },
+      { ingredient_id: vSugar, quantity: 20, sugar: true },
+      { ingredient_id: vCup, quantity: 1, variant: 'hot' },
+      { ingredient_id: vIce, quantity: 100, variant: 'iced' },
+      { ingredient_id: vCup, quantity: 1, variant: 'iced' },
+    ] } });
+    check('recipe with base, hot, iced and sugar lines saves', vRecipe.status === 200 && vRecipe.body?.lines?.length === 5 && vRecipe.body.lines.some((l) => l.sugar === true) && vRecipe.body.lines.some((l) => l.variant === 'iced'), vRecipe);
+    const sellNotes = async (qty, notes) => {
+      const placed = await call('POST', '/orders', { token, body: { target_id: 'takeout', items: [{ menu_item_id: newMenuId, name: menuName, quantity: qty, notes }] } });
+      if (placed.body?.orderId) orderIds.push(placed.body.orderId);
+      const paid = await call('POST', '/orders/checkout', { token, body: { target_id: 'takeout', payment_method: 'Cash' } });
+      return { placed, paid };
+    };
+    const iced = await sellNotes(2, 'Iced · Sugar: 50%');
+    check('iced sale with sugar 50% succeeds', iced.placed.status === 201 && iced.paid.status === 200, iced.placed);
+    check('iced x2 takes 36 g coffee', Number(await dbQty(vCoffee)) === 964, await dbQty(vCoffee));
+    check('iced x2 takes 200 g ice', Number(await dbQty(vIce)) === 800, await dbQty(vIce));
+    check('iced x2 at 50% sugar takes 20 g sugar', Number(await dbQty(vSugar)) === 980, await dbQty(vSugar));
+    check('iced x2 takes 2 cups (iced extra only)', Number(await dbQty(vCup)) === 98, await dbQty(vCup));
+    const hot = await sellNotes(1, 'Hot');
+    check('hot sale succeeds', hot.placed.status === 201 && hot.paid.status === 200, hot.placed);
+    check('hot takes no ice', Number(await dbQty(vIce)) === 800, await dbQty(vIce));
+    check('hot without a sugar level takes the full 20 g sugar', Number(await dbQty(vSugar)) === 960, await dbQty(vSugar));
+    check('hot takes its own cup', Number(await dbQty(vCup)) === 97, await dbQty(vCup));
+    const noSugar = await sellNotes(1, 'Iced · Sugar: 0%');
+    check('iced at 0% sugar takes no sugar', noSugar.paid.status === 200 && Number(await dbQty(vSugar)) === 960, await dbQty(vSugar));
+    const extra = await sellNotes(1, 'Iced · Sugar: 120%');
+    check('iced at 120% sugar takes 24 g sugar', extra.paid.status === 200 && Number(await dbQty(vSugar)) === 936, await dbQty(vSugar));
+    const refundIced = await call('POST', `/orders/${iced.placed.body?.orderId}/refund`, { token, body: { reason: 'E2E variant refund' } });
+    check('refunding the iced sale puts back exactly its ice, cups and sugar', refundIced.status === 200 && Number(await dbQty(vIce)) === 800 && Number(await dbQty(vSugar)) === 956 && Number(await dbQty(vCup)) === 97, { status: refundIced.status, ice: await dbQty(vIce), sugar: await dbQty(vSugar), cup: await dbQty(vCup) });
+    for (const extraId of [vCoffee, vIce, vCup, vSugar]) if (extraId) await call('DELETE', `/ingredients/${extraId}`, { token });
+
     const clearRecipe = await call('PUT', `/menu-recipes/${newMenuId}`, { token, body: { lines: [] } });
     check('clearing a recipe returns 200 with no lines', clearRecipe.status === 200 && clearRecipe.body?.lines?.length === 0, clearRecipe);
     await call('POST', `/ingredients/${id}/adjust`, { token, body: { mode: 'count', quantity: 20 } });

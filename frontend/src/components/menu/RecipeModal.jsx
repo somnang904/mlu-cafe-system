@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ChefHat, Plus, Trash2 } from 'lucide-react'
+import { ChefHat, Coffee, CupSoda, Plus, Trash2, Utensils } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { apiFetch } from '../../services/apiClient'
 import { useModalKeyboard } from '../../hooks/useModalKeyboard'
@@ -8,9 +8,21 @@ import ModalHeader from '../ui/ModalHeader'
 
 let nextKey = 1
 
-function toLine(line) {
+const SECTIONS = [
+  { variant: '', titleKey: 'recipe.sectionBase', hintKey: 'recipe.sectionBaseHint', icon: Utensils },
+  { variant: 'hot', titleKey: 'recipe.sectionHot', hintKey: 'recipe.sectionHotHint', icon: Coffee },
+  { variant: 'iced', titleKey: 'recipe.sectionIced', hintKey: 'recipe.sectionIcedHint', icon: CupSoda },
+]
+
+function toLine(line, variant = '') {
   nextKey += 1
-  return { key: nextKey, ingredientId: line?.ingredient_id ? String(line.ingredient_id) : '', quantity: line?.quantity != null ? String(line.quantity) : '' }
+  return {
+    key: nextKey,
+    ingredientId: line?.ingredient_id ? String(line.ingredient_id) : '',
+    quantity: line?.quantity != null ? String(line.quantity) : '',
+    variant: line?.variant ?? variant,
+    sugar: line?.sugar === true,
+  }
 }
 
 export default function RecipeModal({ menuItemId, displayName, onClose, onSaved }) {
@@ -31,7 +43,7 @@ export default function RecipeModal({ menuItemId, displayName, onClose, onSaved 
         if (!ingredientsRes.ok) throw new Error(list.message || t('recipe.loadFailed'))
         if (cancelled) return
         setIngredients(Array.isArray(list.items) ? list.items : [])
-        setLines((recipe.lines || []).map(toLine))
+        setLines((recipe.lines || []).map((line) => toLine(line)))
       })
       .catch((err) => {
         if (!cancelled) setError(err.message || t('recipe.loadFailed'))
@@ -48,7 +60,7 @@ export default function RecipeModal({ menuItemId, displayName, onClose, onSaved 
   const valid =
     Array.isArray(lines) &&
     lines.every((line) => line.ingredientId && Number(line.quantity) > 0) &&
-    new Set(lines.map((line) => line.ingredientId)).size === lines.length
+    new Set(lines.map((line) => `${line.ingredientId}:${line.variant}`)).size === lines.length
 
   const handleSave = async () => {
     if (!valid || saving) return
@@ -57,7 +69,14 @@ export default function RecipeModal({ menuItemId, displayName, onClose, onSaved 
     try {
       const res = await apiFetch(`/menu-recipes/${menuItemId}`, {
         method: 'PUT',
-        body: JSON.stringify({ lines: lines.map((line) => ({ ingredient_id: Number(line.ingredientId), quantity: Number(line.quantity) })) }),
+        body: JSON.stringify({
+          lines: lines.map((line) => ({
+            ingredient_id: Number(line.ingredientId),
+            quantity: Number(line.quantity),
+            variant: line.variant,
+            sugar: line.sugar,
+          })),
+        }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.message || t('recipe.saveFailed'))
@@ -75,7 +94,7 @@ export default function RecipeModal({ menuItemId, displayName, onClose, onSaved 
       <div
         ref={panelRef}
         tabIndex={-1}
-        className="modal-panel relative z-10 max-h-[90vh] w-full max-w-xl overflow-y-auto"
+        className="modal-panel relative z-10 max-h-[90vh] w-full max-w-2xl overflow-y-auto"
         role="dialog"
         aria-modal="true"
         aria-labelledby="recipe-modal-title"
@@ -86,61 +105,86 @@ export default function RecipeModal({ menuItemId, displayName, onClose, onSaved 
 
           {lines === null && !error ? <p className="text-muted mt-5 text-sm">{t('recipe.loading')}</p> : null}
 
+          {lines !== null
+            ? SECTIONS.map((section) => {
+                const SectionIcon = section.icon
+                const sectionLines = lines.filter((line) => line.variant === section.variant)
+                return (
+                  <section key={section.variant || 'base'} className="mt-5 rounded-2xl border border-stone-200 p-4 dark:border-zinc-700">
+                    <div className="flex items-start gap-2.5">
+                      <SectionIcon className="mt-0.5 h-5 w-5 shrink-0 text-forest-600 dark:text-forest-400" aria-hidden />
+                      <div className="min-w-0">
+                        <p className="text-heading text-sm font-semibold">{t(section.titleKey)}</p>
+                        <p className="text-muted text-2xs leading-snug">{t(section.hintKey)}</p>
+                      </div>
+                    </div>
+                    <div className="mt-3 space-y-2.5">
+                      {sectionLines.map((line) => (
+                        <div key={line.key} className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
+                          <div className="min-w-0 flex-1 basis-full sm:basis-auto">
+                            <IconSelect
+                              value={line.ingredientId}
+                              options={options}
+                              placeholder={t('recipe.chooseIngredient')}
+                              onChange={(value) => updateLine(line.key, { ingredientId: value })}
+                              className="w-full px-3 py-2 text-sm"
+                            />
+                          </div>
+                          <div className="relative w-28 shrink-0">
+                            <input
+                              type="number"
+                              min="0"
+                              step="any"
+                              inputMode="decimal"
+                              value={line.quantity}
+                              onChange={(event) => updateLine(line.key, { quantity: event.target.value })}
+                              aria-label={t('recipe.amountPerServing')}
+                              placeholder="0"
+                              className="input-field w-full py-2 pl-3 pr-10 text-sm tabular-nums"
+                            />
+                            <span className="text-muted pointer-events-none absolute right-3 top-1/2 max-w-[2.5rem] -translate-y-1/2 truncate text-2xs">
+                              {unitOf(line.ingredientId)}
+                            </span>
+                          </div>
+                          <label className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-2.5 py-1.5 text-2xs font-semibold text-slate-600 ring-1 ring-slate-200 dark:text-zinc-300 dark:ring-zinc-700">
+                            <input
+                              type="checkbox"
+                              checked={line.sugar}
+                              onChange={(event) => updateLine(line.key, { sugar: event.target.checked })}
+                              className="h-3.5 w-3.5 rounded border-stone-300 text-forest-600 focus:ring-forest-500"
+                            />
+                            {t('recipe.sugarScaled')}
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setLines((prev) => prev.filter((entry) => entry.key !== line.key))}
+                            aria-label={t('recipe.removeLine')}
+                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-slate-500 transition hover:bg-red-50 hover:text-red-600 dark:text-zinc-400 dark:hover:bg-red-950/50 dark:hover:text-red-400"
+                          >
+                            <Trash2 className="h-4 w-4" aria-hidden />
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => setLines((prev) => [...prev, toLine(null, section.variant)])}
+                        disabled={!ingredients?.length}
+                        className="btn-secondary inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold disabled:opacity-50"
+                      >
+                        <Plus className="h-4 w-4" aria-hidden />
+                        {t('recipe.addLine')}
+                      </button>
+                    </div>
+                  </section>
+                )
+              })
+            : null}
+
           {lines !== null ? (
-            <div className="mt-5 space-y-2.5">
-              {lines.length === 0 ? (
-                <p className="text-muted rounded-xl border border-dashed border-stone-300 px-3 py-4 text-center text-sm dark:border-zinc-700">
-                  {t('recipe.empty')}
-                </p>
-              ) : null}
-              {lines.map((line) => (
-                <div key={line.key} className="flex items-center gap-2">
-                  <div className="min-w-0 flex-1">
-                    <IconSelect
-                      value={line.ingredientId}
-                      options={options}
-                      placeholder={t('recipe.chooseIngredient')}
-                      onChange={(value) => updateLine(line.key, { ingredientId: value })}
-                      className="w-full px-3 py-2 text-sm"
-                    />
-                  </div>
-                  <div className="relative w-32 shrink-0">
-                    <input
-                      type="number"
-                      min="0"
-                      step="any"
-                      inputMode="decimal"
-                      value={line.quantity}
-                      onChange={(event) => updateLine(line.key, { quantity: event.target.value })}
-                      aria-label={t('recipe.amountPerServing')}
-                      placeholder="0"
-                      className="input-field w-full py-2 pl-3 pr-12 text-sm tabular-nums"
-                    />
-                    <span className="text-muted pointer-events-none absolute right-3 top-1/2 max-w-[2.75rem] -translate-y-1/2 truncate text-2xs">
-                      {unitOf(line.ingredientId)}
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setLines((prev) => prev.filter((entry) => entry.key !== line.key))}
-                    aria-label={t('recipe.removeLine')}
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-slate-500 transition hover:bg-red-50 hover:text-red-600 dark:text-zinc-400 dark:hover:bg-red-950/50 dark:hover:text-red-400"
-                  >
-                    <Trash2 className="h-4 w-4" aria-hidden />
-                  </button>
-                </div>
-              ))}
-              <button
-                type="button"
-                onClick={() => setLines((prev) => [...prev, toLine(null)])}
-                disabled={!ingredients?.length}
-                className="btn-secondary inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold disabled:opacity-50"
-              >
-                <Plus className="h-4 w-4" aria-hidden />
-                {t('recipe.addLine')}
-              </button>
-              {ingredients && ingredients.length === 0 ? <p className="text-muted text-xs">{t('recipe.noIngredients')}</p> : null}
+            <div className="mt-4 space-y-1">
               <p className="text-muted text-2xs leading-snug">{t('recipe.baseUnitHint')}</p>
+              <p className="text-muted text-2xs leading-snug">{t('recipe.sugarHint')}</p>
+              {ingredients && ingredients.length === 0 ? <p className="text-muted text-2xs">{t('recipe.noIngredients')}</p> : null}
             </div>
           ) : null}
 

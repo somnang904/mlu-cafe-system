@@ -20,6 +20,20 @@ function httpError(status, message) {
   return error
 }
 
+function lineServing(notes) {
+  const text = String(notes || '')
+  if (/(^|·|\()\s*Iced\b/i.test(text)) return 'iced'
+  if (/(^|·|\()\s*Hot\b/i.test(text)) return 'hot'
+  return ''
+}
+
+function lineSugarFactor(notes) {
+  const match = String(notes || '').match(/Sugar:\s*(\d+(?:\.\d+)?)\s*%/i)
+  if (!match) return 1
+  const pct = Number(match[1])
+  return Number.isFinite(pct) && pct >= 0 && pct <= 200 ? pct / 100 : 1
+}
+
 function planStockDeltas(lines, links, takenByInventory) {
   const linksByMenu = new Map()
   for (const link of links || []) {
@@ -30,7 +44,12 @@ function planStockDeltas(lines, links, takenByInventory) {
     if (!Number.isInteger(inventoryId) || inventoryId <= 0) continue
     if (!Number.isFinite(perUnit) || perUnit <= 0) continue
     const list = linksByMenu.get(menuId) || []
-    list.push({ inventoryId, perUnit })
+    list.push({
+      inventoryId,
+      perUnit,
+      variant: String(link.variant || ''),
+      sugar: String(link.option_key || '') === 'sugar',
+    })
     linksByMenu.set(menuId, list)
   }
 
@@ -39,8 +58,13 @@ function planStockDeltas(lines, links, takenByInventory) {
     const menuId = Number(line.menu_item_id ?? line.menuItemId)
     const qty = Number(line.quantity)
     if (!Number.isInteger(menuId) || menuId <= 0 || !Number.isFinite(qty) || qty <= 0) continue
+    const serving = lineServing(line.notes)
+    const sugarFactor = lineSugarFactor(line.notes)
     for (const link of linksByMenu.get(menuId) || []) {
-      const next = (desired.get(link.inventoryId) || 0) + qty * link.perUnit
+      if (link.variant && link.variant !== serving) continue
+      const amount = link.perUnit * (link.sugar ? sugarFactor : 1)
+      if (!(amount > 0)) continue
+      const next = (desired.get(link.inventoryId) || 0) + qty * amount
       desired.set(link.inventoryId, roundStock(next))
     }
   }
@@ -114,11 +138,13 @@ async function loadDirectLinks(conn, menuIds) {
   if (!menuIds.length) return []
   const placeholders = menuIds.map(() => '?').join(', ')
   const [rows] = await conn.execute(
-    `SELECT l.menu_item_id, l.inventory_id, l.quantity_per_unit, i.is_ingredient
+    `SELECT l.menu_item_id, l.inventory_id, l.quantity_per_unit, l.variant, l.option_key, i.is_ingredient
      FROM menu_item_stock_links l
      JOIN inventory i ON i.id = l.inventory_id
-     WHERE l.variant = '' AND l.option_key = '' AND l.option_value = ''
-       AND (i.archived_at IS NULL OR i.is_ingredient = 1)
+     WHERE (
+         (l.variant = '' AND l.option_key = '' AND l.option_value = '' AND i.archived_at IS NULL)
+         OR i.is_ingredient = 1
+       )
        AND l.menu_item_id IN (${placeholders})`,
     menuIds,
   )
@@ -255,6 +281,8 @@ async function withTransaction(pool, work, { locks = [] } = {}) {
 }
 
 module.exports = {
+  lineServing,
+  lineSugarFactor,
   MAX_STOCK_QUANTITY,
   ADJUST_REASONS,
   roundStock,

@@ -193,3 +193,21 @@ test('stock alerts follow each row low_threshold and point to the right page', (
   assert.equal(alerts[1].action.navigateTo, 'inventory_ingredients')
   assert.equal(alerts[1].severity, 'critical')
 })
+
+test('order notes decide the serving and the sugar factor', () => {
+  const { lineServing, lineSugarFactor, planStockDeltas } = require('../src/utils/stockLedger')
+  assert.equal(lineServing('Iced · Sugar: 50%'), 'iced')
+  assert.equal(lineServing('Hot'), 'hot')
+  assert.equal(lineServing(''), '')
+  assert.equal(lineSugarFactor('Iced · Sugar: 50%'), 0.5)
+  assert.equal(lineSugarFactor('Iced · Sugar: 120%'), 1.2)
+  assert.equal(lineSugarFactor('Hot'), 1)
+  const links = [
+    { menu_item_id: 1, inventory_id: 10, quantity_per_unit: 18, variant: '', option_key: '' },
+    { menu_item_id: 1, inventory_id: 11, quantity_per_unit: 100, variant: 'iced', option_key: '' },
+    { menu_item_id: 1, inventory_id: 12, quantity_per_unit: 20, variant: '', option_key: 'sugar' },
+  ]
+  const deltas = planStockDeltas([{ menu_item_id: 1, quantity: 2, notes: 'Iced · Sugar: 50%' }, { menu_item_id: 1, quantity: 1, notes: 'Hot' }], links, new Map())
+  const byId = Object.fromEntries(deltas.map((d) => [d.inventoryId, d.delta]))
+  assert.deepEqual(byId, { 10: 54, 11: 200, 12: 40 })
+})
