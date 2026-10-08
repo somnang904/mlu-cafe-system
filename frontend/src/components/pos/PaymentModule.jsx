@@ -71,16 +71,6 @@ export default function PaymentModule({ disabled, billTotal = 0, onConfirm }) {
   const cashEntered = parsedReceivedUsd > 0 || parsedReceivedKhr > 0
   const isExactDisabled = isCash && !changeCalculation.isSufficient
 
-  const handleExactCashUsd = () => {
-    setReceivedUsdInput(Number(billTotal).toFixed(2))
-    setReceivedKhrInput('')
-  }
-
-  const handleExactCashKhr = () => {
-    setReceivedUsdInput('')
-    setReceivedKhrInput(String(usdToKhr(billTotal, exchangeRate)))
-  }
-
   const handleConfirm = () => {
     if (disabled || !method) return
     if (isCash && !changeCalculation.isSufficient) return
@@ -202,22 +192,6 @@ export default function PaymentModule({ disabled, billTotal = 0, onConfirm }) {
               <Calculator className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
               {t('payment.cashCalculator', { defaultValue: 'Cash Received & Change' })}
             </p>
-            <div className="flex gap-1.5">
-              <button
-                type="button"
-                onClick={handleExactCashUsd}
-                className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
-              >
-                Exact $
-              </button>
-              <button
-                type="button"
-                onClick={handleExactCashKhr}
-                className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
-              >
-                Exact ៛
-              </button>
-            </div>
           </div>
 
           {/* Cash Inputs Grid */}
@@ -338,7 +312,7 @@ export default function PaymentModule({ disabled, billTotal = 0, onConfirm }) {
         <p className="text-center text-xs font-medium text-amber-700 dark:text-amber-300" role="status">
           {cashEntered
             ? t('payment.needMoreCash', { defaultValue: 'Cash received does not cover the bill yet.' })
-            : t('payment.enterCashFirst', { defaultValue: 'Enter the cash received, or tap Exact $ / Exact ៛.' })}
+            : t('payment.enterCashFirst', { defaultValue: 'Enter the cash received.' })}
         </p>
       )}
       <button

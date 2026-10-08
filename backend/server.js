@@ -2121,15 +2121,21 @@ app.get('/api/orders/history', requireSalesHistoryAccess, async (req, res) => {
         dateFilterParams = [days];
     }
 
+    // Cashiers only see the sales they rang up themselves; admins see everyone's.
+    const ownSalesOnly = !isAdminRole(req.user?.role);
+
     try {
         const query = `
             SELECT ${HISTORY_COLUMNS_SQL}
             FROM orders
-            WHERE (${SALE_STATUS_SQL} AND ${rangeSql('updated_at')})
-               OR (${REFUNDED_STATUS_SQL} AND ${rangeSql(REFUND_DATE_SQL)})
+            WHERE ((${SALE_STATUS_SQL} AND ${rangeSql('updated_at')})
+               OR (${REFUNDED_STATUS_SQL} AND ${rangeSql(REFUND_DATE_SQL)}))
+               ${ownSalesOnly ? 'AND staff_id = ?' : ''}
             ORDER BY updated_at DESC
         `;
-        const [historyRows] = await db.execute(query, [...dateFilterParams, ...dateFilterParams]);
+        const queryParams = [...dateFilterParams, ...dateFilterParams];
+        if (ownSalesOnly) queryParams.push(req.user.id);
+        const [historyRows] = await db.execute(query, queryParams);
 
         if (historyRows.length === 0) {
             return res.status(200).json([]);
@@ -2154,12 +2160,23 @@ app.get('/api/orders/history/page', requireSalesHistoryAccess, async (req, res) 
     const search = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 100) : '';
     const staffId = Number.parseInt(req.query.staff, 10);
     const hasStaff = Number.isInteger(staffId) && staffId > 0;
+    const ownSalesOnly = !isAdminRole(req.user?.role);
     const rangeParams = [range.start, range.endExclusive];
     const periodSql = `((${SALE_STATUS_SQL} AND updated_at >= ? AND updated_at < ?)
         OR (${REFUNDED_STATUS_SQL} AND ${REFUND_DATE_SQL} >= ? AND ${REFUND_DATE_SQL} < ?))`;
     const periodParams = [...rangeParams, ...rangeParams];
-    const inRangeSql = hasStaff ? `${periodSql} AND staff_id = ?` : periodSql;
-    const scopeParams = hasStaff ? [...periodParams, staffId] : periodParams;
+    const staffFilters = [];
+    const staffParams = [];
+    if (hasStaff) {
+        staffFilters.push('staff_id = ?');
+        staffParams.push(staffId);
+    }
+    if (ownSalesOnly) {
+        staffFilters.push('staff_id = ?');
+        staffParams.push(req.user.id);
+    }
+    const inRangeSql = `${periodSql}${staffFilters.length ? ` AND ${staffFilters.join(' AND ')}` : ''}`;
+    const scopeParams = [...periodParams, ...staffParams];
     const whereParams = [...scopeParams];
     let searchSql = '';
     if (search) {
@@ -2189,9 +2206,10 @@ app.get('/api/orders/history/page', requireSalesHistoryAccess, async (req, res) 
              FROM orders o LEFT JOIN users u ON u.id = o.staff_id
              WHERE o.staff_id IS NOT NULL AND ((${saleStatusSql('o')} AND o.updated_at >= ? AND o.updated_at < ?)
                 OR (${refundedStatusSql('o')} AND ${refundDateSql('o')} >= ? AND ${refundDateSql('o')} < ?))
+                ${ownSalesOnly ? 'AND o.staff_id = ?' : ''}
              GROUP BY o.staff_id
              ORDER BY name`,
-            periodParams,
+            ownSalesOnly ? [...periodParams, req.user.id] : periodParams,
         );
         const [[{ total: matching }]] = await db.execute(
             `SELECT COUNT(*) AS total FROM orders WHERE ${inRangeSql}${searchSql}`,

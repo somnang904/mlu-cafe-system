@@ -38,6 +38,7 @@ import { useModalKeyboard } from '../hooks/useModalKeyboard'
 import MergeTableModal from '../components/pos/MergeTableModal'
 import OrderItemsModal from '../components/pos/OrderItemsModal'
 import Tooltip from '../components/ui/Tooltip'
+import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal'
 import IconSelect from '../components/ui/IconSelect'
 import ModalHeader from '../components/ui/ModalHeader'
 import FieldLabel from '../components/ui/FieldLabel'
@@ -883,6 +884,7 @@ function TableCard({
   onClearTable,
   onOpenOrder,
   onEditTable,
+  onDeleteTable,
   mergedNames = [],
 }) {
   const { t } = useTranslation()
@@ -922,7 +924,7 @@ function TableCard({
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-start gap-3">
           <div className="min-w-0">
-            <p className={`flex items-center gap-1.5 text-lg font-bold ${isEmpty ? 'text-emerald-700 dark:text-emerald-400' : 'text-heading'}`}>
+            <p className={`flex flex-wrap items-center gap-x-1.5 gap-y-0.5 whitespace-nowrap text-lg font-bold leading-tight ${isEmpty ? 'text-emerald-700 dark:text-emerald-400' : 'text-heading'}`}>
               {isVip ? (
                 <Crown className="h-4 w-4 shrink-0 text-violet-600 dark:text-violet-300" aria-hidden />
               ) : (
@@ -933,7 +935,7 @@ function TableCard({
               )}
               {floorTableDisplayName(bill, t)}
               {mergedNames.length > 0 ? (
-                <span className="text-base font-semibold text-muted-foreground">+ {mergedNames.join(' + ')}</span>
+                <span className="font-semibold text-muted-foreground">+ {mergedNames.join(' + ')}</span>
               ) : null}
             </p>
             {isPaid && (
@@ -966,6 +968,21 @@ function TableCard({
                 aria-label={t('tables.editTable')}
               >
                 <Pencil className="h-3.5 w-3.5" />
+              </button>
+            </Tooltip>
+          )}
+          {canManageTables && onDeleteTable && isEmpty && (
+            <Tooltip label={t('tables.deleteTable')}>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onDeleteTable(bill)
+                }}
+                className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 shadow-2xs transition hover:border-red-400 hover:text-red-600 hover:bg-red-50 active:scale-95 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:border-red-400 dark:hover:text-red-300 dark:hover:bg-red-950/40"
+                aria-label={t('tables.deleteTable')}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
               </button>
             </Tooltip>
           )}
@@ -1224,6 +1241,7 @@ export default function Table() {
 
   const [showAddModal, setShowAddModal] = useState(false)
   const [editTarget, setEditTarget] = useState(null)
+  const [deleteTarget, setDeleteTarget] = useState(null)
   const [showMergeModal, setShowMergeModal] = useState(false)
   const [transferSource, setTransferSource] = useState(null)
   const [clearTarget, setClearTarget] = useState(null)
@@ -1491,6 +1509,7 @@ export default function Table() {
               onClearTable={setClearTarget}
               onOpenOrder={handleOpenOrder}
               onEditTable={setEditTarget}
+              onDeleteTable={setDeleteTarget}
               mergedNames={mergedNamesByHost[table.id]}
             />
           ))}
@@ -1511,6 +1530,7 @@ export default function Table() {
               onClearTable={setClearTarget}
               onOpenOrder={handleOpenOrder}
               onEditTable={setEditTarget}
+              onDeleteTable={setDeleteTarget}
               mergedNames={mergedNamesByHost[table.id]}
             />
           ))}
@@ -1541,6 +1561,22 @@ export default function Table() {
         onClose={() => setEditTarget(null)}
         onUpdateTable={handleUpdateTable}
         onDeleteTable={handleDeleteTable}
+      />
+
+      <ConfirmDeleteModal
+        isOpen={Boolean(deleteTarget)}
+        title={t('tables.confirmDeleteTableTitle', { table: deleteTarget ? floorTableDisplayName(deleteTarget, t) : '' })}
+        message={t('tables.confirmDeleteTableMessage')}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={async () => {
+          const target = deleteTarget
+          setDeleteTarget(null)
+          try {
+            await handleDeleteTable(target.id)
+          } catch (err) {
+            showToast(err.message || t('tables.errors.deleteTable'))
+          }
+        }}
       />
 
       <TransferTableModal
