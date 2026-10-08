@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronLeft, ChevronRight, Eye, Printer, RotateCcw, Search } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Eye, Printer, RotateCcw, Search, UserRound, Users } from 'lucide-react'
 import ReceiptModal from '../components/pos/ReceiptModal'
 import VoidOrderModal from '../components/pos/VoidOrderModal'
 import PeriodSwitch from '../components/ui/PeriodSwitch'
+import IconSelect from '../components/ui/IconSelect'
 import Tooltip from '../components/ui/Tooltip'
 import SaleDetailsModal from '../components/sales/SaleDetailsModal'
 import PaginationBar from '../components/ui/PaginationBar'
@@ -73,6 +74,8 @@ export default function SalesHistory() {
   const { refundOrder } = usePOS()
   const [search, setSearch] = useState('')
   const [query, setQuery] = useState('')
+  const [cashier, setCashier] = useState('all')
+  const [cashiers, setCashiers] = useState([])
   const todayKey = toDayKey(new Date())
   const [period, setPeriod] = useState('month')
   const [anchor, setAnchor] = useState(todayKey)
@@ -102,7 +105,7 @@ export default function SalesHistory() {
 
   useEffect(() => {
     setPage(0)
-  }, [rangeFrom, rangeTo, query])
+  }, [rangeFrom, rangeTo, query, cashier])
 
   const loadPage = useCallback(async () => {
     const requestId = ++requestRef.current
@@ -110,12 +113,14 @@ export default function SalesHistory() {
     try {
       const params = new URLSearchParams({ from: rangeFrom, to: rangeTo, page: String(page), limit: String(PAGE_SIZE) })
       if (query) params.set('q', query)
+      if (cashier !== 'all') params.set('staff', cashier)
       const response = await apiFetch(`/orders/history/page?${params}`)
       const data = await response.json().catch(() => ({}))
       if (requestId !== requestRef.current) return
       if (!response.ok) throw new Error(data.message || t('sales.loadFailed'))
       setRows((data.rows || []).map(mapHistoryRow))
       setMatching(Number(data.total) || 0)
+      setCashiers(Array.isArray(data.cashiers) ? data.cashiers : [])
       setMonthMetrics({ ...EMPTY_SUMMARY, ...(data.summary || {}) })
       setLoadError('')
     } catch (error) {
@@ -124,7 +129,7 @@ export default function SalesHistory() {
     } finally {
       if (requestId === requestRef.current) setIsLoading(false)
     }
-  }, [rangeFrom, rangeTo, page, query, t])
+  }, [rangeFrom, rangeTo, page, query, cashier, t])
 
   useEffect(() => {
     loadPage()
@@ -317,8 +322,8 @@ export default function SalesHistory() {
         </div>
 
         <div className="table-shell">
-          <div className="border-b border-olive-100/60 p-4 dark:border-olive-800/30">
-            <div className="relative max-w-md">
+          <div className="flex flex-wrap items-center gap-3 border-b border-olive-100/60 p-4 dark:border-olive-800/30">
+            <div className="relative min-w-[12rem] max-w-md flex-1">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
               <input
                 type="text"
@@ -328,6 +333,20 @@ export default function SalesHistory() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="input-field pl-10"
+              />
+            </div>
+            <div className="w-full sm:w-56">
+              <IconSelect
+                value={cashier}
+                options={[
+                  { value: 'all', label: t('sales.allCashiers'), icon: Users },
+                  ...cashiers.map((entry) => ({ value: String(entry.id), label: entry.name, icon: UserRound })),
+                  ...(cashier !== 'all' && !cashiers.some((entry) => String(entry.id) === cashier)
+                    ? [{ value: cashier, label: t('sales.cashierNoSales'), icon: UserRound }]
+                    : []),
+                ]}
+                onChange={setCashier}
+                className="w-full px-3 py-2 text-sm"
               />
             </div>
           </div>
@@ -350,7 +369,7 @@ export default function SalesHistory() {
                       <p className="min-w-0 whitespace-nowrap font-semibold text-forest-600 dark:text-forest-400">
                         {order.id}
                       </p>
-                      <PaymentMethodBadge method={order.payment} bank={order.payment_bank} />
+                      <PaymentMethodBadge method={order.payment} bank={order.payment_bank} bankOnly />
                     </div>
                     <p className="mt-2 min-w-0 break-words text-sm text-stone-600 dark:text-stone-300">
                       {order.source ?? '—'}
@@ -374,7 +393,7 @@ export default function SalesHistory() {
                         )}
                       </div>
                       <div className="flex items-center gap-0.5 rounded-full bg-white/90 p-0.5 shadow-sm ring-1 ring-slate-200 dark:bg-zinc-800/90 dark:ring-zinc-700">
-                        <Tooltip label={t('sales.viewItems')}>
+                        <Tooltip label={t('sales.viewItems')} side="left">
                           <button
                             type="button"
                             onClick={() => setDetailsOrder(order)}
@@ -384,7 +403,7 @@ export default function SalesHistory() {
                             <Eye className="h-4 w-4" aria-hidden />
                           </button>
                         </Tooltip>
-                        <Tooltip label={t('sales.printReceipt')}>
+                        <Tooltip label={t('sales.printReceipt')} side="left">
                           <button
                             type="button"
                             onClick={() => handlePrintReceipt(order)}
@@ -396,7 +415,7 @@ export default function SalesHistory() {
                           </button>
                         </Tooltip>
                         {order.status?.toLowerCase() !== 'refunded' && (
-                          <Tooltip label={t('sales.voidOrderTooltip', { defaultValue: 'Void / Refund Order' })}>
+                          <Tooltip label={t('sales.voidOrderTooltip', { defaultValue: 'Void / Refund Order' })} side="left">
                             <button
                               type="button"
                               onClick={() => setVoidTargetOrder(order)}
@@ -465,7 +484,7 @@ export default function SalesHistory() {
                           <span className="block whitespace-nowrap">{formatTime12Hour(order.time)}</span>
                         </td>
                         <td className="px-2 py-3">
-                          <PaymentMethodBadge method={order.payment} bank={order.payment_bank} />
+                          <PaymentMethodBadge method={order.payment} bank={order.payment_bank} bankOnly />
                         </td>
                         <td className="whitespace-nowrap px-2 py-3 font-semibold tabular-nums text-heading">
                           ${(order.total || 0).toFixed(2)}
@@ -482,7 +501,7 @@ export default function SalesHistory() {
                         </td>
                         <td className="px-2 py-3 text-right">
                           <div className="ml-auto flex w-fit items-center gap-0.5 rounded-full bg-white/90 p-0.5 shadow-sm ring-1 ring-slate-200 dark:bg-zinc-800/90 dark:ring-zinc-700">
-                            <Tooltip label={t('sales.viewItems')}>
+                            <Tooltip label={t('sales.viewItems')} side="left">
                               <button
                                 type="button"
                                 onClick={() => setDetailsOrder(order)}
@@ -492,7 +511,7 @@ export default function SalesHistory() {
                                 <Eye className="h-4 w-4" aria-hidden />
                               </button>
                             </Tooltip>
-                            <Tooltip label={t('sales.printReceipt')}>
+                            <Tooltip label={t('sales.printReceipt')} side="left">
                               <button
                                 type="button"
                                 onClick={() => handlePrintReceipt(order)}
@@ -504,7 +523,7 @@ export default function SalesHistory() {
                               </button>
                             </Tooltip>
                             {order.status?.toLowerCase() !== 'refunded' && (
-                              <Tooltip label={t('sales.voidOrderTooltip', { defaultValue: 'Void / Refund Order' })}>
+                              <Tooltip label={t('sales.voidOrderTooltip', { defaultValue: 'Void / Refund Order' })} side="left">
                                 <button
                                   type="button"
                                   onClick={() => setVoidTargetOrder(order)}

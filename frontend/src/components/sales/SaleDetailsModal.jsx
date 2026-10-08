@@ -40,7 +40,7 @@ export default function SaleDetailsModal({ order, onClose }) {
         />
 
         <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
-          <PaymentMethodBadge method={order.payment} bank={order.payment_bank} />
+          <PaymentMethodBadge method={order.payment} bank={order.payment_bank} bankOnly />
           <span className="text-muted">{t('sales.itemCount', { count: itemCount })}</span>
         </div>
 

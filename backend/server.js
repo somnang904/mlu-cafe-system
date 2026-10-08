@@ -2152,10 +2152,15 @@ app.get('/api/orders/history/page', requireSalesHistoryAccess, async (req, res) 
     const limit = Math.min(SALES_PAGE_MAX, Math.max(1, Number.parseInt(req.query.limit, 10) || 20));
     const page = Math.max(0, Number.parseInt(req.query.page, 10) || 0);
     const search = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 100) : '';
+    const staffId = Number.parseInt(req.query.staff, 10);
+    const hasStaff = Number.isInteger(staffId) && staffId > 0;
     const rangeParams = [range.start, range.endExclusive];
-    const inRangeSql = `((${SALE_STATUS_SQL} AND updated_at >= ? AND updated_at < ?)
+    const periodSql = `((${SALE_STATUS_SQL} AND updated_at >= ? AND updated_at < ?)
         OR (${REFUNDED_STATUS_SQL} AND ${REFUND_DATE_SQL} >= ? AND ${REFUND_DATE_SQL} < ?))`;
-    const whereParams = [...rangeParams, ...rangeParams];
+    const periodParams = [...rangeParams, ...rangeParams];
+    const inRangeSql = hasStaff ? `${periodSql} AND staff_id = ?` : periodSql;
+    const scopeParams = hasStaff ? [...periodParams, staffId] : periodParams;
+    const whereParams = [...scopeParams];
     let searchSql = '';
     if (search) {
         const like = `%${search.replace(/[\%_]/g, (ch) => `\${ch}`)}%`;
@@ -2174,7 +2179,16 @@ app.get('/api/orders/history/page', requireSalesHistoryAccess, async (req, res) 
                 COALESCE(SUM(CASE WHEN ${REFUNDED_STATUS_SQL} AND ${REFUND_DATE_SQL} >= ? AND ${REFUND_DATE_SQL} < ? THEN 1 ELSE 0 END), 0) AS refunded
              FROM orders
              WHERE ${inRangeSql}`,
-            [...rangeParams, ...rangeParams, ...rangeParams, ...rangeParams, ...rangeParams, ...rangeParams],
+            [...rangeParams, ...rangeParams, ...rangeParams, ...rangeParams, ...scopeParams],
+        );
+        const [cashiers] = await db.execute(
+            `SELECT o.staff_id AS id, COALESCE(MAX(u.display_name), MAX(o.staff_name), CONCAT('#', o.staff_id)) AS name
+             FROM orders o LEFT JOIN users u ON u.id = o.staff_id
+             WHERE o.staff_id IS NOT NULL AND ((${saleStatusSql('o')} AND o.updated_at >= ? AND o.updated_at < ?)
+                OR (${refundedStatusSql('o')} AND ${refundDateSql('o')} >= ? AND ${refundDateSql('o')} < ?))
+             GROUP BY o.staff_id
+             ORDER BY name`,
+            periodParams,
         );
         const [[{ total: matching }]] = await db.execute(
             `SELECT COUNT(*) AS total FROM orders WHERE ${inRangeSql}${searchSql}`,
@@ -2192,6 +2206,7 @@ app.get('/api/orders/history/page', requireSalesHistoryAccess, async (req, res) 
             total: Number(matching) || 0,
             page,
             limit,
+            cashiers: cashiers.map((row) => ({ id: Number(row.id), name: row.name })),
             summary: {
                 grossRevenue: gross,
                 refunds,
