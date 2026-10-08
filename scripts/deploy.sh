@@ -45,10 +45,11 @@ git reset --hard --quiet origin/main
 run_build() {
   if command -v systemd-run >/dev/null 2>&1; then
     systemd-run --quiet --pipe --wait --collect \
+      --working-directory="$APP_DIR" \
       -p MemoryMax=700M -p CPUWeight=20 -p OOMScoreAdjust=1000 \
-      /bin/bash -c "$1"
+      /bin/bash -c "cd '$APP_DIR' && $1"
   else
-    nice -n 19 /bin/bash -c "$1"
+    (cd "$APP_DIR" && nice -n 19 /bin/bash -c "$1")
   fi
 }
 
