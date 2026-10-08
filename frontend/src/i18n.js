@@ -1070,6 +1070,7 @@ const resources = {
         restoreAdminRequired: 'Administrator access is required to restore the database.',
       },
       alerts: {
+        markAllRead: 'Mark all as read',
         category: {
           security: 'Security',
           reservation: 'Reservation',
@@ -2824,6 +2825,7 @@ const resources = {
         restoreAdminRequired: 'ត្រូវការសិទ្ធិអ្នកគ្រប់គ្រងដើម្បីស្តារមូលដ្ឋានទិន្នន័យ។',
       },
       alerts: {
+        markAllRead: 'សម្គាល់ថាបានអានទាំងអស់',
         category: {
           security: 'សុវត្ថិភាព',
           reservation: 'ការកក់',

@@ -16,6 +16,7 @@ export default function NotificationBell({ onNavigate }) {
     error,
     refresh,
     markNotificationRead,
+    markAllNotificationsRead,
     lowStockAlertsEnabled,
     loginAlertsEnabled,
   } = useAlerts()
@@ -110,6 +111,17 @@ export default function NotificationBell({ onNavigate }) {
           ref={panelRef}
           className="absolute right-0 top-full z-50 mt-2 w-[22rem] overflow-hidden rounded-2xl border border-border bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900 sm:w-[26rem]"
         >
+          {alerts.some((alert) => alert.notificationId) ? (
+            <div className="flex justify-end border-b border-border/60 px-4 py-2 dark:border-zinc-800">
+              <button
+                type="button"
+                onClick={() => markAllNotificationsRead()}
+                className="rounded-full px-3 py-1 text-xs font-semibold text-forest-700 transition hover:bg-forest-50 dark:text-forest-300 dark:hover:bg-forest-950/40"
+              >
+                {t('alerts.markAllRead')}
+              </button>
+            </div>
+          ) : null}
           <AlertCenter
             alerts={alerts}
             counts={counts}
