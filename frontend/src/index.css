@@ -507,7 +507,6 @@
     filter: brightness(1.2) saturate(1.08) drop-shadow(0 0 16px rgba(16, 185, 129, 0.38));
   }
 
-  
   /* Native date, time, and datetime inputs adapt icon color to theme */
   input[type="date"],
   input[type="time"],

@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useCallback, useMemo } from 'react'
+import { useRef, useEffect, useCallback, useMemo } from 'react'
 import { ChevronUp, ChevronDown } from 'lucide-react'
 
 const ITEM_HEIGHT = 36 // px

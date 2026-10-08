@@ -1,25 +1,77 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Printer, RotateCcw, Search } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Eye, Printer, RotateCcw, Search, UserRound, Users } from 'lucide-react'
 import ReceiptModal from '../components/pos/ReceiptModal'
 import VoidOrderModal from '../components/pos/VoidOrderModal'
-import { SalesFilterBar } from '../components/ui/SalesFilterBar'
+import PeriodSwitch from '../components/ui/PeriodSwitch'
+import IconSelect from '../components/ui/IconSelect'
+import Tooltip from '../components/ui/Tooltip'
+import SaleDetailsModal from '../components/sales/SaleDetailsModal'
+import PaginationBar from '../components/ui/PaginationBar'
+import { apiFetch } from '../services/apiClient'
 import { usePOS } from '../context/POSContext'
 import { fetchReceiptTransaction } from '../utils/receiptHelpers'
-import {
-  DEFAULT_HISTORY_DAYS,
-  buildMonthFilterOptions,
-  filterCompletedOrders,
-  filterOrdersForPeriod,
-  formatMonthLabel,
-  getCurrentMonthKey,
-  summarizeSalesMetrics,
-} from '../utils/salesHistoryAnalytics'
-import { formatOrderDate, formatTime12Hour, sortOrdersByDateTime } from '../utils/dateTimeFormat'
+import { cashPaidIn, formatMonthLabel, mapHistoryRow } from '../utils/salesHistoryAnalytics'
+import { formatKhr, formatUsd, usdToKhr } from '../utils/currency'
+import { addDays, toDayKey } from '../utils/reportRange'
+import { weekdayOfDayKey } from '../utils/phnomPenhTime'
+import { formatOrderDate, formatTime12Hour } from '../utils/dateTimeFormat'
 import PaymentMethodBadge from '../components/common/PaymentMethodBadge'
 import StatusBadge from '../components/common/StatusBadge'
 
-const HISTORY_MONTH_CHOICES = 24
+const PERIODS = ['day', 'week', 'month', 'year', 'custom']
+const PAGE_SIZE = 20
+const EMPTY_SUMMARY = { grossRevenue: 0, refunds: 0, netRevenue: 0, ordersFulfilled: 0, ordersRefunded: 0 }
+const ICON_BUTTON =
+  'flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition focus-visible:outline-2 focus-visible:outline-forest-500'
+
+function pad(value) {
+  return String(value).padStart(2, '0')
+}
+
+function periodRange(period, anchor, customRange) {
+  if (period === 'custom') return customRange
+  if (period === 'day') return { from: anchor, to: anchor }
+  if (period === 'week') {
+    const from = addDays(anchor, -((weekdayOfDayKey(anchor) + 6) % 7))
+    return { from, to: addDays(from, 6) }
+  }
+  const [year, month] = anchor.split('-').map(Number)
+  if (period === 'year') return { from: `${year}-01-01`, to: `${year}-12-31` }
+  return { from: `${anchor.slice(0, 7)}-01`, to: `${anchor.slice(0, 7)}-${pad(new Date(year, month, 0).getDate())}` }
+}
+
+function shiftAnchor(period, anchor, step) {
+  if (period === 'day') return addDays(anchor, step)
+  if (period === 'week') return addDays(anchor, 7 * step)
+  const [year, month] = anchor.split('-').map(Number)
+  if (period === 'year') return `${year + step}-01-01`
+  const next = new Date(year, month - 1 + step, 1)
+  return `${next.getFullYear()}-${pad(next.getMonth() + 1)}-01`
+}
+
+function periodLabel(period, range, t) {
+  if (period === 'month') return formatMonthLabel(range.from.slice(0, 7), t)
+  if (period === 'year') return range.from.slice(0, 4)
+  return range.from === range.to ? range.from : `${range.from} – ${range.to}`
+}
+
+function OrderTotal({ order, align = 'left' }) {
+  const paidIn = cashPaidIn(order)
+  const dollars = formatUsd(order.total)
+  if (paidIn === 'usd') return <span>{dollars}</span>
+  const riel = formatKhr(usdToKhr(order.total, order.exchange_rate || undefined))
+  return (
+    <span className={`inline-flex flex-col leading-tight ${align === 'right' ? 'items-end' : ''}`}>
+      <span>{paidIn === 'khr' ? riel : dollars}</span>
+      <span className="text-muted text-2xs font-medium">
+        {paidIn === 'khr'
+          ? dollars
+          : `${formatUsd(order.received_usd)} + ${formatKhr(order.received_khr)}`}
+      </span>
+    </span>
+  )
+}
 
 const statusStyles = {
   Completed:
@@ -37,86 +89,83 @@ function statusLabel(status, t) {
 
 export default function SalesHistory() {
   const { t } = useTranslation()
-  const { salesHistory, loadSalesHistory, releaseSalesHistoryScope, refundOrder } = usePOS()
+  const { refundOrder } = usePOS()
   const [search, setSearch] = useState('')
-  const [selectedMonth, setSelectedMonth] = useState(() => getCurrentMonthKey())
+  const [query, setQuery] = useState('')
+  const [cashier, setCashier] = useState('all')
+  const [cashiers, setCashiers] = useState([])
+  const todayKey = toDayKey(new Date())
+  const [period, setPeriod] = useState('month')
+  const [anchor, setAnchor] = useState(todayKey)
+  const [customRange, setCustomRange] = useState(() => ({ from: `${todayKey.slice(0, 7)}-01`, to: todayKey }))
+  const [detailsOrder, setDetailsOrder] = useState(null)
   const [receiptTransaction, setReceiptTransaction] = useState(null)
   const [printingOrderId, setPrintingOrderId] = useState(null)
   const [receiptError, setReceiptError] = useState('')
   const [voidTargetOrder, setVoidTargetOrder] = useState(null)
+  const [page, setPage] = useState(0)
+  const [rows, setRows] = useState([])
+  const [matching, setMatching] = useState(0)
+  const [monthMetrics, setMonthMetrics] = useState(EMPTY_SUMMARY)
+  const [isLoading, setIsLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
+  const requestRef = useRef(0)
 
-  const completedHistory = useMemo(
-    () => filterCompletedOrders(salesHistory || []),
-    [salesHistory],
-  )
-
-  const monthOptions = useMemo(
-    () => buildMonthFilterOptions(HISTORY_MONTH_CHOICES, new Date(), t, t('sales.allMonthsInRange')),
-    [t],
-  )
+  const range = useMemo(() => periodRange(period, anchor, customRange), [period, anchor, customRange])
+  const { from: rangeFrom, to: rangeTo } = range
+  const canGoNext = period !== 'custom' && periodRange(period, shiftAnchor(period, anchor, 1), customRange).from <= todayKey
+  const pageCount = Math.max(1, Math.ceil(matching / PAGE_SIZE))
 
   useEffect(() => {
-    async function loadMonthHistory() {
-      try {
-        if (selectedMonth === 'all') {
-          await loadSalesHistory({ days: DEFAULT_HISTORY_DAYS })
-        } else {
-          await loadSalesHistory({ month: selectedMonth })
-        }
-      } catch {
-        // Silent: the next order event or month change reloads it.
-      }
+    const timer = window.setTimeout(() => setQuery(search.trim()), 300)
+    return () => window.clearTimeout(timer)
+  }, [search])
+
+  useEffect(() => {
+    setPage(0)
+  }, [rangeFrom, rangeTo, query, cashier])
+
+  const loadPage = useCallback(async () => {
+    const requestId = ++requestRef.current
+    setIsLoading(true)
+    try {
+      const params = new URLSearchParams({ from: rangeFrom, to: rangeTo, page: String(page), limit: String(PAGE_SIZE) })
+      if (query) params.set('q', query)
+      if (cashier !== 'all') params.set('staff', cashier)
+      const response = await apiFetch(`/orders/history/page?${params}`)
+      const data = await response.json().catch(() => ({}))
+      if (requestId !== requestRef.current) return
+      if (!response.ok) throw new Error(data.message || t('sales.loadFailed'))
+      setRows((data.rows || []).map(mapHistoryRow))
+      setMatching(Number(data.total) || 0)
+      setCashiers(Array.isArray(data.cashiers) ? data.cashiers : [])
+      setMonthMetrics({ ...EMPTY_SUMMARY, ...(data.summary || {}) })
+      setLoadError('')
+    } catch (error) {
+      if (requestId !== requestRef.current) return
+      setLoadError(error.message || t('sales.loadFailed'))
+    } finally {
+      if (requestId === requestRef.current) setIsLoading(false)
     }
+  }, [rangeFrom, rangeTo, page, query, cashier, t])
 
-    loadMonthHistory()
-
+  useEffect(() => {
+    loadPage()
     let channel
     try {
       channel = new BroadcastChannel('mlu-pos-sync')
-      channel.onmessage = () => {
-        loadMonthHistory()
-      }
+      channel.onmessage = () => loadPage()
     } catch {
-      // BroadcastChannel is missing in some browsers; cross-tab sync is optional.
+      channel = null
     }
-
-    window.addEventListener('mlu-order-completed', loadMonthHistory)
-
+    window.addEventListener('mlu-order-completed', loadPage)
     return () => {
-      window.removeEventListener('mlu-order-completed', loadMonthHistory)
+      window.removeEventListener('mlu-order-completed', loadPage)
       if (channel) channel.close()
     }
-  }, [selectedMonth, loadSalesHistory])
+  }, [loadPage])
 
-  useEffect(
-    () => () => {
-      releaseSalesHistoryScope()
-    },
-    [releaseSalesHistoryScope],
-  )
-
-  const monthScopedHistory = useMemo(
-    () => filterOrdersForPeriod(completedHistory, selectedMonth),
-    [completedHistory, selectedMonth],
-  )
-
-  const monthMetrics = useMemo(
-    () => summarizeSalesMetrics(completedHistory, selectedMonth),
-    [completedHistory, selectedMonth],
-  )
-
-  const filteredLogs = useMemo(() => {
-    const searched = monthScopedHistory.filter(
-      (order) =>
-        (order.id || '').toLowerCase().includes(search.toLowerCase()) ||
-        (order.payment || '').toLowerCase().includes(search.toLowerCase()) ||
-        (order.payment_bank || '').toLowerCase().includes(search.toLowerCase()) ||
-        (order.status || '').toLowerCase().includes(search.toLowerCase()) ||
-        (order.source ?? '').toLowerCase().includes(search.toLowerCase()) ||
-        (order.summary || '').toLowerCase().includes(search.toLowerCase()),
-    )
-    return sortOrdersByDateTime(searched, 'desc')
-  }, [monthScopedHistory, search])
+  const filteredLogs = rows
 
   const handlePrintReceipt = async (order) => {
     setPrintingOrderId(order.id)
@@ -134,11 +183,7 @@ export default function SalesHistory() {
 
   const handleConfirmVoid = async (orderId, reason, managerCredentials) => {
     await refundOrder(orderId, reason, managerCredentials)
-    if (selectedMonth === 'all') {
-      await loadSalesHistory({ days: DEFAULT_HISTORY_DAYS })
-    } else {
-      await loadSalesHistory({ month: selectedMonth })
-    }
+    await loadPage()
   }
 
   return (
@@ -146,6 +191,12 @@ export default function SalesHistory() {
       <div>
         <h3 className="text-heading text-lg">{t('nav.salesHistory')}</h3>
       </div>
+
+      {loadError ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800/50 dark:bg-red-950/40 dark:text-red-300">
+          {loadError}
+        </div>
+      ) : null}
 
       {receiptError && (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800/50 dark:bg-red-950/40 dark:text-red-300">
@@ -155,20 +206,99 @@ export default function SalesHistory() {
 
       <div className="space-y-4">
         <div className="surface-card p-4">
-          <SalesFilterBar
-            selectedMonth={selectedMonth}
-            onMonthChange={setSelectedMonth}
-            monthOptions={monthOptions}
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            <PeriodSwitch
+              value={period}
+              onChange={(next) => {
+                setPeriod(next)
+                if (next === 'custom') setCustomRange({ from: rangeFrom, to: rangeTo > todayKey ? todayKey : rangeTo })
+              }}
+              options={PERIODS.map((id) => ({ id, label: t(`sales.periods.${id}`) }))}
+            />
+            {period === 'custom' ? (
+              <>
+                <input
+                  type="date"
+                  value={customRange.from}
+                  max={todayKey}
+                  aria-label={t('reports.startDate')}
+                  onChange={(event) => {
+                    const from = event.target.value
+                    if (!from) return
+                    setCustomRange((current) => ({ from, to: current.to < from ? from : current.to }))
+                  }}
+                  className="input-field h-10 w-auto rounded-full px-3.5 text-sm shadow-sm"
+                />
+                <span className="text-muted" aria-hidden>–</span>
+                <input
+                  type="date"
+                  value={customRange.to}
+                  min={customRange.from}
+                  max={todayKey}
+                  aria-label={t('reports.endDate')}
+                  onChange={(event) => {
+                    const to = event.target.value
+                    if (!to) return
+                    setCustomRange((current) => ({ from: current.from > to ? to : current.from, to }))
+                  }}
+                  className="input-field h-10 w-auto rounded-full px-3.5 text-sm shadow-sm"
+                />
+              </>
+            ) : (
+              <div className="flex items-center gap-1">
+                <Tooltip label={t('sales.previous')}>
+                  <button
+                    type="button"
+                    onClick={() => setAnchor((current) => shiftAnchor(period, current, -1))}
+                    aria-label={t('sales.previous')}
+                    className={`${ICON_BUTTON} h-10 w-10 bg-white shadow-sm ring-1 ring-slate-200 hover:bg-slate-50 dark:bg-zinc-900 dark:ring-zinc-700 dark:hover:bg-zinc-800`}
+                  >
+                    <ChevronLeft className="h-4 w-4" aria-hidden />
+                  </button>
+                </Tooltip>
+                <input
+                  type="date"
+                  value={anchor}
+                  max={todayKey}
+                  aria-label={t('sales.pickDate')}
+                  onChange={(event) => {
+                    if (event.target.value) setAnchor(event.target.value)
+                  }}
+                  className="input-field h-10 w-auto rounded-full px-3.5 text-sm shadow-sm"
+                />
+                <Tooltip label={t('sales.next')}>
+                  <button
+                    type="button"
+                    disabled={!canGoNext}
+                    onClick={() => setAnchor((current) => {
+                      const next = shiftAnchor(period, current, 1)
+                      return next > todayKey ? todayKey : next
+                    })}
+                    aria-label={t('sales.next')}
+                    className={`${ICON_BUTTON} h-10 w-10 bg-white shadow-sm ring-1 ring-slate-200 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-900 dark:ring-zinc-700 dark:hover:bg-zinc-800`}
+                  >
+                    <ChevronRight className="h-4 w-4" aria-hidden />
+                  </button>
+                </Tooltip>
+                {anchor !== todayKey ? (
+                  <button
+                    type="button"
+                    onClick={() => setAnchor(todayKey)}
+                    className="ml-1 rounded-full px-3 py-2 text-xs font-semibold text-forest-700 hover:bg-forest-50 dark:text-forest-300 dark:hover:bg-forest-950/40"
+                  >
+                    {t('sales.today')}
+                  </button>
+                ) : null}
+              </div>
+            )}
+          </div>
           <div className="mt-4 grid gap-3 sm:grid-cols-3 xl:grid-cols-5">
             <div className="surface-inset rounded-xl px-4 py-3">
               <p className="text-muted text-xs uppercase tracking-wider">
                 {t('sales.period', { defaultValue: 'Period' })}
               </p>
               <p className="text-heading mt-1 text-sm font-semibold">
-                {selectedMonth === 'all'
-                  ? t('sales.allMonthsInRange')
-                  : formatMonthLabel(selectedMonth, t)}
+                {periodLabel(period, range, t)}
               </p>
             </div>
             <div className="surface-inset rounded-xl px-4 py-3">
@@ -210,9 +340,9 @@ export default function SalesHistory() {
         </div>
 
         <div className="table-shell">
-          <div className="border-b border-olive-100/60 p-4 dark:border-olive-800/30">
-            <div className="relative max-w-md">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
+          <div className="flex flex-wrap items-center gap-3 border-b border-olive-100/60 p-4 dark:border-olive-800/30">
+            <div className="relative min-w-[12rem] max-w-md flex-1">
+              <Search className="pointer-events-none absolute left-3.5 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-slate-500 dark:text-zinc-400" aria-hidden />
               <input
                 type="text"
                 placeholder={t('sales.searchPlaceholder', {
@@ -223,11 +353,25 @@ export default function SalesHistory() {
                 className="input-field pl-10"
               />
             </div>
+            <div className="w-full sm:w-56">
+              <IconSelect
+                value={cashier}
+                options={[
+                  { value: 'all', label: t('sales.allCashiers'), icon: Users },
+                  ...cashiers.map((entry) => ({ value: String(entry.id), label: entry.name, icon: UserRound })),
+                  ...(cashier !== 'all' && !cashiers.some((entry) => String(entry.id) === cashier)
+                    ? [{ value: cashier, label: t('sales.cashierNoSales'), icon: UserRound }]
+                    : []),
+                ]}
+                onChange={setCashier}
+                className="w-full px-3 py-2 text-sm"
+              />
+            </div>
           </div>
           <div className="lg:hidden">
             {filteredLogs.length === 0 ? (
               <p className="px-4 py-10 text-center text-sm text-stone-500 dark:text-zinc-400">
-                {t('sales.emptyLogs', {
+                {isLoading ? t('common.loading') : t('sales.emptyLogs', {
                   defaultValue: 'No completed orders found for this month and search filter.',
                 })}
               </p>
@@ -243,7 +387,7 @@ export default function SalesHistory() {
                       <p className="min-w-0 whitespace-nowrap font-semibold text-forest-600 dark:text-forest-400">
                         {order.id}
                       </p>
-                      <PaymentMethodBadge method={order.payment} bank={order.payment_bank} />
+                      <PaymentMethodBadge method={order.payment} bank={order.payment_bank} bankOnly />
                     </div>
                     <div className="mt-2 flex min-w-0 items-center justify-between gap-2 text-sm">
                       <p className="min-w-0 break-words text-stone-600 dark:text-stone-300">
@@ -269,7 +413,7 @@ export default function SalesHistory() {
                         <span className="block">{formatOrderDate(order.date)}</span>
                         <span className="block">{formatTime12Hour(order.time)}</span>
                       </p>
-                      <p className="font-semibold tabular-nums text-heading">${(order.total || 0).toFixed(2)}</p>
+                      <p className="font-semibold tabular-nums text-heading"><OrderTotal order={order} align="right" /></p>
                     </div>
                     <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                       <div>
@@ -282,28 +426,40 @@ export default function SalesHistory() {
                           </p>
                         )}
                       </div>
-                      <div className="flex items-center gap-1.5">
-                        {order.status?.toLowerCase() !== 'refunded' && (
+                      <div className="flex items-center gap-0.5 rounded-full bg-white/90 p-0.5 shadow-sm ring-1 ring-slate-200 dark:bg-zinc-800/90 dark:ring-zinc-700">
+                        <Tooltip label={t('sales.viewItems')} side="left">
                           <button
                             type="button"
-                            onClick={() => setVoidTargetOrder(order)}
-                            className="inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-lg border border-red-500/30 bg-red-500/10 px-2.5 py-1.5 text-xs font-semibold text-red-700 transition-colors hover:bg-red-500/20 dark:text-red-300"
-                            title={t('sales.refund', { defaultValue: 'Refund' })}
-                            aria-label={t('sales.refund', { defaultValue: 'Refund' })}
+                            onClick={() => setDetailsOrder(order)}
+                            aria-label={`${t('sales.viewItems')}: ${order.id}`}
+                            className={`${ICON_BUTTON} text-slate-600 hover:bg-forest-50 hover:text-forest-700 dark:text-zinc-300 dark:hover:bg-forest-950/50 dark:hover:text-forest-300`}
                           >
-                            <RotateCcw className="h-3.5 w-3.5 shrink-0" />
+                            <Eye className="h-4 w-4" aria-hidden />
                           </button>
+                        </Tooltip>
+                        <Tooltip label={t('sales.printReceipt')} side="left">
+                          <button
+                            type="button"
+                            onClick={() => handlePrintReceipt(order)}
+                            disabled={isPrinting}
+                            aria-label={`${t('sales.printReceipt')}: ${order.id}`}
+                            className={`${ICON_BUTTON} text-slate-600 hover:bg-slate-100 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50 dark:text-zinc-300 dark:hover:bg-zinc-800`}
+                          >
+                            <Printer className={`h-4 w-4 ${isPrinting ? 'animate-pulse' : ''}`} aria-hidden />
+                          </button>
+                        </Tooltip>
+                        {order.status?.toLowerCase() !== 'refunded' && (
+                          <Tooltip label={t('sales.voidOrderTooltip', { defaultValue: 'Void / Refund Order' })} side="left">
+                            <button
+                              type="button"
+                              onClick={() => setVoidTargetOrder(order)}
+                              aria-label={`${t('sales.refund')}: ${order.id}`}
+                              className={`${ICON_BUTTON} text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/50`}
+                            >
+                              <RotateCcw className="h-4 w-4" aria-hidden />
+                            </button>
+                          </Tooltip>
                         )}
-                        <button
-                          type="button"
-                          onClick={() => handlePrintReceipt(order)}
-                          disabled={isPrinting}
-                          title={t('sales.printReceipt', { defaultValue: 'Print Receipt' })}
-                          aria-label={t('sales.printReceipt', { defaultValue: 'Print Receipt' })}
-                          className="inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-lg border border-border/50 bg-card/50 px-2.5 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-background disabled:cursor-not-allowed disabled:opacity-60 dark:bg-card/30"
-                        >
-                          <Printer className={`h-3.5 w-3.5 shrink-0 ${isPrinting ? 'animate-pulse' : ''}`} />
-                        </button>
                       </div>
                     </div>
                   </article>
@@ -315,12 +471,12 @@ export default function SalesHistory() {
             <table className="w-full table-fixed text-left text-sm">
               <colgroup>
                 <col className="w-[9%]" />
-                <col className="w-[11%]" />
-                <col className="w-[8%]" />
-                <col className="w-[27%]" />
+                <col className="w-[10%]" />
+                <col className="w-[9%]" />
+                <col className="w-[24%]" />
                 <col className="w-[11%]" />
                 <col className="w-[9%]" />
-                <col className="w-[7%]" />
+                <col className="w-[10%]" />
                 <col className="w-[9%]" />
                 <col className="w-[9%]" />
               </colgroup>
@@ -340,8 +496,8 @@ export default function SalesHistory() {
               <tbody className="table-divider">
                 {filteredLogs.length === 0 ? (
                   <tr>
-                    <td colSpan={9}className="px-2 py-10 text-center text-sm text-stone-500 dark:text-zinc-400">
-                      {t('sales.emptyLogs', {
+                    <td colSpan={9} className="px-2 py-10 text-center text-sm text-stone-500 dark:text-zinc-400">
+                      {isLoading ? t('common.loading') : t('sales.emptyLogs', {
                         defaultValue: 'No completed orders found for this month and search filter.',
                       })}
                     </td>
@@ -390,10 +546,10 @@ export default function SalesHistory() {
                           <span className="block whitespace-nowrap">{formatTime12Hour(order.time)}</span>
                         </td>
                         <td className="px-2 py-3">
-                          <PaymentMethodBadge method={order.payment} bank={order.payment_bank} />
+                          <PaymentMethodBadge method={order.payment} bank={order.payment_bank} bankOnly />
                         </td>
                         <td className="whitespace-nowrap px-2 py-3 font-semibold tabular-nums text-heading">
-                          ${(order.total || 0).toFixed(2)}
+                          <OrderTotal order={order} />
                         </td>
                         <td className="px-2 py-3">
                           <StatusBadge className={sStyle}>
@@ -405,29 +561,41 @@ export default function SalesHistory() {
                             </span>
                           )}
                         </td>
-                        <td className="px-2 py-3 text-center">
-                          <div className="flex items-center justify-center gap-1.5">
-                            {order.status?.toLowerCase() !== 'refunded' && (
+                        <td className="px-2 py-3 text-right">
+                          <div className="ml-auto flex w-fit items-center gap-0.5 rounded-full bg-white/90 p-0.5 shadow-sm ring-1 ring-slate-200 dark:bg-zinc-800/90 dark:ring-zinc-700">
+                            <Tooltip label={t('sales.viewItems')} side="left">
                               <button
                                 type="button"
-                                onClick={() => setVoidTargetOrder(order)}
-                                className="inline-flex items-center justify-center whitespace-nowrap rounded-lg border border-red-500/30 bg-red-500/10 px-2.5 py-1.5 text-xs font-semibold text-red-700 transition-colors hover:bg-red-500/20 dark:text-red-300"
-                                title={t('sales.refund', { defaultValue: 'Refund' })}
-                                aria-label={t('sales.refund', { defaultValue: 'Refund' })}
+                                onClick={() => setDetailsOrder(order)}
+                                aria-label={`${t('sales.viewItems')}: ${order.id}`}
+                                className={`${ICON_BUTTON} text-slate-600 hover:bg-forest-50 hover:text-forest-700 dark:text-zinc-300 dark:hover:bg-forest-950/50 dark:hover:text-forest-300`}
                               >
-                                <RotateCcw className="h-3.5 w-3.5 shrink-0" />
+                                <Eye className="h-4 w-4" aria-hidden />
                               </button>
+                            </Tooltip>
+                            <Tooltip label={t('sales.printReceipt')} side="left">
+                              <button
+                                type="button"
+                                onClick={() => handlePrintReceipt(order)}
+                                disabled={isPrinting}
+                                aria-label={`${t('sales.printReceipt')}: ${order.id}`}
+                                className={`${ICON_BUTTON} text-slate-600 hover:bg-slate-100 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50 dark:text-zinc-300 dark:hover:bg-zinc-800`}
+                              >
+                                <Printer className={`h-4 w-4 ${isPrinting ? 'animate-pulse' : ''}`} aria-hidden />
+                              </button>
+                            </Tooltip>
+                            {order.status?.toLowerCase() !== 'refunded' && (
+                              <Tooltip label={t('sales.voidOrderTooltip', { defaultValue: 'Void / Refund Order' })} side="left">
+                                <button
+                                  type="button"
+                                  onClick={() => setVoidTargetOrder(order)}
+                                  aria-label={`${t('sales.refund')}: ${order.id}`}
+                                  className={`${ICON_BUTTON} text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/50`}
+                                >
+                                  <RotateCcw className="h-4 w-4" aria-hidden />
+                                </button>
+                              </Tooltip>
                             )}
-                            <button
-                              type="button"
-                              onClick={() => handlePrintReceipt(order)}
-                              disabled={isPrinting}
-                              title={t('sales.printReceipt', { defaultValue: 'Print Receipt' })}
-                              aria-label={t('sales.printReceipt', { defaultValue: 'Print Receipt' })}
-                              className="inline-flex items-center justify-center whitespace-nowrap rounded-lg border border-border/50 bg-card/50 px-2.5 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-background disabled:cursor-not-allowed disabled:opacity-60 dark:bg-card/30"
-                            >
-                              <Printer className={`h-3.5 w-3.5 shrink-0 ${isPrinting ? 'animate-pulse' : ''}`} />
-                            </button>
                           </div>
                         </td>
                       </tr>
@@ -437,6 +605,12 @@ export default function SalesHistory() {
               </tbody>
             </table>
           </div>
+          <PaginationBar
+            currentPage={Math.min(page, pageCount - 1)}
+            totalPages={pageCount}
+            onPageChange={setPage}
+            className="border-t border-border/60 px-4 py-3"
+          />
         </div>
       </div>
 
@@ -447,6 +621,8 @@ export default function SalesHistory() {
           onClose={() => setReceiptTransaction(null)}
         />
       )}
+
+      <SaleDetailsModal order={detailsOrder} onClose={() => setDetailsOrder(null)} />
 
       {voidTargetOrder && (
         <VoidOrderModal

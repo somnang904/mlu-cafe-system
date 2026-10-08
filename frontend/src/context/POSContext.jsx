@@ -9,8 +9,7 @@ import {
   normalizeBillItem,
   parseMenuItemId,
 } from '../utils/posHelpers'
-import { buildSalesHistoryQuery } from '../utils/salesHistoryAnalytics'
-import { formatOrderDate, formatTime12Hour } from '../utils/dateTimeFormat'
+import { buildSalesHistoryQuery, mapHistoryRow } from '../utils/salesHistoryAnalytics'
 import { phnomPenhDayKey } from '../utils/phnomPenhTime'
 import {
   readActiveOrdersSnapshot,
@@ -19,7 +18,7 @@ import {
   groupActiveRows,
   reconcileActiveOrders,
 } from '../utils/activeOrdersStorage'
-import { getFloorTableLabel, TAKEOUT_BILL } from '../data/tables'
+import { TAKEOUT_BILL } from '../data/tables'
 
 import { apiFetch, getAuthToken } from '../services/apiClient'
 import { readSession } from '../services/sessionStorage'
@@ -178,30 +177,7 @@ export function POSProvider({ children }) {
       if (isStale()) return null
 
       if (historyRows && Array.isArray(historyRows)) {
-        const formattedHistory = historyRows.map((row) => ({
-          id: row.invoice_id || row.id,
-          order_id: row.order_id,
-          staff_id: row.staff_id ?? null,
-          staff_name: row.staff_name ?? null,
-          void_reason: row.void_reason || null,
-          voided_at: row.voided_at || null,
-          refundDate: row.refund_date || null,
-          date: formatOrderDate(row.date || row.created_at),
-          time: formatTime12Hour(row.time || row.created_at),
-          monthKey: row.month_key || (row.date ? String(row.date).slice(0, 7) : null),
-          payment: row.payment_method || 'Cash',
-          payment_bank: row.payment_bank || null,
-          subtotal: parseFloat(row.subtotal || 0),
-          tax: parseFloat(row.tax || 0),
-          total: parseFloat(row.total || 0),
-          status: row.status || 'Completed',
-          source:
-            row.target_id === 'takeout' || row.source_type === 'Take Out'
-              ? 'Take Out'
-              : getFloorTableLabel(row.target_id),
-          summary: row.summary || '',
-          items: row.items || [],
-        }))
+        const formattedHistory = historyRows.map(mapHistoryRow)
         setSalesHistory(formattedHistory)
         return formattedHistory
       }
@@ -1054,6 +1030,8 @@ export function POSProvider({ children }) {
         registerNavigate,
         refreshFloorTables,
         addTable,
+        updateTable,
+        deleteTable,
         transferTable,
         clearTable,
       }}

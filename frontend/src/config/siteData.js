@@ -115,7 +115,7 @@ export function isValidReservationSlot(dateInput, timeSlot, seasonMode = 'auto')
   const minute = Number.parseInt(match[2], 10)
   if (Number.isNaN(hour) || Number.isNaN(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) return false
   const timeMinutes = hour * 60 + minute
-  const season = getSeasonForDate(dateInput, seasonMode)
+  const season = isHighSeasonMonth(dateInput, seasonMode) ? STORE_SCHEDULE.highSeason : STORE_SCHEDULE.lowSeason
   const openMinutes = season.openHour * 60
   const lastReservationMinutes = (season.lastReservationStartHour || 20) * 60 + 30
   return timeMinutes >= openMinutes && timeMinutes <= lastReservationMinutes
