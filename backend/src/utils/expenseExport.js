@@ -75,7 +75,7 @@ async function buildExpenseWorkbook(expenses, filters, categoryName) {
   sheet.addRow([`Expenses - ${filters.period.label}`]).font = { bold: true, size: 13 }
   sheet.addRow([filterNote(filters, categoryName)])
   sheet.addRow([])
-  styleHeader(sheet.addRow(['Date', 'Title', 'Vendor', 'Note', 'Category', 'Method', 'Status', 'Amount', 'Receipt', 'Repeats monthly']))
+  styleHeader(sheet.addRow(['Date', 'Title', 'Vendor', 'Note', 'Category', 'Method', 'Status', 'Amount', 'Riel (as entered)', 'Receipt', 'Repeats monthly']))
   for (const expense of expenses) {
     const row = sheet.addRow([
       expense.expense_date,
@@ -86,10 +86,12 @@ async function buildExpenseWorkbook(expenses, filters, categoryName) {
       METHOD_LABELS[expense.method],
       STATUS_LABELS[expense.status],
       expense.amount,
+      expense.currency === 'KHR' ? expense.amount_khr : null,
       expense.has_receipt ? 'Yes' : 'No',
       expense.is_recurring ? 'Yes' : 'No',
     ])
     row.getCell(8).numFmt = '$#,##0.00'
+    row.getCell(9).numFmt = '#,##0 "KHR"'
   }
   const sum = totals(expenses)
   sheet.addRow([])
@@ -98,7 +100,7 @@ async function buildExpenseWorkbook(expenses, filters, categoryName) {
     row.font = { bold: true }
     row.getCell(8).numFmt = '$#,##0.00'
   }
-  const widths = [12, 26, 22, 30, 16, 14, 10, 12, 9, 15]
+  const widths = [12, 26, 22, 30, 16, 14, 10, 12, 16, 9, 15]
   widths.forEach((width, index) => { sheet.getColumn(index + 1).width = width })
 
   const categories = workbook.addWorksheet('By category')
