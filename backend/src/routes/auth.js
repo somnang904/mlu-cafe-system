@@ -38,7 +38,10 @@ const {
   sessionMetaFromRequest,
 } = require('../utils/userSessions')
 
+const { createPasswordChangeReplayGuard } = require('../utils/passwordChangeReplay')
+
 const publicAuthRouter = express.Router()
+const passwordChangeReplay = createPasswordChangeReplayGuard()
 const privateAuthRouter = express.Router()
 const loginSecurityStore = createMysqlSecurityStore(db)
 
@@ -196,13 +199,20 @@ async function handleChangePassword(req, res) {
     const currentMatches = storedHash
       ? await verifyPassword(currentPassword, storedHash)
       : false
-    // Duplicate click after a successful change: old "current" no longer matches,
-    // but the new password is already stored — treat as success.
-    const newAlreadyStored = storedHash
+    const sessionJti = req.tokenClaims?.jti || null
+    const newAlreadyStored = !currentMatches && storedHash
       ? await verifyPassword(password, storedHash)
       : false
+    const isReplay = newAlreadyStored && passwordChangeReplay.isReplay(row.id, sessionJti)
 
-    if (!currentMatches && !newAlreadyStored) {
+    if (newAlreadyStored && !isReplay) {
+      await connection.rollback()
+      return res.status(400).json({
+        message: 'Choose a new password that is different from your current password.',
+      })
+    }
+
+    if (!currentMatches && !isReplay) {
       await connection.rollback()
       return res.status(400).json({ message: 'Current password is incorrect.' })
     }
@@ -221,7 +231,6 @@ async function handleChangePassword(req, res) {
         [passwordHash, row.id],
       )
     } else {
-      // Idempotent path: password already updated; still clear the force-change flag.
       await connection.execute(
         'UPDATE users SET must_change_password = 0 WHERE id = ?',
         [row.id],
@@ -240,6 +249,7 @@ async function handleChangePassword(req, res) {
     }
     const { token, jti } = await signSessionToken(db, sessionUser)
     await createUserSession(db, { jti, userId: row.id, req })
+    if (currentMatches) passwordChangeReplay.record(row.id, sessionJti)
 
     await writeAuditLog(db, {
       userId: row.id,

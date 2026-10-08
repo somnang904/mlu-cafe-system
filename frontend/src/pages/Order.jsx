@@ -128,6 +128,7 @@ export default function Order() {
   const [selectedDestination, setSelectedDestination] = useState('')
   const [sentConfirmation, setSentConfirmation] = useState(null)
   const [sendPaused, setSendPaused] = useState(false)
+  const [sendRejection, setSendRejection] = useState('')
   const [activeCategory, setActiveCategory] = useState('All')
   // From the Menu page: which categories exist (deleted built-ins are left out) and renamed ones' labels.
   const [menuCategories, setMenuCategories] = useState({ categories: null, labels: {} })
@@ -164,6 +165,7 @@ export default function Order() {
           list.push({
             name: row.item_name,
             stock: Number(row.stock_quantity),
+            status: row.stock_status || null,
           })
           next[row.menu_item_id] = list
         }
@@ -179,7 +181,16 @@ export default function Order() {
         setMenuItems((prev) =>
           prev.map((item) => {
             const fresh = byId.get(Number(item.id))
-            return fresh ? { ...item, stock_left: fresh.stock_left, stock_status: fresh.stock_status } : item
+            return fresh
+              ? {
+                  ...item,
+                  stock_left: fresh.stock_left,
+                  stock_status: fresh.stock_status,
+                  stock_tracked: fresh.stock_tracked,
+                  stock_unlimited: fresh.stock_unlimited,
+                  is_available: fresh.is_available,
+                }
+              : item
           }),
         )
       })
@@ -285,6 +296,35 @@ export default function Order() {
     })
   }, [menuItems, activeCategory, searchQuery, i18n.language, t, menuCategories.labels])
 
+  function stockLeftFor(menuItemId) {
+    const linked = stockByMenu[menuItemId] || []
+    if (!linked.length) {
+      const menuItem = menuItems.find((entry) => Number(entry.id) === Number(menuItemId))
+      return menuItem && menuItem.stock_tracked === false && !menuItem.stock_unlimited ? 0 : Infinity
+    }
+    return Math.min(...linked.map((st) => Number(st.stock)))
+  }
+
+  function hasStockFor(menuItemId, extra) {
+    const left = stockLeftFor(menuItemId)
+    if (left === Infinity) return true
+    const inCart = cart
+      .filter((line) => Number(line.menu_item_id) === Number(menuItemId))
+      .reduce((sum, line) => sum + Number(line.quantity || 0), 0)
+    return inCart + extra <= left
+  }
+
+  function warnNoStock(name, menuItemId) {
+    const left = Math.max(0, stockLeftFor(menuItemId))
+    playAlertSound('critical')
+    pushBanner({
+      title: `${name} — ${left > 0 ? t('order.notEnoughStock') : t('order.outOfStock')}`,
+      message: t('order.stockLeft', { count: left }),
+      tone: 'error',
+      durationMs: 4000,
+    })
+  }
+
   const addToCart = (item, options = {}) => {
     const notes = options.notes != null ? String(options.notes) : item.notes || ''
     const originalName = item.originalName || item.name
@@ -307,18 +347,13 @@ export default function Order() {
     setSentConfirmation(null)
 
     const linkedStock = stockByMenu[menuItemId] || []
-    const outOfStock = linkedStock.find((st) => Number(st.stock) <= 0)
-    const lowStock = linkedStock.find((st) => Number(st.stock) > 0 && Number(st.stock) <= 3)
+    const lowStock = linkedStock.find((st) => Number(st.stock) > 0 && st.status === 'LOW_STOCK')
 
-    if (outOfStock) {
-      playAlertSound('critical')
-      pushBanner({
-        title: `${item.name} — ${t('order.outOfStock') || 'Out of stock'}`,
-        message: `${outOfStock.name} (0 in stock)`,
-        tone: 'error',
-        durationMs: 4000,
-      })
-    } else if (lowStock) {
+    if (!hasStockFor(menuItemId, 1)) {
+      warnNoStock(item.name, menuItemId)
+      return
+    }
+    if (lowStock) {
       playAlertSound('warning')
       pushBanner({
         title: `${item.name} — ${t('order.lowStock') || 'Low stock'}`,
@@ -537,6 +572,13 @@ export default function Order() {
   }, [highlightedId, highlightIndex, pageSize, filterKey])
 
   const updateQuantity = (id, delta) => {
+    if (delta > 0) {
+      const line = cart.find((item) => item.id === id)
+      if (line && !hasStockFor(line.menu_item_id, delta)) {
+        warnNoStock(line.name, line.menu_item_id)
+        return
+      }
+    }
     setSentConfirmation(null)
     setCart((prev) =>
       prev
@@ -554,6 +596,7 @@ export default function Order() {
 
   const handleSendOrder = async () => {
     if (!selectedDestination || cart.length === 0) return
+    setSendRejection('')
     if (!backendReachable) {
       setSendPaused(true)
       return
@@ -561,14 +604,16 @@ export default function Order() {
 
     const target = assignmentTargets.find((entry) => String(entry.id) === selectedDestination)
     const destinationId = target?.isTakeOut ? 'takeout' : Number(selectedDestination)
-    const success = await assignOrder(destinationId, cart)
+    const outcome = await assignOrder(destinationId, cart)
 
-    if (!success) {
-      setSendPaused(true)
+    if (!outcome.ok) {
+      setSendRejection(outcome.message || '')
+      setSendPaused(!outcome.message)
       return
     }
 
     setSendPaused(false)
+    setSendRejection('')
     setCart([])
     setSelectedDestination('')
     loadStockLevels()
@@ -645,6 +690,7 @@ export default function Order() {
                 const showServingButtons = Boolean(hotServing) && Boolean(icedServing)
                 const isHighlighted = Number(highlightedId) === Number(item.id)
                 const stockLevel = stockLevelOf(item)
+                const soldOut = stockLevel === 'out'
 
                 return (
                   <div
@@ -653,12 +699,13 @@ export default function Order() {
                     data-menu-card
                     className={`surface-card group relative flex h-full min-w-0 w-full flex-col items-center p-3 text-center shadow-[0_2px_6px_rgba(40,55,35,0.06),0_8px_24px_rgba(40,55,35,0.10)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_4px_10px_rgba(40,55,35,0.08),0_14px_32px_rgba(40,55,35,0.14)] motion-reduce:hover:translate-y-0 dark:shadow-[0_8px_24px_rgba(0,0,0,0.45)] dark:hover:shadow-[0_14px_32px_rgba(0,0,0,0.55)] sm:p-4 ${
                       isHighlighted ? 'border-forest-500 ring-2 ring-forest-400/70' : 'hover:border-olive-300'
-                    } ${stockLevel === 'out' ? 'opacity-70' : ''} ${showServingButtons ? '' : 'cursor-pointer'}`}
+                    } ${soldOut ? 'pointer-events-none select-none opacity-60 grayscale' : showServingButtons ? '' : 'cursor-pointer'}`}
+                    aria-disabled={soldOut || undefined}
                     onClick={
-                      showServingButtons ? undefined : () => handleMenuItemClick(item)
+                      showServingButtons || soldOut ? undefined : () => handleMenuItemClick(item)
                     }
                     onKeyDown={
-                      showServingButtons
+                      showServingButtons || soldOut
                         ? undefined
                         : (event) => {
                             if (event.key === 'Enter' || event.key === ' ') {
@@ -668,7 +715,7 @@ export default function Order() {
                           }
                     }
                     role={showServingButtons ? undefined : 'button'}
-                    tabIndex={showServingButtons ? undefined : 0}
+                    tabIndex={showServingButtons || soldOut ? undefined : 0}
                   >
                     <div className="flex w-full items-center justify-between gap-1.5">
                       <span className="badge-olive truncate">{categoryLabel(item.category, t, menuCategories.labels)}</span>
@@ -703,6 +750,7 @@ export default function Order() {
                             <button
                               type="button"
                               onClick={() => handleHotServing(item)}
+                              disabled={soldOut}
                               className="min-h-10 min-w-0 whitespace-nowrap rounded-xl bg-forest-500 px-1.5 py-2 text-center text-xs font-semibold text-white shadow-sm transition hover:bg-forest-600 active:scale-[0.98] dark:bg-forest-600 dark:hover:bg-forest-500 sm:px-2 sm:text-sm"
                             >
                               {t('order.serving.hot')}
@@ -713,6 +761,7 @@ export default function Order() {
                             <button
                               type="button"
                               onClick={() => handleColdServing(item)}
+                              disabled={soldOut}
                               className="min-h-10 min-w-0 whitespace-nowrap rounded-xl border border-cocoa-200 bg-cocoa-50 px-1.5 py-2 text-center text-xs font-semibold text-cocoa-800 transition hover:bg-cocoa-100 active:scale-[0.98] dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700 sm:px-2 sm:text-sm"
                             >
                               {t('order.serving.ice')}
@@ -961,6 +1010,10 @@ export default function Order() {
               {!backendReachable || sendPaused ? (
                 <p className="mt-4 text-sm text-amber-800 dark:text-amber-200" role="status">
                   {t('connection.orderPaused')}
+                </p>
+              ) : sendRejection ? (
+                <p className="mt-4 text-sm text-red-700 dark:text-red-300" role="alert">
+                  {sendRejection}
                 </p>
               ) : null}
               {cart.length > 0 && !selectedDestination ? (

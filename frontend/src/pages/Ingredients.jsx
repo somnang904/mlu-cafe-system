@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
-  Boxes,
+  CircleX,
+  ArrowLeftRight,
   Carrot,
   Check,
   ClipboardList,
   Hash,
   History,
+  Package,
   ListFilter,
   Pencil,
   Plus,
@@ -31,27 +33,19 @@ import { localizeDigits } from '../utils/dateTimeFormat'
 const PAGE_SIZE = 10
 const DEFAULT_LOW_THRESHOLD = 5
 
-const CATEGORY_SUGGESTIONS = [
-  { key: 'ingredients.categoryDairy', value: 'Dairy' },
-  { key: 'ingredients.categoryCoffee', value: 'Coffee' },
-  { key: 'ingredients.categoryProduce', value: 'Produce' },
-  { key: 'ingredients.categoryPackaging', value: 'Packaging' },
-  { key: 'ingredients.categoryBarSupplies', value: 'Bar Supplies' },
-  { key: 'ingredients.categoryOther', value: 'Other' },
+const BASE_UNIT_SUGGESTIONS = [
+  { key: 'ingredients.unitG', value: 'g' },
+  { key: 'ingredients.unitMl', value: 'ml' },
+  { key: 'ingredients.unitPcs', value: 'pcs' },
 ]
 
-function categoryLabel(t, category) {
-  const match = CATEGORY_SUGGESTIONS.find((entry) => entry.value.toLowerCase() === String(category || '').trim().toLowerCase())
-  return match ? t(match.key) : category
-}
-
-const UNIT_SUGGESTIONS = [
-  { key: 'ingredients.unitBags', value: 'bags' },
-  { key: 'ingredients.unitBottles', value: 'bottles' },
-  { key: 'ingredients.unitBoxes', value: 'boxes' },
-  { key: 'ingredients.unitKg', value: 'kg' },
-  { key: 'ingredients.unitPacks', value: 'packs' },
-  { key: 'ingredients.unitPieces', value: 'pieces' },
+const PURCHASE_UNIT_SUGGESTIONS = [
+  { key: 'ingredients.purchaseBag', value: 'bag' },
+  { key: 'ingredients.purchaseBox', value: 'box' },
+  { key: 'ingredients.purchaseBottle', value: 'bottle' },
+  { key: 'ingredients.purchaseCarton', value: 'carton' },
+  { key: 'ingredients.purchaseTray', value: 'tray' },
+  { key: 'ingredients.purchasePack', value: 'pack' },
 ]
 
 const STATUS_TONES = {
@@ -99,7 +93,17 @@ function parseAmount(value) {
   return Number(text)
 }
 
+function formatAmount(value, digits = 3) {
+  return localizeDigits(Number(value || 0).toLocaleString('en-US', { maximumFractionDigits: digits }))
+}
+
+function purchaseSizeOf(item) {
+  const size = Number(item?.purchase_size)
+  return item?.purchase_unit && size > 0 ? size : 0
+}
+
 function messageForError(t, data, fallbackKey) {
+  if (data?.code === 'no_purchase_size') return t('ingredients.errors.noPurchaseSize')
   if (data?.code === 'duplicate_name') return t('ingredients.errors.duplicateName')
   if (data?.code === 'invalid_reason') return t('ingredients.errors.invalidReason')
   if (data?.code === 'exceeds_stock') return t('ingredients.errors.exceedsStock')
@@ -234,8 +238,10 @@ function IngredientFormModal({ item, onClose, onSaved }) {
   const panelRef = useModalKeyboard({ isOpen: true, onEscape: onClose, primaryActionMode: 'never' })
   const isEdit = Boolean(item)
   const [name, setName] = useState(item?.item_name || '')
-  const [category, setCategory] = useState(item?.category || '')
+  const category = item?.category || ''
   const [unit, setUnit] = useState(item?.unit_label || '')
+  const [purchaseUnit, setPurchaseUnit] = useState(item?.purchase_unit || '')
+  const [purchaseSize, setPurchaseSize] = useState(item?.purchase_size ? String(Number(item.purchase_size)) : '')
   const [quantity, setQuantity] = useState('')
   const [threshold, setThreshold] = useState(String(item ? item.low_threshold ?? DEFAULT_LOW_THRESHOLD : DEFAULT_LOW_THRESHOLD))
   const [saving, setSaving] = useState(false)
@@ -258,7 +264,20 @@ function IngredientFormModal({ item, onClose, onSaved }) {
       setError(t('ingredients.errors.invalidThreshold'))
       return
     }
-    const body = { name: name.trim(), category: category.trim(), unit_label: unit.trim(), low_threshold: low }
+    const purchase = purchaseUnit.trim()
+    const size = purchase ? parseAmount(purchaseSize) : null
+    if (purchase && !(size > 0)) {
+      setError(t('ingredients.errors.invalidPurchaseSize'))
+      return
+    }
+    const body = {
+      name: name.trim(),
+      category: category.trim() || 'Other',
+      unit_label: unit.trim(),
+      low_threshold: low,
+      purchase_unit: purchase || null,
+      purchase_size: purchase ? size : null,
+    }
     if (!isEdit) {
       const start = quantity.trim() === '' ? 0 : parseAmount(quantity)
       if (start === null) {
@@ -309,23 +328,39 @@ function IngredientFormModal({ item, onClose, onSaved }) {
           />
         </div>
         <ChipField
-          id="ingredients-form-category"
-          icon={Boxes}
-          label={t('ingredients.categoryLabel')}
-          value={category}
-          onChange={setCategory}
-          suggestions={CATEGORY_SUGGESTIONS}
-        />
-        <ChipField
           id="ingredients-form-unit"
           icon={Tag}
-          label={t('ingredients.unitLabel')}
-          hint={t('ingredients.unitHint')}
+          label={t('ingredients.baseUnitLabel')}
+          hint={t('ingredients.baseUnitHint')}
           value={unit}
           onChange={setUnit}
-          suggestions={UNIT_SUGGESTIONS}
+          suggestions={BASE_UNIT_SUGGESTIONS}
           maxLength={30}
         />
+        <ChipField
+          id="ingredients-form-purchase-unit"
+          icon={Package}
+          label={t('ingredients.purchaseUnitLabel')}
+          hint={t('ingredients.purchaseUnitHint')}
+          value={purchaseUnit}
+          onChange={setPurchaseUnit}
+          suggestions={PURCHASE_UNIT_SUGGESTIONS}
+          maxLength={30}
+        />
+        {purchaseUnit.trim() ? (
+          <NumberField
+            id="ingredients-form-purchase-size"
+            icon={Hash}
+            label={t('ingredients.purchaseSizeLabel', {
+              unit: unit.trim() || t('ingredients.baseUnitFallback'),
+              purchase: purchaseUnit.trim(),
+            })}
+            step="any"
+            value={purchaseSize}
+            onChange={setPurchaseSize}
+            suffix={unit.trim()}
+          />
+        ) : null}
         {isEdit ? null : (
           <NumberField
             id="ingredients-form-quantity"
@@ -362,7 +397,9 @@ function AdjustModal({ item, onClose, onSaved }) {
   const onHand = Number(item.stock_quantity ?? 0)
   const unit = item.unit_label || ''
   const [mode, setMode] = useState('add')
+  const purchaseSize = purchaseSizeOf(item)
   const [quantity, setQuantity] = useState('')
+  const [packs, setPacks] = useState('')
   const [reason, setReason] = useState('used')
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
@@ -372,12 +409,21 @@ function AdjustModal({ item, onClose, onSaved }) {
     setMode(next)
     setError('')
     setQuantity(next === 'count' ? String(onHand) : '')
+    setPacks('')
   }
 
   const amount = parseAmount(quantity)
+  const usePacks = mode === 'add' && purchaseSize > 0
+  const packsValue = usePacks && packs.trim() !== '' ? parseAmount(packs) : 0
+  const looseValue = usePacks && quantity.trim() === '' ? 0 : amount
+  const addTotal = (looseValue || 0) + (packsValue || 0) * purchaseSize
   const exceeds = mode === 'remove' && amount !== null && amount > onHand
   const valid =
-    mode === 'count' ? amount !== null : amount !== null && amount > 0 && !exceeds
+    mode === 'count'
+      ? amount !== null
+      : usePacks
+        ? looseValue !== null && packsValue !== null && addTotal > 0
+        : amount !== null && amount > 0 && !exceeds
 
   const handleSubmit = async (event) => {
     event.preventDefault()
@@ -385,7 +431,13 @@ function AdjustModal({ item, onClose, onSaved }) {
     setSaving(true)
     setError('')
     try {
-      const body = { mode, quantity: amount }
+      const body = { mode }
+      if (usePacks) {
+        if (looseValue > 0) body.quantity = looseValue
+        if (packsValue > 0) body.packs = packsValue
+      } else {
+        body.quantity = amount
+      }
       if (mode === 'remove') body.reason = reason
       if (note.trim()) body.note = note.trim()
       const { ok, data } = await sendJson(`/ingredients/${item.id}/adjust`, 'POST', body)
@@ -449,6 +501,24 @@ function AdjustModal({ item, onClose, onSaved }) {
           suffix={unit}
         />
 
+        {usePacks ? (
+          <div>
+            <NumberField
+              id="ingredients-adjust-packs"
+              icon={Package}
+              label={t('ingredients.packsLabel', { purchase: item.purchase_unit })}
+              step="any"
+              value={packs}
+              onChange={setPacks}
+              suffix={item.purchase_unit}
+            />
+            <p className="text-muted mt-1.5 text-2xs leading-snug tabular-nums">
+              {t('ingredients.packOf', { purchase: item.purchase_unit, size: formatAmount(purchaseSize), unit })}
+              {addTotal > 0 ? ` · ${t('ingredients.packsPreview', { count: formatAmount(addTotal), unit })}` : ''}
+            </p>
+          </div>
+        ) : null}
+
         {mode === 'remove' ? (
           <div>
             <p className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-zinc-400">
@@ -494,6 +564,98 @@ function AdjustModal({ item, onClose, onSaved }) {
           onClose={onClose}
           disabled={!valid || saving}
           submitLabel={saving ? t('ingredients.saving') : t('ingredients.saveAmount')}
+        />
+      </form>
+    </Backdrop>
+  )
+}
+
+function ConvertModal({ item, onClose, onSaved }) {
+  const { t } = useTranslation()
+  const panelRef = useModalKeyboard({ isOpen: true, onEscape: onClose, primaryActionMode: 'never' })
+  const onHand = Number(item.stock_quantity ?? 0)
+  const oldUnit = item.unit_label || ''
+  const [newUnit, setNewUnit] = useState('')
+  const [factor, setFactor] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const factorValue = parseAmount(factor)
+  const target = newUnit.trim()
+  const valid = Boolean(target) && factorValue !== null && factorValue > 0
+  const newAmount = valid ? Math.round(onHand * factorValue * 1000) / 1000 : null
+
+  const handleSubmit = async (event) => {
+    event.preventDefault()
+    if (!valid || saving) return
+    setSaving(true)
+    setError('')
+    try {
+      const { ok, data } = await sendJson(`/ingredients/${item.id}/convert`, 'POST', { unit_label: target, factor: factorValue })
+      if (!ok) {
+        setError(messageForError(t, data, 'ingredients.errors.save'))
+        return
+      }
+      onSaved(data.item, t('ingredients.converted'), false)
+    } catch (err) {
+      setError(err.message || t('ingredients.errors.save'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Backdrop panelRef={panelRef} titleId="ingredients-convert-title">
+      <ModalHeader
+        icon={ArrowLeftRight}
+        title={t('ingredients.convertTitle')}
+        subtitle={item.item_name}
+        titleId="ingredients-convert-title"
+        onClose={onClose}
+      />
+      <form onSubmit={handleSubmit} className="mt-5 max-h-[70vh] space-y-4 overflow-y-auto px-0.5">
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-stone-200 px-3 py-2.5 dark:border-obsidian-800">
+          <span className="text-muted text-xs">{t('ingredients.currentAmount')}</span>
+          <span className="text-heading text-sm font-bold tabular-nums">
+            {formatAmount(onHand)} {oldUnit}
+          </span>
+        </div>
+        <ChipField
+          id="ingredients-convert-unit"
+          icon={Tag}
+          label={t('ingredients.convertNewUnit')}
+          value={newUnit}
+          onChange={setNewUnit}
+          suggestions={BASE_UNIT_SUGGESTIONS}
+          maxLength={30}
+          autoFocus
+        />
+        <NumberField
+          id="ingredients-convert-factor"
+          icon={Hash}
+          label={t('ingredients.convertFactor', { old: oldUnit, unit: target || t('ingredients.baseUnitFallback') })}
+          step="any"
+          value={factor}
+          onChange={setFactor}
+          suffix={target}
+        />
+        {newAmount !== null ? (
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-forest-200 bg-forest-50/60 px-3 py-2.5 dark:border-forest-900/60 dark:bg-forest-950/30">
+            <span className="text-muted text-xs">{t('ingredients.convertPreview')}</span>
+            <span className="text-heading text-sm font-bold tabular-nums">
+              {formatAmount(newAmount)} {target}
+            </span>
+          </div>
+        ) : null}
+        <p className="flex items-start gap-2 rounded-xl bg-amber-50 px-3 py-2.5 text-xs leading-snug text-amber-800 ring-1 ring-amber-200 dark:bg-amber-950/30 dark:text-amber-300 dark:ring-amber-900/50">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+          {t('ingredients.convertWarning')}
+        </p>
+        {error ? <p className="text-xs font-medium text-red-600 dark:text-red-400">{error}</p> : null}
+        <ModalActions
+          onClose={onClose}
+          disabled={!valid || saving}
+          submitLabel={saving ? t('ingredients.saving') : t('ingredients.convertSave')}
         />
       </form>
     </Backdrop>
@@ -713,10 +875,28 @@ export default function Ingredients() {
     { value: 'out', label: t('ingredients.filterOut'), icon: AlertTriangle },
   ]
 
-  const summaryChips = [
-    { key: 'total', label: t('ingredients.summaryTotal'), value: counts.total, tone: NEUTRAL_PILL },
-    { key: 'low', label: t('ingredients.summaryLow'), value: counts.low, tone: STATUS_TONES.LOW_STOCK.pill },
-    { key: 'out', label: t('ingredients.summaryOut'), value: counts.out, tone: STATUS_TONES.OUT_OF_STOCK.pill },
+  const summaryCards = [
+    {
+      key: 'total',
+      label: t('ingredients.summaryTotal'),
+      value: counts.total,
+      icon: Package,
+      iconTone: 'text-forest-600 dark:text-forest-400',
+    },
+    {
+      key: 'low',
+      label: t('ingredients.summaryLow'),
+      value: counts.low,
+      icon: AlertTriangle,
+      iconTone: 'text-amber-500 dark:text-amber-400',
+    },
+    {
+      key: 'out',
+      label: t('ingredients.summaryOut'),
+      value: counts.out,
+      icon: CircleX,
+      iconTone: 'text-rose-500 dark:text-rose-400',
+    },
   ]
 
   const openAdd = () => setModal({ type: 'form', item: null })
@@ -742,16 +922,21 @@ export default function Ingredients() {
               <p className="text-muted text-xs">{t('ingredients.subtitle')}</p>
             </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {summaryChips.map((chip) => (
-              <span
-                key={chip.key}
-                className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold leading-none ring-1 ${chip.tone}`}
-              >
-                {chip.label}
-                <span className="tabular-nums">{localizeDigits(chip.value)}</span>
-              </span>
-            ))}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
+            {summaryCards.map((card) => {
+              const Icon = card.icon
+              return (
+                <div key={card.key} className="surface-card flex items-center gap-4 p-4">
+                  <span className={`flex shrink-0 items-center justify-center ${card.iconTone}`}>
+                    <Icon className="h-10 w-10" strokeWidth={1.75} aria-hidden />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-muted truncate text-xs font-semibold uppercase tracking-wide">{card.label}</p>
+                    <p className="text-heading mt-0.5 text-2xl font-bold tabular-nums">{localizeDigits(card.value)}</p>
+                  </div>
+                </div>
+              )
+            })}
           </div>
           <button type="button" onClick={openAdd} className={ADD_BUTTON}>
             <Plus className="h-4 w-4" aria-hidden />
@@ -841,13 +1026,26 @@ export default function Ingredients() {
                     <tr key={item.id} className="table-row hover:bg-stone-50/50 dark:hover:bg-obsidian-900/20">
                       <td className="px-6 py-4">
                         <p className="text-heading text-sm font-semibold">{item.item_name}</p>
-                        {item.category ? <span className="badge-olive mt-1 inline-block">{categoryLabel(t, item.category)}</span> : null}
+                        <p
+                          className="text-muted mt-1 max-w-[18rem] truncate text-2xs"
+                          title={(item.used_in || []).map((use) => use.name).join(', ')}
+                        >
+                          {item.used_in?.length
+                            ? t('recipe.usedIn', { count: localizeDigits(item.used_in.length), names: item.used_in.map((use) => use.name).join(', ') })
+                            : t('recipe.notUsed')}
+                        </p>
                       </td>
                       <td className="px-6 py-4">
                         <p className="text-heading text-sm font-semibold tabular-nums">
-                          {localizeDigits(Number(item.stock_quantity ?? 0))}
+                          {formatAmount(item.stock_quantity ?? 0)}
                           <span className="text-muted ml-1 text-xs font-normal">{item.unit_label}</span>
                         </p>
+                        {purchaseSizeOf(item) ? (
+                          <p className="text-muted mt-0.5 text-2xs tabular-nums">
+                            {'≈ '}
+                            {formatAmount(Number(item.stock_quantity ?? 0) / purchaseSizeOf(item), 1)} {item.purchase_unit}
+                          </p>
+                        ) : null}
                       </td>
                       <td className="px-6 py-4">
                         <Pill tone={tone.pill} dot={tone.dot}>
@@ -875,6 +1073,17 @@ export default function Ingredients() {
                               className={ACTION_BUTTON}
                             >
                               <History className="h-4 w-4" aria-hidden />
+                            </button>
+                          </Tooltip>
+                          <span className="h-4 w-px bg-slate-200 dark:bg-zinc-700" aria-hidden />
+                          <Tooltip label={t('ingredients.convert')} side="left">
+                            <button
+                              type="button"
+                              onClick={() => setModal({ type: 'convert', item })}
+                              aria-label={t('ingredients.convert')}
+                              className={ACTION_BUTTON}
+                            >
+                              <ArrowLeftRight className="h-4 w-4" aria-hidden />
                             </button>
                           </Tooltip>
                           <span className="h-4 w-px bg-slate-200 dark:bg-zinc-700" aria-hidden />
@@ -939,6 +1148,9 @@ export default function Ingredients() {
       ) : null}
       {modal?.type === 'adjust' ? (
         <AdjustModal key={modal.item.id} item={modal.item} onClose={() => setModal(null)} onSaved={applyItem} />
+      ) : null}
+      {modal?.type === 'convert' ? (
+        <ConvertModal key={modal.item.id} item={modal.item} onClose={() => setModal(null)} onSaved={applyItem} />
       ) : null}
       {modal?.type === 'history' ? (
         <HistoryModal key={modal.item.id} item={modal.item} onClose={() => setModal(null)} />

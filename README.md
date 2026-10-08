@@ -299,10 +299,11 @@ the administrator, a temporary password is emailed to `ADMIN_EMAIL` (or written 
 password is rotated and an unread security alert is created for every Admin user so they
 can copy the temporary password from the dashboard bell and help the staff member.
 
-**Rate limiting.** `/api/auth/login` and `/api/auth/forgot-password` allow `LOGIN_ATTEMPT_LIMIT` failed attempts (default
-10) per IP per 15 minutes; successful logins are not counted, so a busy till is never
-locked out by normal use. The rest of `/api` and the backup/restore endpoints have their
-own broader ceilings. Limits are held in memory, which is correct for a single instance —
+**Rate limiting.** Failed logins are limited by the persistent login lockout (4 failures lock that username on that
+device or IP for 30 s, then 2 min, 10 min and 30 min on repeats; 20 failures across all devices lock the username for 15
+minutes; at most one alert email per username every 10 minutes). Successful logins reset the counters, so a busy till is
+never locked out by normal use. The rest of `/api` has a broader per-IP ceiling, and the backup, restore and export
+endpoints are limited per signed-in user. Limits are held in memory, which is correct for a single instance —
 if you scale to several processes, move the store to Redis so the limit is shared.
 
 **Request hygiene.** `helmet` sets the security headers, CORS is restricted to

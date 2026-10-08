@@ -2,7 +2,7 @@ const ExcelJS = require('exceljs')
 const { buildOrderPeriodClause } = require('./backupPeriod')
 
 const PAGE = 500
-const COMPLETED = `UPPER(status) IN ('COMPLETED', 'PAID')`
+const COMPLETED = `UPPER(status) IN ('COMPLETED', 'PAID', 'REFUNDED')`
 const orderPeriod = buildOrderPeriodClause('updated_at')
 const expensePeriod = buildOrderPeriodClause('expense_date')
 const movementPeriod = buildOrderPeriodClause('created_at')
@@ -54,6 +54,7 @@ async function writeSalesSheet(workbook, db, period) {
       { header: 'Total', key: 'total', width: 14, style: { numFmt: '#,##0.00' } },
       { header: 'Status', key: 'status', width: 14 },
       { header: 'Sold at', key: 'soldAt', width: 22 },
+      { header: 'Refunded at', key: 'refundedAt', width: 22 },
     ],
     query: async (lastId) => {
       const [rows] = await db.execute(
@@ -71,7 +72,8 @@ async function writeSalesSheet(workbook, db, period) {
           tax,
           COALESCE(total, total_amount, 0) AS total,
           status,
-          updated_at AS soldAt
+          DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS soldAt,
+          CASE WHEN UPPER(status) = 'REFUNDED' THEN DATE_FORMAT(voided_at, '%Y-%m-%d %H:%i:%s') ELSE NULL END AS refundedAt
         FROM orders
         WHERE ${COMPLETED}${filter.clause} AND id > ?
         ORDER BY id
@@ -101,11 +103,13 @@ async function writeExpensesSheet(workbook, db, period) {
       { header: 'Expense date', key: 'expenseDate', width: 16 },
       { header: 'Recorded by', key: 'recordedBy', width: 18 },
       { header: 'Paid from', key: 'paidFrom', width: 12 },
+      { header: 'Method', key: 'method', width: 14 },
+      { header: 'Status', key: 'status', width: 10 },
     ],
     query: async (lastId) => {
       const [rows] = await db.execute(
         `
-        SELECT id, category, description, amount, expense_date AS expenseDate, created_by_name AS recordedBy, paid_from AS paidFrom
+        SELECT id, category, description, amount, DATE_FORMAT(expense_date, '%Y-%m-%d') AS expenseDate, created_by_name AS recordedBy, paid_from AS paidFrom, method, status
         FROM expenses
         WHERE id > ?${filter.clause}
         ORDER BY id
@@ -184,7 +188,7 @@ async function writeMovementsSheet(workbook, db, period) {
             m.reason,
             m.order_id AS orderId,
             m.note,
-            m.created_at AS createdAt
+            DATE_FORMAT(m.created_at, '%Y-%m-%d %H:%i:%s') AS createdAt
           FROM stock_movements m
           LEFT JOIN inventory i ON i.id = m.inventory_id
           WHERE m.id > ?${filter.clause}

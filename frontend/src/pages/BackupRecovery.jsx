@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   CalendarRange,
@@ -18,7 +18,7 @@ import { useNotifications } from '../context/NotificationContext'
 import Modal from '../components/common/Modal'
 import ModalHeader from '../components/ui/ModalHeader'
 import FieldLabel from '../components/ui/FieldLabel'
-import { apiFetchDownload, apiUpload, saveBlobAsDownload } from '../services/apiClient'
+import { apiFetch, apiFetchDownload, apiUpload, saveBlobAsDownload } from '../services/apiClient'
 import { userHasPermission } from '../utils/permissions'
 
 import { formatMonthYear } from '../utils/dateTimeFormat'
@@ -134,9 +134,24 @@ async function saveWithPicker(blob, filename, type) {
 }
 
 export default function BackupRecovery() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { isAdmin, user, logout } = useAuth()
   const canDownloadBackup = isAdmin || userHasPermission(user, 'backup_recovery')
+  const [autoStatus, setAutoStatus] = useState(null)
+
+  useEffect(() => {
+    if (!isAdmin) return undefined
+    let cancelled = false
+    apiFetch('/system/backup/auto-status')
+      .then(async (res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!cancelled) setAutoStatus(data)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [isAdmin])
   const { pushBanner } = useNotifications()
   const fileInputRef = useRef(null)
   const periodOptions = useMemo(
@@ -266,6 +281,36 @@ export default function BackupRecovery() {
       <div>
         <h3 className="text-heading text-lg">{t('nav.backupRecovery')}</h3>
       </div>
+
+      {isAdmin && autoStatus ? (
+        <div
+          className={`rounded-xl border px-4 py-3 text-sm ${
+            autoStatus.enabled
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-200'
+              : 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200'
+          }`}
+        >
+          <p className="font-semibold">
+            {autoStatus.enabled
+              ? t('backup.autoOn', { hour: String(autoStatus.hour).padStart(2, '0'), keep: autoStatus.keep })
+              : t('backup.autoOff')}
+          </p>
+          <p className="mt-1 text-xs">
+            {autoStatus.last
+              ? t('backup.autoLast', {
+                  when: new Date(autoStatus.last.at).toLocaleString(i18n.language === 'km' ? 'km-KH' : 'en-GB', {
+                    day: 'numeric',
+                    month: 'short',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  }),
+                  size: (autoStatus.last.size / (1024 * 1024)).toFixed(1),
+                })
+              : t('backup.autoNone')}
+          </p>
+          <p className="mt-0.5 break-all text-2xs opacity-80">{t('backup.autoFolder', { folder: autoStatus.directory })}</p>
+        </div>
+      ) : null}
 
       {(statusMessage || errorMessage) && (
         <div

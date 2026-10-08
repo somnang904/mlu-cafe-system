@@ -4,7 +4,6 @@ const nodemailer = require('nodemailer')
 const { env } = require('../config/env')
 const { STORE } = require('../config/store')
 const { LOG_DIR } = require('./logger')
-const { LOCK_RULE } = require('./loginLockoutPolicy')
 
 function smtpIsConfigured() {
   return Boolean(env.smtp.host && env.smtp.user && env.smtp.pass)
@@ -107,7 +106,7 @@ async function sendSecurityAlertEmail(alert) {
   const to = env.adminEmail
   const subject = `${STORE.officialName} — login lockout`
   const text = [
-    `A login on ${STORE.officialName} was locked for ${LOCK_RULE.lockMs / 1000} seconds after ${LOCK_RULE.failures} failed attempts.`,
+    `A login on ${STORE.officialName} was locked after ${alert.failedAttempts} failed attempts.`,
     '',
     `Username: ${alert.username}`,
     `IP address: ${alert.ipAddress}`,

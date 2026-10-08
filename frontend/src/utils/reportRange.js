@@ -2,6 +2,8 @@
 // previousRange() matches the backend's previousPeriod() (backend/src/utils/exportParams.js),
 // so the % on the page and the "Previous" column in an export compare the same days.
 
+import { phnomPenhDayKey, shiftDayKey, weekdayOfDayKey } from './phnomPenhTime'
+
 export const REPORT_PRESETS = ['thisMonth', 'last7', 'custom']
 
 // Up to ~2 months the charts and exports show one bar/row per day; longer ranges go by month.
@@ -12,6 +14,10 @@ function pad(value) {
 }
 
 export function toDayKey(date) {
+  return phnomPenhDayKey(date)
+}
+
+function localKey(date) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 }
 
@@ -21,9 +27,7 @@ export function parseDayKey(key) {
 }
 
 export function addDays(key, days) {
-  const date = parseDayKey(key)
-  date.setDate(date.getDate() + days)
-  return toDayKey(date)
+  return shiftDayKey(key, days)
 }
 
 function lastDayOfMonth(year, month) {
@@ -32,7 +36,7 @@ function lastDayOfMonth(year, month) {
 
 export function isDayKey(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return false
-  return toDayKey(parseDayKey(value)) === value
+  return localKey(parseDayKey(value)) === value
 }
 
 /**
@@ -42,7 +46,7 @@ export function isDayKey(value) {
 export function presetRange(preset, today = new Date()) {
   const to = toDayKey(today)
   if (preset === 'day') return { from: to, to }
-  if (preset === 'week') return { from: addDays(to, -((today.getDay() + 6) % 7)), to }
+  if (preset === 'week') return { from: addDays(to, -((weekdayOfDayKey(to) + 6) % 7)), to }
   if (preset === 'year') return { from: `${to.slice(0, 4)}-01-01`, to }
   if (preset === 'last7') return { from: addDays(to, -6), to }
   return { from: `${to.slice(0, 7)}-01`, to }

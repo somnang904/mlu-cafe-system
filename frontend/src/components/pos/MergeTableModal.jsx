@@ -57,7 +57,7 @@ export default function MergeTableModal({ isOpen, onClose, tables = [], onMerge 
       await onMerge?.(Number(fromTableId), Number(toTableId))
       onClose()
     } catch (err) {
-      setError(err.message || 'Failed to merge tables')
+      setError(err.message || t('tables.mergeFailed'))
     } finally {
       setSubmitting(false)
     }

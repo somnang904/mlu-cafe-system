@@ -1,4 +1,8 @@
+const { registerSchemaReset } = require('./schemaReset');
 let schemaReadyPromise = null;
+registerSchemaReset(() => {
+  schemaReadyPromise = null;
+});
 
 async function columnExists(db, table, column) {
   const [rows] = await db.execute(
@@ -40,6 +44,13 @@ async function ensureInventorySchema(db) {
       const hasPackSize = await columnExists(db, 'inventory', 'pack_size');
       if (!hasPackSize) {
         await db.execute('ALTER TABLE inventory ADD COLUMN pack_size INT NULL');
+      }
+
+      if (!(await columnExists(db, 'inventory', 'purchase_unit'))) {
+        await db.execute('ALTER TABLE inventory ADD COLUMN purchase_unit VARCHAR(20) NULL');
+      }
+      if (!(await columnExists(db, 'inventory', 'purchase_size'))) {
+        await db.execute('ALTER TABLE inventory ADD COLUMN purchase_size DECIMAL(14,6) NULL');
       }
 
       const hasIsIngredient = await columnExists(db, 'inventory', 'is_ingredient');

@@ -98,9 +98,32 @@ export default function Dashboard({ onNavigate }) {
   const [isLoading, setIsLoading] = useState(true)
   const [liveLoading, setLiveLoading] = useState(() => !readLiveConditions())
 
+  const [reloadTick, setReloadTick] = useState(0)
+  const [loadError, setLoadError] = useState('')
+
   useEffect(() => {
     refresh()
   }, [refresh])
+
+  useEffect(() => {
+    const bump = () => setReloadTick((tick) => tick + 1)
+    let channel
+    try {
+      channel = new BroadcastChannel('mlu-pos-sync')
+      channel.onmessage = bump
+    } catch {
+      channel = null
+    }
+    window.addEventListener('mlu-order-completed', bump)
+    const now = new Date()
+    const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 5)
+    const midnightTimer = window.setTimeout(bump, midnight - now)
+    return () => {
+      window.removeEventListener('mlu-order-completed', bump)
+      window.clearTimeout(midnightTimer)
+      if (channel) channel.close()
+    }
+  }, [reloadTick])
 
   useEffect(() => {
     const token = getAuthToken()
@@ -120,9 +143,22 @@ export default function Dashboard({ onNavigate }) {
 
     Promise.all([
       apiFetch(API_PATH, { token })
-        .then((res) => (res.ok ? res.json() : []))
-        .then((data) => (Array.isArray(data) ? data : []))
-        .catch(() => []),
+        .then((res) => {
+          if (!res.ok) {
+            const error = new Error('load failed')
+            error.status = res.status
+            throw error
+          }
+          return res.json()
+        })
+        .then((data) => {
+          if (!cancelled) setLoadError('')
+          return Array.isArray(data) ? data : []
+        })
+        .catch((error) => {
+          if (!cancelled) setLoadError(error.status === 403 ? t('dashboard.noSalesAccess') : t('dashboard.loadFailed'))
+          return []
+        }),
       spendingPromise,
       apiFetch('/menu', { token })
         .then((res) => (res.ok ? res.json() : []))
@@ -174,7 +210,7 @@ export default function Dashboard({ onNavigate }) {
       cancelled = true
       clearInterval(liveInterval)
     }
-  }, [canSeeReports])
+  }, [canSeeReports, reloadTick, t])
 
   const weeklySales = useMemo(() => buildWeeklySalesData(orders), [orders])
   const localizedWeeklySales = useMemo(
@@ -231,12 +267,14 @@ export default function Dashboard({ onNavigate }) {
     })
   }, [orders, menuItems])
 
-  const paymentColors = [chartTheme.primary, chartTheme.secondary]
+  const paymentColors = [chartTheme.primary, chartTheme.secondary, chartTheme.muted]
   const localizedPaymentSplit = useMemo(
     () =>
       paymentSplit.map((entry) => ({
         ...entry,
         name: paymentMethodLabel(entry.name, t),
+        value: Math.max(0, entry.value),
+        amount: entry.value,
       })),
     [paymentSplit, t],
   )
@@ -326,6 +364,12 @@ export default function Dashboard({ onNavigate }) {
       <div>
         <h3 className="page-title">{t('nav.dashboard')}</h3>
       </div>
+
+      {loadError ? (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/40 dark:text-rose-300">
+          {loadError}
+        </div>
+      ) : null}
 
       <LiveConditions
         weather={liveConditions?.weather}
@@ -486,7 +530,7 @@ export default function Dashboard({ onNavigate }) {
                         <span className="text-foreground">{entry.name}</span>
                       </div>
                       <span className="text-heading font-semibold tabular-nums">
-                        ${entry.value.toFixed(2)} ({percent.toFixed(0)}%)
+                        ${entry.amount.toFixed(2)} ({percent.toFixed(0)}%)
                       </span>
                     </div>
                     <div className="h-2 overflow-hidden rounded-full bg-background/80 dark:bg-card/40">

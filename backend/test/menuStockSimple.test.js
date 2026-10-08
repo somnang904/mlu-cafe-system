@@ -10,7 +10,9 @@ const {
   resolveRestock,
   serializeMenuStockRow,
   summarizeMenuStockItems,
+  tombstoneName,
 } = require('../src/utils/menuStockSimple')
+const { buildStockAlerts } = require('../src/utils/alertEngine')
 
 const direct = (menu, inventory, qty) => ({
   menu_item_id: menu, variant: '', option_key: '', option_value: '', inventory_id: inventory, quantity_per_unit: qty,
@@ -121,6 +123,7 @@ test('rows serialize as tracked or untracked', () => {
     category: 'Coffee',
     image_url: null,
     is_available: true,
+    stock_unlimited: false,
     tracked: false,
     inventory_id: null,
     stock_quantity: null,
@@ -169,4 +172,42 @@ test('remove mode needs a positive amount, a reason and enough on hand', () => {
   assert.throws(() => resolveRestock({ mode: 'remove', quantity: 2 }, row), (error) => error.code === 'invalid_reason')
   assert.throws(() => resolveRestock({ mode: 'remove', quantity: 2, reason: 'other' }, row), (error) => error.code === 'invalid_reason')
   assert.throws(() => resolveRestock({ mode: 'remove', quantity: 11, reason: 'mistake' }, row), (error) => error.code === 'exceeds_stock')
+})
+
+test('a removed row gets a unique tombstone name that fits 100 characters', () => {
+  assert.equal(tombstoneName('Milk', 7), 'Milk [removed 7]')
+  assert.equal(tombstoneName('Milk [removed 7]', 7), 'Milk [removed 7]')
+  assert.equal(tombstoneName('x'.repeat(100), 12).length, 100)
+})
+
+test('stock alerts follow each row low_threshold and point to the right page', () => {
+  const alerts = buildStockAlerts([
+    { id: 1, item_name: 'Latte', stock: 10, max_stock: 50, low_threshold: 5 },
+    { id: 2, item_name: 'Cake', stock: 4, max_stock: 50, low_threshold: 5 },
+    { id: 3, item_name: 'Milk', stock: 0, max_stock: 50, low_threshold: 2, is_ingredient: true },
+    { id: 4, item_name: 'Sugar', stock: 6, max_stock: 50, low_threshold: 0, critical_threshold: 8 },
+  ])
+  assert.deepEqual(alerts.map((a) => a.id), ['stock-2', 'stock-3', 'stock-4'])
+  assert.equal(alerts[0].action.label, 'Restock Cake')
+  assert.equal(alerts[0].action.navigateTo, 'inventory')
+  assert.equal(alerts[1].action.navigateTo, 'inventory_ingredients')
+  assert.equal(alerts[1].severity, 'critical')
+})
+
+test('order notes decide the serving and the sugar factor', () => {
+  const { lineServing, lineSugarFactor, planStockDeltas } = require('../src/utils/stockLedger')
+  assert.equal(lineServing('Iced · Sugar: 50%'), 'iced')
+  assert.equal(lineServing('Hot'), 'hot')
+  assert.equal(lineServing(''), '')
+  assert.equal(lineSugarFactor('Iced · Sugar: 50%'), 0.5)
+  assert.equal(lineSugarFactor('Iced · Sugar: 120%'), 1.2)
+  assert.equal(lineSugarFactor('Hot'), 1)
+  const links = [
+    { menu_item_id: 1, inventory_id: 10, quantity_per_unit: 18, variant: '', option_key: '' },
+    { menu_item_id: 1, inventory_id: 11, quantity_per_unit: 100, variant: 'iced', option_key: '' },
+    { menu_item_id: 1, inventory_id: 12, quantity_per_unit: 20, variant: '', option_key: 'sugar' },
+  ]
+  const deltas = planStockDeltas([{ menu_item_id: 1, quantity: 2, notes: 'Iced · Sugar: 50%' }, { menu_item_id: 1, quantity: 1, notes: 'Hot' }], links, new Map())
+  const byId = Object.fromEntries(deltas.map((d) => [d.inventoryId, d.delta]))
+  assert.deepEqual(byId, { 10: 54, 11: 200, 12: 40 })
 })

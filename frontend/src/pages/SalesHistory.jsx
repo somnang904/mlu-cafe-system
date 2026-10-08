@@ -8,7 +8,7 @@ import { usePOS } from '../context/POSContext'
 import { fetchReceiptTransaction } from '../utils/receiptHelpers'
 import {
   DEFAULT_HISTORY_DAYS,
-  buildDynamicMonthFilterOptions,
+  buildMonthFilterOptions,
   filterCompletedOrders,
   filterOrdersForPeriod,
   formatMonthLabel,
@@ -18,6 +18,8 @@ import {
 import { formatOrderDate, formatTime12Hour, sortOrdersByDateTime } from '../utils/dateTimeFormat'
 import PaymentMethodBadge from '../components/common/PaymentMethodBadge'
 import StatusBadge from '../components/common/StatusBadge'
+
+const HISTORY_MONTH_CHOICES = 24
 
 const statusStyles = {
   Completed:
@@ -35,7 +37,7 @@ function statusLabel(status, t) {
 
 export default function SalesHistory() {
   const { t } = useTranslation()
-  const { salesHistory, loadSalesHistory, refundOrder } = usePOS()
+  const { salesHistory, loadSalesHistory, releaseSalesHistoryScope, refundOrder } = usePOS()
   const [search, setSearch] = useState('')
   const [selectedMonth, setSelectedMonth] = useState(() => getCurrentMonthKey())
   const [receiptTransaction, setReceiptTransaction] = useState(null)
@@ -49,15 +51,8 @@ export default function SalesHistory() {
   )
 
   const monthOptions = useMemo(
-    () =>
-      buildDynamicMonthFilterOptions(
-        completedHistory,
-        [],
-        new Date(),
-        t,
-        t('sales.allMonthsInRange'),
-      ),
-    [completedHistory, t],
+    () => buildMonthFilterOptions(HISTORY_MONTH_CHOICES, new Date(), t, t('sales.allMonthsInRange')),
+    [t],
   )
 
   useEffect(() => {
@@ -92,6 +87,13 @@ export default function SalesHistory() {
       if (channel) channel.close()
     }
   }, [selectedMonth, loadSalesHistory])
+
+  useEffect(
+    () => () => {
+      releaseSalesHistoryScope()
+    },
+    [releaseSalesHistoryScope],
+  )
 
   const monthScopedHistory = useMemo(
     () => filterOrdersForPeriod(completedHistory, selectedMonth),

@@ -98,11 +98,6 @@ export function normalizePermissions(rawPermissions) {
 }
 
 /** @deprecated Use normalizePermissions */
-export function permissionsWithinCeiling(role, rawPermissions) {
-  if (isAdminRole(role)) return [...VALID_PERMISSIONS]
-  return normalizePermissions(rawPermissions)
-}
-
 export function permissionOptionsForRole() {
   return PERMISSION_OPTIONS
 }
@@ -158,6 +153,3 @@ export function getDefaultViewForUser(user) {
   return accessible[0] || 'order'
 }
 
-export function getPermissionLabel(permissionId) {
-  return PERMISSION_OPTIONS.find((option) => option.id === permissionId)?.label || permissionId
-}

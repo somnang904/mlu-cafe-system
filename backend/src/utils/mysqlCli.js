@@ -27,10 +27,33 @@ function findLaragonMysqlBin() {
   return null
 }
 
+function findWampMysqlBin() {
+  const roots = [process.env.WAMP_ROOT, 'C:\\wamp64', 'C:\\wamp'].filter(Boolean)
+  const tool = process.platform === 'win32' ? 'mysqldump.exe' : 'mysqldump'
+  for (const root of roots) {
+    for (const engine of ['mariadb', 'mysql']) {
+      const engineRoot = path.join(root, 'bin', engine)
+      if (!fs.existsSync(engineRoot)) continue
+      const versions = fs.readdirSync(engineRoot, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name)
+        .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))
+      for (const version of versions) {
+        const binDir = path.join(engineRoot, version, 'bin')
+        if (fs.existsSync(path.join(binDir, tool))) return binDir
+      }
+    }
+  }
+  return null
+}
+
 function resolveMysqlBinDir() {
   if (process.env.MYSQL_BIN && fs.existsSync(process.env.MYSQL_BIN)) {
     return process.env.MYSQL_BIN
   }
+
+  const wampBin = findWampMysqlBin()
+  if (wampBin) return wampBin
 
   const laragonBin = findLaragonMysqlBin()
   if (laragonBin) return laragonBin

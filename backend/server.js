@@ -1,3 +1,4 @@
+process.env.TZ = 'Asia/Phnom_Penh';
 const { assertRequiredEnv, env } = require('./src/config/env');
 const { STORE } = require('./src/config/store');
 assertRequiredEnv();
@@ -16,6 +17,9 @@ const {
     createPendingOrder,
     insertOrderItem,
     validateOrderLine,
+    withLineQuantities,
+    assertItemsOnSale,
+    INVOICE_LOCK_NAME,
     logOrderError,
     pendingOrderWhereClause,
     resolveTableForeignKey,
@@ -58,8 +62,9 @@ const { exportBusinessDataFile } = require('./src/utils/backupExport');
 const { createSalesPdf } = require('./src/utils/salesPdf');
 const { createReportExport } = require('./src/utils/reportExport');
 const { refundDateSql, refundedStatusSql, saleStatusSql } = require('./src/utils/salesTotals');
-const { createDownloadDump, pipeDownload, restoreDatabaseFromFile } = require('./src/utils/backupSql');
-const { ensureApplicationSchema } = require('./src/utils/ensureAppSchema');
+const { createDownloadDump, pipeDownload, restoreDatabaseFromFile, backupDirectory, writeFullDump, uniqueSqlName } = require('./src/utils/backupSql');
+const { startAutoBackup, autoBackupStatus } = require('./src/utils/autoBackup');
+const { ensureApplicationSchema, refreshApplicationSchemaAfterRestore } = require('./src/utils/ensureAppSchema');
 const { applyStocktake, stocktakeNote, buildStocktakeWorkbook } = require('./src/utils/stocktake');
 const { isUnderMaintenance, maintenanceMessage } = require('./src/utils/maintenance');
 const { parseBackupPeriod, buildBackupFilename } = require('./src/utils/backupPeriod');
@@ -72,7 +77,7 @@ const {
     menuCategoryFieldSql,
     renameMenuCategory,
     resolveMenuCategory,
-    normalizeMenuImageUrl,
+    parseMenuImageUrl,
     normalizeMenuPrices,
     serializeMenuItem,
     MENU_ITEM_SELECT,
@@ -85,7 +90,7 @@ const {
     parseOptionalAvailability,
 } = require('./src/utils/menuLifecycle');
 const { buildSalesReport } = require('./src/utils/reports');
-const { ensureInventorySchema } = require('./src/utils/inventorySchema');
+const { ensureInventorySchema, resolveStockStatus } = require('./src/utils/inventorySchema');
 const { createInventoryItem, editInventoryItem } = require('./src/utils/inventoryItems');
 const { ensureStockSchema } = require('./src/utils/stockSchema');
 const {
@@ -103,6 +108,7 @@ const {
     restockMenuItem,
     updateMenuStockSettings,
     untrackMenuItem,
+    syncTrackedStockName,
     archiveInventoryOnlyLinkedTo,
 } = require('./src/utils/menuStockSimple');
 const {
@@ -113,6 +119,9 @@ const {
     updateIngredient,
     adjustIngredient,
     removeIngredient,
+    loadRecipe,
+    saveRecipe,
+    convertIngredient,
 } = require('./src/utils/ingredients');
 const {
     assertRefundable,
@@ -154,6 +163,7 @@ const { publicAuthRouter, privateAuthRouter, rejectPublicSignup } = require('./s
 const {
     listUnreadUserAlerts,
     markNotificationRead,
+    markAllNotificationsRead,
     ensureAdminNotificationsSchema,
     notifyAdminsOfExpense,
 } = require('./src/utils/adminNotifications');
@@ -167,6 +177,7 @@ const {
     updateReservation,
     checkInReservation,
     deleteReservation,
+    completeSeatedReservationsForTable,
     getAvailableTables,
     getLiveFloorReservations,
     TIME_SLOTS,
@@ -862,7 +873,7 @@ app.delete('/api/menu/categories/:name', requirePermission('menu'), async (req, 
         res.status(200).json({ moved, ...(await getMenuCategories(db)) });
     } catch (error) {
         if (error.status) {
-            return res.status(error.status).json({ message: error.message, code: error.code, count: error.count });
+            return res.status(error.status).json({ message: error.message, code: error.code, count: error.count, names: error.names });
         }
         console.error('Error deleting menu category:', error);
         res.status(500).json({ message: 'Failed to delete the category' });
@@ -882,6 +893,7 @@ app.get('/api/menu', async (req, res) => {
             ...serializeMenuItem(item, now),
             stock_left: stock.get(Number(item.id))?.stock_left ?? null,
             stock_status: stock.get(Number(item.id))?.stock_status ?? null,
+            stock_tracked: stock.has(Number(item.id)),
         })));
     } catch (error) {
         console.error("Error fetching menu items:", error);
@@ -896,6 +908,7 @@ app.post('/api/menu', requirePermission('menu'), async (req, res) => {
     const prices = normalizeMenuPrices(req.body ?? {}, category);
     const nameCheck = normalizeMenuItemName(req.body?.name);
     const availability = parseOptionalAvailability(req.body?.is_available);
+    const imageCheck = parseMenuImageUrl(image_url);
 
     if (nameCheck.code === 'too_long') {
         return res.status(400).json({ message: nameCheck.error, code: nameCheck.code });
@@ -906,10 +919,13 @@ app.post('/api/menu', requirePermission('menu'), async (req, res) => {
     if (availability.error) {
         return res.status(400).json({ message: availability.error });
     }
+    if (imageCheck.error) {
+        return res.status(400).json({ message: imageCheck.error, code: 'invalid_image_url' });
+    }
 
     const name = nameCheck.name;
     const isAvailable = availability.value !== false;
-    const normalizedImageUrl = normalizeMenuImageUrl(image_url);
+    const normalizedImageUrl = imageCheck.value;
 
     try {
         if (await findDuplicateMenuName(db, name, category)) {
@@ -952,6 +968,7 @@ app.put('/api/menu/:id', requirePermission('menu'), async (req, res) => {
     const prices = normalizeMenuPrices(req.body ?? {}, category);
     const nameCheck = normalizeMenuItemName(req.body?.name);
     const availability = parseOptionalAvailability(req.body?.is_available);
+    const imageCheck = parseMenuImageUrl(image_url);
 
     if (!Number.isInteger(itemId) || itemId <= 0) {
         return res.status(400).json({ message: 'Invalid menu item id' });
@@ -966,9 +983,12 @@ app.put('/api/menu/:id', requirePermission('menu'), async (req, res) => {
     if (availability.error) {
         return res.status(400).json({ message: availability.error });
     }
+    if (imageCheck.error) {
+        return res.status(400).json({ message: imageCheck.error, code: 'invalid_image_url' });
+    }
 
     const name = nameCheck.name;
-    const normalizedImageUrl = normalizeMenuImageUrl(image_url);
+    const normalizedImageUrl = imageCheck.value;
 
     try {
         const [existingRows] = await db.execute(
@@ -994,15 +1014,21 @@ app.put('/api/menu/:id', requirePermission('menu'), async (req, res) => {
 
         const query =
             `UPDATE menu_items SET name = ?, category = ?, price = ?, hot_price = ?, iced_price = ?, image_url = ?${availabilitySql} WHERE id = ?`;
-        const [result] = await db.execute(query, [
-            name,
-            category,
-            prices.price,
-            prices.hot_price,
-            prices.iced_price,
-            normalizedImageUrl,
-            itemId,
-        ]);
+        const result = await withTransaction(db, async (conn) => {
+            const [updated] = await conn.execute(query, [
+                name,
+                category,
+                prices.price,
+                prices.hot_price,
+                prices.iced_price,
+                normalizedImageUrl,
+                itemId,
+            ]);
+            if (updated.affectedRows !== 0 && String(previous.name) !== name) {
+                await syncTrackedStockName(conn, itemId, name);
+            }
+            return updated;
+        });
 
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: 'Item not found' });
@@ -1197,7 +1223,7 @@ app.get('/api/orders/active', requirePosFloorAccess, async (req, res) => {
 app.get('/api/orders/stock-levels', requireOrderWriteAccess, async (_req, res) => {
     try {
         const [rows] = await db.execute(
-            `SELECT l.menu_item_id, i.item_name, i.stock_quantity
+            `SELECT l.menu_item_id, i.item_name, i.stock_quantity, i.low_threshold
              FROM menu_item_stock_links l
              JOIN inventory i ON i.id = l.inventory_id
              WHERE l.variant = '' AND l.option_key = '' AND l.option_value = ''
@@ -1207,6 +1233,8 @@ app.get('/api/orders/stock-levels', requireOrderWriteAccess, async (_req, res) =
             menu_item_id: row.menu_item_id,
             item_name: row.item_name,
             stock_quantity: Number(row.stock_quantity),
+            low_threshold: row.low_threshold != null ? Number(row.low_threshold) : null,
+            stock_status: resolveStockStatus(Number(row.stock_quantity), row.low_threshold != null ? Number(row.low_threshold) : null, null),
         })));
     } catch (error) {
         logOrderError('DATABASE ERROR IN GET /api/orders/stock-levels', error);
@@ -1222,6 +1250,11 @@ async function assertTableNotMerged(conn, target) {
     } catch {
         return;
     }
+    if (!rows[0]) {
+        const error = new Error(`Table ${target.tableId} does not exist`);
+        error.status = 404;
+        throw error;
+    }
     if (rows[0]?.merged_into != null) {
         const error = new Error(`${rows[0].table_name} is merged into table #${rows[0].merged_into}. Add the order there.`);
         error.status = 409;
@@ -1232,17 +1265,19 @@ async function assertTableNotMerged(conn, target) {
 // 2. DISPATCH/MERGE ORDER ITEMS INTO TARGET TICKETS
 app.post('/api/orders', requireOrderWriteAccess, async (req, res) => {
     if (rejectIfMaintenance(res)) return;
-    const { target_id, items, table_id } = req.body ?? {};
+    const { target_id, table_id } = req.body ?? {};
+    const rawItems = req.body?.items;
 
-    if (!target_id || !Array.isArray(items) || !items.length) {
+    if (!target_id || !Array.isArray(rawItems) || !rawItems.length) {
         return res.status(400).json({ message: 'Missing table target or checkout lines' });
     }
 
-    const lineError = items.map((item) => validateOrderLine(item, { isAdmin: isAdminRole(req.user?.role) })).find(Boolean);
+    const lineError = rawItems.map((item) => validateOrderLine(item, { isAdmin: isAdminRole(req.user?.role) })).find(Boolean);
     if (lineError) {
         const status = lineError.startsWith('Only an administrator') ? 403 : 400;
         return res.status(status).json({ message: lineError });
     }
+    const items = withLineQuantities(rawItems);
 
     let target;
     try {
@@ -1259,15 +1294,16 @@ app.post('/api/orders', requireOrderWriteAccess, async (req, res) => {
                 await assertTableNotMerged(conn, target);
                 id = await createPendingOrder(conn, target, table_id, req.user);
             }
+            await assertItemsOnSale(conn, items);
             for (const item of items) {
                 await insertOrderItem(conn, id, item);
             }
             await combineDuplicateLines(conn, id);
             const [lines] = await conn.execute(
-                'SELECT menu_item_id, quantity FROM order_items WHERE order_id = ?',
+                'SELECT menu_item_id, quantity, notes FROM order_items WHERE order_id = ?',
                 [id],
             );
-            await reconcileOrderStock(conn, id, lines, req.user?.id ?? null);
+            await reconcileOrderStock(conn, id, lines, req.user?.id ?? null, { blockShortage: true });
             return { orderId: id, savedLines: await readOrderLines(conn, id, target.key) };
         }, { locks: [pendingOrderLockName(target)] });
 
@@ -1286,7 +1322,7 @@ app.post('/api/orders', requireOrderWriteAccess, async (req, res) => {
         });
     } catch (error) {
         if ([400, 403, 404, 409].includes(error.status)) {
-            return res.status(error.status).json({ message: error.message });
+            return res.status(error.status).json({ message: error.message, code: error.code });
         }
         logOrderError('DATABASE ERROR IN POST /api/orders', error, {
             target_id,
@@ -1373,7 +1409,7 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
             }
 
             const [lines] = await conn.execute(
-                'SELECT menu_item_id, quantity, price FROM order_items WHERE order_id = ?',
+                'SELECT menu_item_id, quantity, price, notes FROM order_items WHERE order_id = ?',
                 [orderId],
             );
             if (!lines.length) {
@@ -1442,7 +1478,10 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
                 try {
                     const nextTableStatus = clear_table === false ? 'Paid' : 'Empty';
                     await conn.execute('UPDATE tables SET status = ? WHERE id = ?', [nextTableStatus, resolvedTableId]);
-                    if (nextTableStatus === 'Empty') await releaseMergedTables(conn, resolvedTableId);
+                    if (nextTableStatus === 'Empty') {
+                        await releaseMergedTables(conn, resolvedTableId);
+                        await completeSeatedBooking(conn, resolvedTableId);
+                    }
                 } catch (tableStatusErr) {
                     console.warn('⚠️ Could not update table status in checkout:', tableStatusErr.message);
                 }
@@ -1461,7 +1500,7 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
                 change_khr: chgKhr,
                 exchange_rate: exRate,
             };
-        }, { locks: [pendingOrderLockName(target)] });
+        }, { locks: [pendingOrderLockName(target), INVOICE_LOCK_NAME] });
 
         await auditFromRequest(db, req, {
             action: 'payment_process',
@@ -1652,7 +1691,10 @@ app.post('/api/orders/split-checkout', requirePermission('payment'), async (req,
                 tableStatus = clear_table === false ? 'Paid' : 'Empty';
                 if (resolvedTableId) {
                     await conn.execute('UPDATE tables SET status = ? WHERE id = ?', [tableStatus, resolvedTableId]);
-                    if (tableStatus === 'Empty') await releaseMergedTables(conn, resolvedTableId);
+                    if (tableStatus === 'Empty') {
+                        await releaseMergedTables(conn, resolvedTableId);
+                        await completeSeatedBooking(conn, resolvedTableId);
+                    }
                 }
             } else {
                 // Table still has remaining items
@@ -1674,7 +1716,7 @@ app.post('/api/orders/split-checkout', requirePermission('payment'), async (req,
                 tableStatus,
                 lowStockItems: stockOutcome?.lowStockWarnings || [],
             };
-        }, { locks: [pendingOrderLockName(target)] });
+        }, { locks: [pendingOrderLockName(target), INVOICE_LOCK_NAME] });
 
         await auditFromRequest(db, req, {
             action: 'split_payment_process',
@@ -1826,14 +1868,15 @@ app.post('/api/orders/bill-requested', requirePosFloorAccess, async (req, res) =
 // 5. SYNC UPDATED BILL LINE ITEMS BEFORE CHECKOUT
 app.put('/api/orders/items', requireOrderWriteAccess, async (req, res) => {
     if (rejectIfMaintenance(res)) return;
-    const { target_id, items, table_id } = req.body ?? {};
+    const { target_id, table_id } = req.body ?? {};
+    const rawItems = req.body?.items;
 
-    if (!target_id || !Array.isArray(items)) {
+    if (!target_id || !Array.isArray(rawItems)) {
         return res.status(400).json({ message: 'Missing target_id or items array' });
     }
 
-    if (items.length > 0) {
-        const lineError = items
+    if (rawItems.length > 0) {
+        const lineError = rawItems
             .map((item) => validateOrderLine(item, { isAdmin: isAdminRole(req.user?.role) }))
             .find(Boolean);
         if (lineError) {
@@ -1841,6 +1884,7 @@ app.put('/api/orders/items', requireOrderWriteAccess, async (req, res) => {
             return res.status(status).json({ message: lineError });
         }
     }
+    const items = withLineQuantities(rawItems);
 
     let target;
     try {
@@ -1877,13 +1921,18 @@ app.put('/api/orders/items', requireOrderWriteAccess, async (req, res) => {
                 await assertTableNotMerged(conn, target);
                 id = await createPendingOrder(conn, target, table_id, req.user);
             }
+            await assertItemsOnSale(conn, items, id);
             const prices = await pickLinePrices(conn, id, items, { isAdmin: isAdminRole(req.user?.role) });
-            await reconcileOrderStock(conn, id, items, req.user?.id ?? null);
             await conn.execute('DELETE FROM order_items WHERE order_id = ?', [id]);
             for (const [index, item] of items.entries()) {
                 await insertOrderItem(conn, id, item, { price: prices[index] });
             }
             await combineDuplicateLines(conn, id);
+            const [stockLines] = await conn.execute(
+                'SELECT menu_item_id, quantity, notes FROM order_items WHERE order_id = ?',
+                [id],
+            );
+            await reconcileOrderStock(conn, id, stockLines, req.user?.id ?? null, { blockShortage: true });
 
             if (items.length === 0) {
                 await conn.execute(
@@ -1893,6 +1942,7 @@ app.put('/api/orders/items', requireOrderWriteAccess, async (req, res) => {
                 if (target.sourceType === 'Table') {
                     await conn.execute('UPDATE tables SET status = "Empty" WHERE id = ?', [target.tableId]);
                     await releaseMergedTables(conn, target.tableId);
+                    await completeSeatedBooking(conn, target.tableId);
                 }
                 return { orderId: null, savedLines: [] };
             }
@@ -1930,6 +1980,8 @@ function parseDayRange(rawFrom, rawTo) {
     end.setUTCDate(end.getUTCDate() + 1);
     return { start: from, endExclusive: end.toISOString().slice(0, 10) };
 }
+
+const HISTORY_ITEM_CHUNK = 1000;
 
 app.get('/api/orders/history', requireSalesHistoryAccess, async (req, res) => {
     const monthParam = typeof req.query.month === 'string' ? req.query.month.trim() : '';
@@ -2010,25 +2062,30 @@ app.get('/api/orders/history', requireSalesHistoryAccess, async (req, res) => {
         }
 
         const orderIds = historyRows.map((row) => row.order_id);
-        const placeholders = orderIds.map(() => '?').join(', ');
-        const [itemRows] = await db.execute(
-            `
-            SELECT
-                oi.order_id,
-                oi.menu_item_id,
-                COALESCE(m.name, oi.item_name, 'Custom item') AS name,
-                m.category,
-                m.image_url,
-                oi.notes,
-                oi.quantity AS qty,
-                oi.price AS unitPrice,
-                (oi.quantity * oi.price) AS lineTotal
-            FROM order_items oi
-            LEFT JOIN menu_items m ON oi.menu_item_id = m.id
-            WHERE oi.order_id IN (${placeholders})
-            `,
-            orderIds,
-        );
+        const itemRows = [];
+        for (let offset = 0; offset < orderIds.length; offset += HISTORY_ITEM_CHUNK) {
+            const chunk = orderIds.slice(offset, offset + HISTORY_ITEM_CHUNK);
+            const placeholders = chunk.map(() => '?').join(', ');
+            const [chunkRows] = await db.execute(
+                `
+                SELECT
+                    oi.order_id,
+                    oi.menu_item_id,
+                    COALESCE(m.name, oi.item_name, 'Custom item') AS name,
+                    COALESCE(oi.item_category, m.category) AS category,
+                    m.image_url,
+                    oi.notes,
+                    oi.quantity AS qty,
+                    oi.price AS unitPrice,
+                    (oi.quantity * oi.price) AS lineTotal
+                FROM order_items oi
+                LEFT JOIN menu_items m ON oi.menu_item_id = m.id
+                WHERE oi.order_id IN (${placeholders})
+                `,
+                chunk,
+            );
+            for (const chunkRow of chunkRows) itemRows.push(chunkRow);
+        }
 
         const itemsByOrder = itemRows.reduce((acc, row) => {
             if (!acc[row.order_id]) acc[row.order_id] = [];
@@ -2164,6 +2221,15 @@ app.get('/api/alerts', async (req, res) => {
     }
 });
 
+app.post('/api/notifications/read-all', async (req, res) => {
+    try {
+        const updated = await markAllNotificationsRead(db, req.user.id);
+        res.status(200).json({ message: 'Notifications marked as read', updated });
+    } catch (error) {
+        res.status(500).json({ message: 'Failed to update notifications', errorId: logError(error, { route: 'POST /api/notifications/read-all' }) });
+    }
+});
+
 app.patch('/api/notifications/:id/read', async (req, res) => {
     const notificationId = Number.parseInt(req.params.id, 10);
     if (!Number.isInteger(notificationId) || notificationId <= 0) {
@@ -2274,6 +2340,30 @@ app.post('/api/inventory/menu-stock/:menuItemId/restock', requireStockAccess, as
     }
 });
 
+app.patch('/api/inventory/menu-stock/:menuItemId/unlimited', requireStockAccess, async (req, res) => {
+    const menuItemId = parseMenuItemParam(req, res);
+    if (menuItemId == null) return;
+    const unlimited = req.body?.unlimited;
+    if (typeof unlimited !== 'boolean') {
+        return res.status(400).json({ message: 'unlimited must be true or false' });
+    }
+    try {
+        const [result] = await db.execute('UPDATE menu_items SET stock_unlimited = ? WHERE id = ?', [unlimited ? 1 : 0, menuItemId]);
+        if (!result.affectedRows) {
+            return res.status(404).json({ message: 'Menu item not found' });
+        }
+        const item = await loadMenuStockItem(db, menuItemId);
+        await auditFromRequest(db, req, {
+            action: 'menu_stock_unlimited',
+            module: 'Inventory',
+            description: `${unlimited ? 'Allowed' : 'Stopped'} selling menu item #${menuItemId} "${item?.name ?? ''}" without a stock count.`,
+        });
+        res.status(200).json({ item });
+    } catch (error) {
+        sendInventoryError(res, error, 'Failed to update the item');
+    }
+});
+
 app.patch('/api/inventory/menu-stock/:menuItemId/settings', requireStockAccess, async (req, res) => {
     const menuItemId = parseMenuItemParam(req, res);
     if (menuItemId == null) return;
@@ -2315,6 +2405,34 @@ function parseIngredientParam(req, res) {
     }
     return id;
 }
+
+app.get('/api/menu-recipes/:menuItemId', requirePermission('inventory_stock'), async (req, res) => {
+    const menuItemId = parseMenuItemParam(req, res);
+    if (menuItemId == null) return;
+    try {
+        res.status(200).json(await loadRecipe(db, menuItemId));
+    } catch (error) {
+        sendInventoryError(res, error, 'Failed to load the recipe');
+    }
+});
+
+app.put('/api/menu-recipes/:menuItemId', requireStockAccess, async (req, res) => {
+    const menuItemId = parseMenuItemParam(req, res);
+    if (menuItemId == null) return;
+    try {
+        const recipe = await withTransaction(db, (conn) => saveRecipe(conn, menuItemId, req.body));
+        await auditFromRequest(db, req, {
+            action: 'menu_recipe_update',
+            module: 'Inventory',
+            description: `Set recipe for menu item #${menuItemId} "${recipe.name}": ${recipe.lines.length
+                ? recipe.lines.map((line) => `${line.quantity} ${line.unit_label || ''} ${line.item_name}`.replace(/\s+/g, ' ')).join(', ')
+                : 'no ingredients'}.`,
+        });
+        res.status(200).json(recipe);
+    } catch (error) {
+        sendInventoryError(res, error, 'Failed to save the recipe');
+    }
+});
 
 app.get('/api/ingredients', requirePermission('inventory_stock'), async (_req, res) => {
     try {
@@ -2370,6 +2488,25 @@ app.post('/api/ingredients/:id/adjust', requireStockAccess, async (req, res) => 
         res.status(200).json({ item });
     } catch (error) {
         sendInventoryError(res, error, 'Failed to update the ingredient amount');
+    }
+});
+
+app.post('/api/ingredients/:id/convert', requireStockAccess, async (req, res) => {
+    const id = Number.parseInt(req.params.id, 10);
+    if (!Number.isInteger(id) || id <= 0) {
+        return res.status(400).json({ message: 'Invalid ingredient id' });
+    }
+    try {
+        const result = await withTransaction(db, (conn) => convertIngredient(conn, id, req.body));
+        const row = await loadIngredient(db, id);
+        await auditFromRequest(db, req, {
+            action: 'ingredient_convert_unit',
+            module: 'Inventory',
+            description: `Converted ingredient "${result.itemName}" from ${result.from || '-'} to ${result.to} (1 = ${result.factor}); stock, low level and recipes converted.`,
+        });
+        res.status(200).json({ item: serializeIngredient(row) });
+    } catch (error) {
+        sendInventoryError(res, error, 'Failed to convert the unit');
     }
 });
 
@@ -2542,10 +2679,23 @@ app.post('/api/inventory/:id/links', requireStockAccess, async (req, res) => {
     }
 
     try {
-        const [stock] = await db.execute('SELECT id FROM inventory WHERE id = ? LIMIT 1', [itemId]);
+        const [stock] = await db.execute('SELECT id, archived_at, is_ingredient FROM inventory WHERE id = ? LIMIT 1', [itemId]);
         const [menu] = await db.execute('SELECT id FROM menu_items WHERE id = ? LIMIT 1', [menuItemId]);
         if (!stock.length || !menu.length) {
             return res.status(404).json({ message: 'Stock item or menu item was not found' });
+        }
+        if (stock[0].archived_at != null || Number(stock[0].is_ingredient) === 1) {
+            return res.status(400).json({ message: 'Only an active menu stock count can be linked to a menu item' });
+        }
+        if (perUnit !== 1) {
+            return res.status(400).json({ message: 'A menu item uses exactly 1 per sale' });
+        }
+        const [others] = await db.execute(
+            'SELECT 1 FROM menu_item_stock_links WHERE inventory_id = ? AND menu_item_id <> ? LIMIT 1',
+            [itemId, menuItemId],
+        );
+        if (others.length) {
+            return res.status(400).json({ message: 'This stock count already belongs to another menu item' });
         }
         const [result] = await db.execute(
             `INSERT INTO menu_item_stock_links
@@ -2703,7 +2853,7 @@ function rejectIfMaintenance(res) {
     return true;
 }
 
-app.get('/api/system/backup/excel', sensitiveOperationLimiter, requireBackupDownloadAccess, async (req, res) => {
+app.get('/api/system/backup/excel', requireBackupDownloadAccess, sensitiveOperationLimiter, async (req, res) => {
     const filePath = path.join(os.tmpdir(), `mlu-excel-${Date.now()}.xlsx`);
     let periodLabel = 'All Time';
     try {
@@ -2736,7 +2886,7 @@ app.get('/api/system/backup/excel', sensitiveOperationLimiter, requireBackupDown
     }
 });
 
-app.get('/api/system/backup/sales-pdf', sensitiveOperationLimiter, requireBackupDownloadAccess, async (req, res) => {
+app.get('/api/system/backup/sales-pdf', requireBackupDownloadAccess, sensitiveOperationLimiter, async (req, res) => {
     let periodLabel = 'All Time';
     try {
         const { buffer, filename, periodLabel: label } = await createSalesPdf(db, req.query, req.user);
@@ -2762,13 +2912,22 @@ app.get('/api/system/backup/sales-pdf', sensitiveOperationLimiter, requireBackup
     }
 });
 
-app.get('/api/system/backup/sql', sensitiveOperationLimiter, requireBackupDownloadAccess, async (req, res) => {
+app.get('/api/system/backup/auto-status', requireAdmin, async (_req, res) => {
     try {
-        const { filePath, filename } = await createDownloadDump(db);
+        res.status(200).json(autoBackupStatus(backupDirectory()));
+    } catch (error) {
+        res.status(500).json({ message: 'Failed to read the automatic backup status' });
+    }
+});
+
+app.get('/api/system/backup/sql', requireBackupDownloadAccess, sensitiveOperationLimiter, async (req, res) => {
+    try {
+        const businessOnly = !isAdminRole(req.user?.role);
+        const { filePath, filename } = await createDownloadDump(db, { excludeSensitive: businessOnly });
         await auditFromRequest(db, req, {
             action: 'export_sql_backup',
             module: 'Backup',
-            description: `SQL backup period=All Time result=ok file=${filename}`,
+            description: `SQL backup period=All Time scope=${businessOnly ? 'business' : 'full'} result=ok file=${filename}`,
         });
         pipeDownload(res, filePath, filename, 'application/sql; charset=utf-8');
     } catch (error) {
@@ -2781,7 +2940,7 @@ app.get('/api/system/backup/sql', sensitiveOperationLimiter, requireBackupDownlo
     }
 });
 
-app.post('/api/system/backup/restore', sensitiveOperationLimiter, requireAdmin, (req, res) => {
+app.post('/api/system/backup/restore', requireAdmin, sensitiveOperationLimiter, (req, res) => {
     sqlUpload.single('sqlFile')(req, res, async (uploadError) => {
         if (uploadError) {
             const tooLarge = uploadError.code === 'LIMIT_FILE_SIZE';
@@ -2802,7 +2961,7 @@ app.post('/api/system/backup/restore', sensitiveOperationLimiter, requireAdmin, 
                 return res.status(400).json({ message: 'Only a .sql backup from this system can be restored' });
             }
             const result = await restoreDatabaseFromFile(db, uploadedPath, {
-                afterRestore: () => ensureApplicationSchema(db),
+                afterRestore: () => refreshApplicationSchemaAfterRestore(db),
             });
             await auditFromRequest(db, req, {
                 action: 'restore_sql_backup',
@@ -2865,7 +3024,7 @@ app.get('/api/expenses/overview', requireExpenseAccess, async (req, res) => {
     }
 });
 
-app.get('/api/expenses/export/:kind', sensitiveOperationLimiter, requireExpenseAccess, async (req, res) => {
+app.get('/api/expenses/export/:kind', requireExpenseAccess, sensitiveOperationLimiter, async (req, res) => {
     const kind = req.params.kind === 'excel' ? 'xlsx' : req.params.kind;
     if (kind !== 'pdf' && kind !== 'xlsx') {
         return res.status(400).json({ message: 'Invalid export type.' });
@@ -3142,7 +3301,7 @@ app.get('/api/tables', requireReservationsAccess, async (_req, res) => {
     }
 })
 
-app.post('/api/tables', requireReservationsAccess, async (req, res) => {
+app.post('/api/tables', requireAdmin, async (req, res) => {
     try {
         const rawName = String(req.body?.name || '').trim();
         const section = String(req.body?.section || 'standard').trim().toLowerCase() === 'vip' ? 'vip' : 'standard';
@@ -3246,13 +3405,17 @@ app.post('/api/tables/transfer', requirePosFloorAccess, async (req, res) => {
                 [fromId, fromId],
             );
 
-            if (sourceOrders.length > 0) {
-                const orderId = sourceOrders[0].id;
-                await conn.execute(
-                    'UPDATE orders SET target_id = ?, table_id = ?, updated_at = NOW() WHERE id = ?',
-                    [toId, toId, orderId],
-                );
+            if (sourceOrders.length === 0) {
+                const err = new Error('Source table has no active order');
+                err.status = 400;
+                throw err;
             }
+
+            const orderId = sourceOrders[0].id;
+            await conn.execute(
+                'UPDATE orders SET target_id = ?, table_id = ?, updated_at = NOW() WHERE id = ?',
+                [toId, toId, orderId],
+            );
 
             await conn.execute(
                 `UPDATE reservations
@@ -3289,6 +3452,15 @@ app.post('/api/tables/transfer', requirePosFloorAccess, async (req, res) => {
 });
 
 // Tables merged onto `hostId` come back to the floor once the host table is freed.
+async function completeSeatedBooking(conn, tableId) {
+    if (!tableId) return;
+    try {
+        await completeSeatedReservationsForTable(conn, tableId);
+    } catch (err) {
+        console.warn('⚠️ Could not complete the seated reservation:', err.message);
+    }
+}
+
 async function releaseMergedTables(conn, hostId) {
     if (!hostId) return;
     try {
@@ -3364,7 +3536,7 @@ app.post('/api/tables/merge', requirePosFloorAccess, async (req, res) => {
                 );
                 await combineDuplicateLines(conn, destOrderId);
                 const [mergedLines] = await conn.execute(
-                    'SELECT menu_item_id, quantity FROM order_items WHERE order_id = ?',
+                    'SELECT menu_item_id, quantity, notes FROM order_items WHERE order_id = ?',
                     [destOrderId],
                 );
                 await reconcileOrderStock(conn, destOrderId, mergedLines, req.user?.id ?? null);
@@ -3462,6 +3634,7 @@ app.post('/api/tables/:id/clear', requirePosFloorAccess, async (req, res) => {
             if (target.sourceType === 'Table' && target.tableId) {
                 await conn.execute('UPDATE tables SET status = "Empty" WHERE id = ?', [target.tableId]);
                 await releaseMergedTables(conn, target.tableId);
+                await completeSeatedBooking(conn, target.tableId);
             }
         }, { locks: [pendingOrderLockName(target)] });
 
@@ -3481,7 +3654,7 @@ app.post('/api/tables/:id/clear', requirePosFloorAccess, async (req, res) => {
     }
 });
 
-app.delete('/api/tables/:id', requireReservationsAccess, async (req, res) => {
+app.delete('/api/tables/:id', requireAdmin, async (req, res) => {
     const tableId = Number.parseInt(req.params.id, 10);
     if (!Number.isInteger(tableId) || tableId <= 0) {
         return res.status(400).json({ message: 'Invalid table ID' });
@@ -3503,8 +3676,11 @@ app.delete('/api/tables/:id', requireReservationsAccess, async (req, res) => {
 
         const [reservations] = await db.execute(
             `SELECT id FROM reservations
-             WHERE table_id = ? AND reservation_date >= CURDATE()
-               AND status IN ('Pending', 'Confirmed', 'Paid', 'Reserved', 'Seated')
+             WHERE table_id = ?
+               AND (
+                 (reservation_date >= CURDATE() AND status IN ('Pending', 'Confirmed', 'Paid', 'Reserved'))
+                 OR (reservation_date = CURDATE() AND status = 'Seated')
+               )
              LIMIT 1`,
             [tableId],
         );
@@ -3537,7 +3713,7 @@ app.get('/api/reports', requireReportsAccess, async (req, res) => {
     }
 })
 
-app.get('/api/reports/export/:kind', sensitiveOperationLimiter, requireReportsAccess, async (req, res) => {
+app.get('/api/reports/export/:kind', requireReportsAccess, sensitiveOperationLimiter, async (req, res) => {
     const kind = req.params.kind === 'excel' ? 'xlsx' : req.params.kind
     if (kind !== 'pdf' && kind !== 'xlsx') {
         return res.status(400).json({ message: 'Invalid export type.' })
@@ -3567,7 +3743,13 @@ function sendReservationFailure(res, error, route) {
     if (status >= 500) {
         return res.status(500).json({ message: 'Something went wrong', errorId });
     }
-    return res.status(status).json({ message: 'Invalid request', errorId });
+    const body = { message: error?.message || 'Invalid request', errorId };
+    if (error?.code) body.code = error.code;
+    return res.status(status).json(body);
+}
+
+function reservationAuditLine(reservation) {
+    return `#${reservation.id} (${reservation.customer_name}, ${reservation.table_name}, ${reservation.reservation_date} ${reservation.time_slot}, ${reservation.guest_count} guests, ${reservation.status})`;
 }
 
 app.get('/api/reservations/meta', requireReservationsAccess, async (_req, res) => {
@@ -3622,6 +3804,11 @@ app.get('/api/reservations/:id', requireReservationsAccess, async (req, res) => 
 app.post('/api/reservations', requireReservationsAccess, async (req, res) => {
     try {
         const reservation = await createReservation(db, req.body, req.user)
+        await auditFromRequest(db, req, {
+            action: 'reservation_create',
+            module: 'Reservations',
+            description: `Created booking ${reservationAuditLine(reservation)}`,
+        })
         notifyReservationCreated(db, reservation).catch(() => null)
         res.status(201).json(reservation)
     } catch (error) {
@@ -3632,6 +3819,11 @@ app.post('/api/reservations', requireReservationsAccess, async (req, res) => {
 app.put('/api/reservations/:id', requireReservationsAccess, async (req, res) => {
     try {
         const reservation = await updateReservation(db, req.params.id, req.body)
+        await auditFromRequest(db, req, {
+            action: 'reservation_update',
+            module: 'Reservations',
+            description: `Updated booking ${reservationAuditLine(reservation)}`,
+        })
         if (req.body?.status === 'Pending') {
             notifyReservationCreated(db, reservation).catch(() => null)
         }
@@ -3644,6 +3836,11 @@ app.put('/api/reservations/:id', requireReservationsAccess, async (req, res) => 
 app.post('/api/reservations/:id/check-in', requireReservationsAccess, async (req, res) => {
     try {
         const reservation = await checkInReservation(db, req.params.id)
+        await auditFromRequest(db, req, {
+            action: 'reservation_check_in',
+            module: 'Reservations',
+            description: `Checked in booking ${reservationAuditLine(reservation)}`,
+        })
         res.status(200).json(reservation)
     } catch (error) {
         return sendReservationFailure(res, error, 'POST /api/reservations/:id/check-in');
@@ -3677,6 +3874,11 @@ app.post('/api/reservations/:id/confirmation-letter', requireReservationsAccess,
 app.delete('/api/reservations/:id', requireReservationsAccess, async (req, res) => {
     try {
         const reservation = await deleteReservation(db, req.params.id)
+        await auditFromRequest(db, req, {
+            action: 'reservation_delete',
+            module: 'Reservations',
+            description: `Deleted booking ${reservationAuditLine(reservation)}`,
+        })
         res.status(200).json({ message: 'Reservation deleted', reservation })
     } catch (error) {
         return sendReservationFailure(res, error, 'DELETE /api/reservations/:id');
@@ -3723,6 +3925,7 @@ process.on('uncaughtException', (error) => {
 });
 
 app.listen(PORT, async () => {
+    startAutoBackup({ db, backupDirectory, writeFullDump, uniqueSqlName });
     console.log(`🚀 ${STORE.officialName} Backend running smoothly on port ${PORT}`);
     console.log(`   CORS allowed origins: ${env.security.allowedOrigins.join(', ')}`);
     console.log('   Security: helmet on, rate limiting on, sliding JWT sessions');

@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Armchair,
+  Ban,
   Banknote,
+  CheckCheck,
   CalendarDays,
   CalendarPlus,
   CheckCircle2,
@@ -23,6 +25,7 @@ import {
   Trash2,
   User,
   UserCheck,
+  UserX,
   Users,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -549,12 +552,20 @@ function ReservationActions({
   onLetter,
   onEdit,
   onDelete,
+  onStatus,
   touch = false,
 }) {
   const { t } = useTranslation()
   const iconButton = `flex shrink-0 items-center justify-center rounded-full transition focus-visible:outline-2 focus-visible:outline-forest-500 ${touch ? 'h-10 w-10' : 'h-8 w-8'
     }`
   const canLetter = canIssueConfirmationLetter(reservation)
+  const isHeld = ['Pending', 'Confirmed', 'Paid'].includes(reservation.status)
+  const isPastOrToday = String(reservation.reservation_date || '') <= toLocalDateISO()
+  const statusActions = [
+    reservation.status === 'Seated' && { key: 'Completed', icon: CheckCheck, label: t('reservations.actionComplete'), tone: 'hover:bg-forest-50 hover:text-forest-600 dark:hover:bg-forest-950/50 dark:hover:text-forest-300' },
+    isHeld && isPastOrToday && { key: 'No-show', icon: UserX, label: t('reservations.actionNoShow'), tone: 'hover:bg-amber-50 hover:text-amber-600 dark:hover:bg-amber-950/50 dark:hover:text-amber-300' },
+    isHeld && { key: 'Canceled', icon: Ban, label: t('reservations.actionCancel'), tone: 'hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/50 dark:hover:text-red-400' },
+  ].filter(Boolean)
 
   return (
     <div className={`flex items-center gap-2 ${touch ? 'flex-wrap' : 'flex-nowrap'}`}>
@@ -572,6 +583,24 @@ function ReservationActions({
         </button>
       ) : null}
       <div className="flex w-fit items-center gap-0.5 rounded-full bg-white/90 p-0.5 shadow-sm ring-1 ring-slate-200 dark:bg-zinc-800/90 dark:ring-zinc-700">
+        {statusActions.map((action) => {
+          const ActionIcon = action.icon
+          return (
+            <span key={action.key} className="flex items-center gap-0.5">
+              <Tooltip label={action.label}>
+                <button
+                  type="button"
+                  onClick={() => onStatus(reservation, action.key)}
+                  className={`${iconButton} text-slate-500 dark:text-zinc-400 ${action.tone}`}
+                  aria-label={`${action.label}: ${reservation.customer_name}`}
+                >
+                  <ActionIcon className="h-4 w-4" aria-hidden />
+                </button>
+              </Tooltip>
+              <span className="h-4 w-px bg-slate-200 dark:bg-zinc-700" aria-hidden />
+            </span>
+          )
+        })}
         <Tooltip label={canLetter ? t('reservations.confirmationLetter') : t('reservations.confirmationUnavailableCanceled')}>
           <button
             type="button"
@@ -630,6 +659,7 @@ export default function Reservations() {
   const [saving, setSaving] = useState(false)
   const [availability, setAvailability] = useState([])
   const [deleteTarget, setDeleteTarget] = useState(null)
+  const [statusTarget, setStatusTarget] = useState(null)
   const [letterReservation, setLetterReservation] = useState(null)
   const [checkingInId, setCheckingInId] = useState(null)
 
@@ -853,6 +883,37 @@ export default function Reservations() {
     }
   }
 
+  const applyStatus = async (reservation, status) => {
+    setError('')
+    try {
+      const response = await apiFetch(`/reservations/${reservation.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ status }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.message || t('reservations.errors.save'))
+      pushBanner({ title: t('reservations.statusUpdated'), tone: 'success', durationMs: 2500 })
+      await loadReservations()
+      refreshAlerts?.()
+    } catch (err) {
+      setError(err.message || t('reservations.errors.save'))
+    }
+  }
+
+  const requestStatus = (reservation, status) => {
+    if (status === 'Completed') {
+      applyStatus(reservation, status)
+      return
+    }
+    setStatusTarget({ reservation, status })
+  }
+
+  const confirmStatus = async () => {
+    const target = statusTarget
+    setStatusTarget(null)
+    if (target) await applyStatus(target.reservation, target.status)
+  }
+
   const handleDelete = async () => {
     if (!deleteTarget) return
     try {
@@ -994,7 +1055,7 @@ export default function Reservations() {
                       <dt className="text-muted text-2xs">{t('reservations.date')}</dt>
                       <dd className="break-words tabular-nums">{reservation.reservation_date}</dd>
                     </div>
-                    <div className="min-w-0">
+<div className="min-w-0">
                       <dt className="text-muted text-2xs">{t('reservations.timeSlot')}</dt>
                       <dd className="break-words">
                         {slotLabel(reservation.time_slot, reservation.time_slot_label, reservation.duration_minutes)}
@@ -1013,6 +1074,23 @@ export default function Reservations() {
                       <dd className="break-words">{reservationTableLabel(reservation, t)}</dd>
                     </div>
                   </dl>
+                  {reservation.status === 'Seated' && reservation.checked_in_at ? (
+                    <p className="text-muted mt-2 text-2xs">
+                      {t('reservations.checkedInAt', { time: formatTime12Hour(reservation.checked_in_at) })}
+                    </p>
+                  ) : null}
+                  <div className="mt-3">
+                    <ReservationActions
+                      reservation={reservation}
+                      checkingInId={checkingInId}
+                      onCheckIn={handleCheckIn}
+                      onLetter={setLetterReservation}
+                      onEdit={openEdit}
+                      onDelete={setDeleteTarget}
+                      onStatus={requestStatus}
+                      touch
+                    />
+                  </div>
                   {reservation.status === 'Seated' && reservation.checked_in_at ? (
                     <p className="text-muted mt-2 text-2xs">
                       {t('reservations.checkedInAt', { time: formatTime12Hour(reservation.checked_in_at) })}
@@ -1137,6 +1215,16 @@ export default function Reservations() {
         isOpen={Boolean(letterReservation)}
         reservation={letterReservation}
         onClose={() => setLetterReservation(null)}
+      />
+
+      <ConfirmDeleteModal
+        isOpen={Boolean(statusTarget)}
+        title={statusTarget?.status === 'No-show' ? t('reservations.noShowTitle') : t('reservations.cancelTitle')}
+        itemName={statusTarget?.reservation?.customer_name}
+        message={statusTarget?.status === 'No-show' ? t('reservations.noShowMessage') : t('reservations.cancelMessage')}
+        confirmLabel={statusTarget?.status === 'No-show' ? t('reservations.actionNoShow') : t('reservations.actionCancel')}
+        onCancel={() => setStatusTarget(null)}
+        onConfirm={confirmStatus}
       />
 
       <ConfirmDeleteModal

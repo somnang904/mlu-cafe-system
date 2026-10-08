@@ -1,4 +1,8 @@
+const { registerSchemaReset } = require('./schemaReset')
 let schemaReadyPromise = null
+registerSchemaReset(() => {
+  schemaReadyPromise = null
+})
 
 async function ensureAdminNotificationsSchema(db) {
   if (!schemaReadyPromise) {
@@ -230,6 +234,15 @@ async function markNotificationRead(db, { notificationId, recipientUserId }) {
   return result.affectedRows > 0
 }
 
+async function markAllNotificationsRead(db, recipientUserId) {
+  await ensureAdminNotificationsSchema(db)
+  const [result] = await db.execute(
+    'UPDATE admin_notifications SET is_read = 1 WHERE recipient_user_id = ? AND is_read = 0',
+    [recipientUserId],
+  )
+  return result.affectedRows
+}
+
 async function dismissReservationAlerts(db, reservationId) {
   await ensureAdminNotificationsSchema(db)
   const id = String(reservationId)
@@ -239,7 +252,7 @@ async function dismissReservationAlerts(db, reservationId) {
       UPDATE admin_notifications
       SET is_read = 1
       WHERE is_read = 0
-        AND type IN ('reservation_3d', 'reservation_1d')
+        AND type LIKE 'reservation_%'
         AND CAST(JSON_UNQUOTE(JSON_EXTRACT(meta, '$.reservationId')) AS CHAR) = ?
       `,
       [id],
@@ -248,7 +261,7 @@ async function dismissReservationAlerts(db, reservationId) {
     const [rows] = await db.execute(
       `
       SELECT id, meta FROM admin_notifications
-      WHERE is_read = 0 AND type IN ('reservation_3d', 'reservation_1d')
+      WHERE is_read = 0 AND type LIKE 'reservation_%'
       `,
     )
     const ids = rows
@@ -268,6 +281,7 @@ module.exports = {
   listUnreadUserAlerts,
   listUnreadPasswordResetAlerts,
   markNotificationRead,
+  markAllNotificationsRead,
   dismissReservationAlerts,
   notifyAdminsOfExpense,
   listActiveAdminRecipients,

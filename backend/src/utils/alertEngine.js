@@ -72,6 +72,8 @@ async function fetchInventoryForAlerts(db) {
     low_threshold: row.low_threshold != null ? Number(row.low_threshold) : null,
     criticalThreshold: row.critical_threshold != null ? Number(row.critical_threshold) : null,
     critical_threshold: row.critical_threshold != null ? Number(row.critical_threshold) : null,
+    isIngredient: Boolean(Number(row.is_ingredient ?? 0)),
+    is_ingredient: Boolean(Number(row.is_ingredient ?? 0)),
     unitLabel: row.unit_label || 'units',
     unit_label: row.unit_label || 'units',
     is_ingredient: row.is_ingredient,
@@ -84,16 +86,15 @@ function buildStockAlerts(inventory) {
 
   for (const item of inventory) {
     const stock = Number(item.stock ?? item.stock_quantity ?? 0);
-    const lowThreshold = item.low_threshold != null ? Number(item.low_threshold) : null;
-    const criticalThreshold = item.critical_threshold != null ? Number(item.critical_threshold) : null;
+const lowThreshold = item.lowThreshold ?? (item.low_threshold != null ? Number(item.low_threshold) : null);
+    const criticalThreshold = item.criticalThreshold ?? (item.critical_threshold != null ? Number(item.critical_threshold) : null);
 
-    // Evaluate against real configured thresholds instead of arbitrary percentage of max
     const status = resolveStockStatus(stock, lowThreshold, criticalThreshold);
     if (status === 'IN_STOCK') continue;
 
     const name = item.itemName || item.item_name;
     const unit = item.unitLabel || item.unit_label || item.unit || 'units';
-    const isOut = status === 'OUT_OF_STOCK';
+const isOut = status === 'OUT_OF_STOCK';
     const isCrit = !isOut && criticalThreshold != null && stock <= criticalThreshold;
     const severity = (isOut || isCrit) ? 'critical' : 'warning';
 
@@ -110,7 +111,7 @@ function buildStockAlerts(inventory) {
         ? `Critically low: ${name}`
         : `Low stock: ${name}`;
 
-    const isIngredient = Boolean(item.is_ingredient);
+    const isIngredient = Boolean(Number(item.isIngredient ?? item.is_ingredient ?? 0));
     const navigateTo = isIngredient ? 'inventory_ingredients' : 'inventory';
     const actionLabel = isIngredient
       ? `Add ${name} to Purchase Order`
@@ -120,7 +121,7 @@ function buildStockAlerts(inventory) {
       makeAlert({
         id: `stock-${item.id}`,
         category: 'stock',
-        severity,
+severity,
         title,
         message,
         actionLabel,

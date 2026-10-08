@@ -17,3 +17,4 @@ backend/private-uploads/
 
 # Database dumps contain customer data and password hashes; never commit them.
 /*.sql
+backend/backups/

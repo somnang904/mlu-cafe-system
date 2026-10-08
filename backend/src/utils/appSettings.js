@@ -1,6 +1,10 @@
 const ALLOWED_KEYS = new Set(['usd_khr_rate'])
 
+const { registerSchemaReset } = require('./schemaReset')
 let schemaReadyPromise = null
+registerSchemaReset(() => {
+  schemaReadyPromise = null
+})
 
 async function ensureAppSettingsSchema(db) {
   if (!schemaReadyPromise) {

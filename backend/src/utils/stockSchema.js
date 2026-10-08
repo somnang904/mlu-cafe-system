@@ -10,7 +10,11 @@ const BEER_NAMES = [
 
 const KULEN_NAME = 'Kulen Water (1.5L)'
 
+const { registerSchemaReset } = require('./schemaReset')
 let schemaReadyPromise = null
+registerSchemaReset(() => {
+  schemaReadyPromise = null
+})
 
 async function tableEngine(db, table) {
   const [rows] = await db.execute(

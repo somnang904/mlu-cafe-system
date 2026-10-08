@@ -99,14 +99,6 @@ export function clearSession() {
 
 const CONNECTION_LOST_KEY = 'mlu_kitchen_cafe.connection_lost'
 
-export function markConnectionLost() {
-  try {
-    sessionStorage.setItem(CONNECTION_LOST_KEY, '1')
-  } catch {
-    // Ignore storage write failures.
-  }
-}
-
 export function consumeConnectionLost() {
   try {
     const flagged = sessionStorage.getItem(CONNECTION_LOST_KEY) === '1'
@@ -117,8 +109,3 @@ export function consumeConnectionLost() {
   }
 }
 
-export function formatDisplayName(username) {
-  if (!username?.trim()) return 'Staff User'
-  const cleaned = username.trim()
-  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1)
-}

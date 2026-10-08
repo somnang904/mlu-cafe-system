@@ -119,6 +119,8 @@ async function run() {
     password: '',
     database: DB_NAME,
   });
+  await conn.query('ALTER TABLE menu_items ALTER stock_unlimited SET DEFAULT 1');
+  await conn.query('UPDATE menu_items SET stock_unlimited = 1');
   const itemIds = [];
   const orderIds = [];
 
@@ -212,9 +214,9 @@ async function run() {
     const milkSale = await sell(milkMenuId, milkMenuName, 1);
     check('selling a menu item linked to archived Test Milk succeeds', milkSale.placed.status === 201 && milkSale.paid?.status === 200, { placed: milkSale.placed, paid: milkSale.paid });
     const [milkAfter] = await conn.query('SELECT stock_quantity FROM inventory WHERE id = ?', [milkId]);
-    check('sale deducts nothing from archived Test Milk', Number(milkBefore[0].stock_quantity) === Number(milkAfter[0].stock_quantity), { before: milkBefore, after: milkAfter });
+    check('a sale now deducts the Test Milk ingredient by its recipe amount (0.2)', Math.abs(Number(milkBefore[0].stock_quantity) - Number(milkAfter[0].stock_quantity) - 0.2) < 1e-9, { before: milkBefore, after: milkAfter });
     const [milkMoves] = await conn.query('SELECT COUNT(*) AS n FROM stock_movements WHERE inventory_id = ?', [milkId]);
-    check('no stock movement recorded for archived Test Milk', Number(milkMoves[0].n) === 0, milkMoves);
+    check('one sale movement recorded for the Test Milk ingredient', Number(milkMoves[0].n) === 1, milkMoves);
     const menuAll = await call('GET', '/menu', { token });
     const milkMenuApi = Array.isArray(menuAll.body) ? menuAll.body.find((i) => i.id === milkMenuId) : undefined;
     check('GET /menu stock fields ignore archived Test Milk', !!milkMenuApi && (milkMenuApi.stock_left === null || milkMenuApi.stock_left === undefined || Number(milkMenuApi.stock_left) !== Number(milkAfter[0].stock_quantity)), milkMenuApi);
@@ -359,12 +361,35 @@ async function run() {
     const okRow = await stockRow(id);
     check('quantity 14 with low_threshold 5 reports IN_STOCK', okRow?.stock_status === 'IN_STOCK', okRow);
 
+    const [untrackedRows] = await conn.query(
+      `SELECT m.id, m.name FROM menu_items m WHERE m.is_available = 1 AND NOT EXISTS (
+         SELECT 1 FROM menu_item_stock_links l JOIN inventory i ON i.id = l.inventory_id AND i.archived_at IS NULL
+         WHERE l.menu_item_id = m.id) ORDER BY m.id LIMIT 1`,
+    );
+    const plain = untrackedRows[0];
+    const offUnlimited = await call('PATCH', `/inventory/menu-stock/${plain.id}/unlimited`, { token, body: { unlimited: false } });
+    check('PATCH unlimited false returns 200 and stock_unlimited false', offUnlimited.status === 200 && offUnlimited.body?.item?.stock_unlimited === false, offUnlimited);
+    const noStockSale = await sell(plain.id, plain.name, 1);
+    check('an item with no stock and not unlimited is refused with 409 not_stocked', noStockSale.placed.status === 409 && noStockSale.placed.body?.code === 'not_stocked', noStockSale.placed);
+    const menuNoStock = (await call('GET', '/menu', { token })).body.find((m) => m.id === plain.id);
+    check('GET /menu marks it stock_tracked false and stock_unlimited false', menuNoStock?.stock_tracked === false && menuNoStock?.stock_unlimited === false, menuNoStock);
+    const onUnlimited = await call('PATCH', `/inventory/menu-stock/${plain.id}/unlimited`, { token, body: { unlimited: true } });
+    check('PATCH unlimited true returns 200', onUnlimited.status === 200 && onUnlimited.body?.item?.stock_unlimited === true, onUnlimited);
+    const unlimitedSale = await sell(plain.id, plain.name, 1);
+    check('the same item sells once marked unlimited', unlimitedSale.placed.status === 201, unlimitedSale.placed);
+    const badUnlimited = await call('PATCH', `/inventory/menu-stock/${plain.id}/unlimited`, { token, body: { unlimited: 'yes' } });
+    check('PATCH unlimited with a non-boolean is 400', badUnlimited.status === 400, badUnlimited);
+
     const over = await sell(id, name, 20);
-    console.log(`INFO  oversell of 20 against 14: placed ${over.placed.status} ${JSON.stringify(over.placed.body)}, paid ${over.paid?.status}`);
-    check('oversell does not crash the server (no 5xx)', over.placed.status < 500 && (over.paid?.status ?? 0) < 500, { placed: over.placed, paid: over.paid });
+    check('ordering 20 when only 14 are left is refused with 409 insufficient_stock', over.placed.status === 409 && over.placed.body?.code === 'insufficient_stock', over.placed);
     const afterOver = await stockRow(id);
-    console.log(`INFO  after oversell quantity ${afterOver?.stock_quantity} status ${afterOver?.stock_status}`);
-    check('oversold item reports OUT_OF_STOCK', Number(afterOver?.stock_quantity) > 0 || afterOver?.stock_status === 'OUT_OF_STOCK', afterOver);
+    check('a refused order leaves the stock at 14', Number(afterOver?.stock_quantity) === 14, afterOver);
+    const exact = await sell(id, name, 14);
+    check('ordering exactly the 14 left is accepted', exact.placed.status === 201 && exact.paid?.status === 200, exact);
+    const afterExact = await stockRow(id);
+    check('selling the last 14 leaves 0 and OUT_OF_STOCK', Number(afterExact?.stock_quantity) === 0 && afterExact?.stock_status === 'OUT_OF_STOCK', afterExact);
+    const none = await sell(id, name, 1);
+    check('ordering 1 when 0 are left is refused with 409', none.placed.status === 409, none.placed);
     await restock(id, { mode: 'set', quantity: 9 });
 
     const [invRow] = await conn.query('SELECT archived_at FROM inventory WHERE id = ?', [inventoryId]);
