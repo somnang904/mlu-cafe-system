@@ -1,7 +1,7 @@
 import { formatSlotRange12Hour } from '../utils/dateTimeFormat'
 
 export const BOOKING_STATUSES = ['Pending', 'Confirmed', 'Paid']
-export const RESERVATION_STATUSES = [...BOOKING_STATUSES, 'Canceled']
+export const RESERVATION_STATUSES = [...BOOKING_STATUSES, 'Seated', 'Completed', 'No-show', 'Canceled']
 export const CHECK_IN_STATUSES = ['Pending', 'Confirmed', 'Paid', 'Reserved']
 export const SEATED_STATUS = 'Seated'
 
@@ -41,6 +41,12 @@ export const RESERVATION_STATUS_META = {
     labelKey: 'statuses.completed',
     badge:
       'bg-emerald-50 text-emerald-800 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-800/50',
+  },
+  'No-show': {
+    label: 'No-show',
+    labelKey: 'statuses.noShow',
+    badge:
+      'bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:ring-rose-800/50',
   },
   Canceled: {
     label: 'Canceled',
