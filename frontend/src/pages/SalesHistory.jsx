@@ -1,11 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Printer, RotateCcw, Search, Trash2 } from 'lucide-react'
-import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal'
+import { Printer, RotateCcw, Search } from 'lucide-react'
 import ReceiptModal from '../components/pos/ReceiptModal'
 import VoidOrderModal from '../components/pos/VoidOrderModal'
 import { SalesFilterBar } from '../components/ui/SalesFilterBar'
-import { useAuth } from '../context/AuthContext'
 import { usePOS } from '../context/POSContext'
 import { fetchReceiptTransaction } from '../utils/receiptHelpers'
 import {
@@ -39,15 +37,13 @@ function statusLabel(status, t) {
 
 export default function SalesHistory() {
   const { t } = useTranslation()
-  const { isAdmin } = useAuth()
-  const { salesHistory, loadSalesHistory, releaseSalesHistoryScope, refundOrder, deleteOrder } = usePOS()
+  const { salesHistory, loadSalesHistory, releaseSalesHistoryScope, refundOrder } = usePOS()
   const [search, setSearch] = useState('')
   const [selectedMonth, setSelectedMonth] = useState(() => getCurrentMonthKey())
   const [receiptTransaction, setReceiptTransaction] = useState(null)
   const [printingOrderId, setPrintingOrderId] = useState(null)
   const [receiptError, setReceiptError] = useState('')
   const [voidTargetOrder, setVoidTargetOrder] = useState(null)
-  const [deleteTargetOrder, setDeleteTargetOrder] = useState(null)
 
   const completedHistory = useMemo(
     () => filterCompletedOrders(salesHistory || []),
@@ -259,15 +255,6 @@ export default function SalesHistory() {
                         </p>
                       )}
                     </div>
-                    {order.items?.length > 0 && (
-                      <ul className="mt-2 space-y-0.5 text-sm text-stone-700 dark:text-stone-200">
-                        {order.items.map((item, index) => (
-                          <li key={index} className="break-words">
-                            <span className="font-semibold tabular-nums">{item.qty}×</span> {item.name}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
                     <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-sm">
                       <p className="tabular-nums leading-tight text-stone-600 dark:text-stone-300">
                         <span className="block">{formatOrderDate(order.date)}</span>
@@ -318,22 +305,20 @@ export default function SalesHistory() {
           <div className="hidden min-w-0 lg:block">
             <table className="w-full table-fixed text-left text-sm">
               <colgroup>
-                <col className="w-[9%]" />
                 <col className="w-[11%]" />
-                <col className="w-[8%]" />
-                <col className="w-[27%]" />
-                <col className="w-[11%]" />
-                <col className="w-[9%]" />
-                <col className="w-[7%]" />
-                <col className="w-[9%]" />
-                <col className="w-[9%]" />
+                <col className="w-[12%]" />
+                <col className="w-[10%]" />
+                <col className="w-[15%]" />
+                <col className="w-[12%]" />
+                <col className="w-[10%]" />
+                <col className="w-[12%]" />
+                <col className="w-[18%]" />
               </colgroup>
               <thead>
                 <tr className="table-head">
                   <th className="px-2 py-3">{t('sales.orderId')}</th>
                   <th className="px-2 py-3">{t('sales.cashier', { defaultValue: 'អ្នកលក់' })}</th>
                   <th className="px-2 py-3">{t('common.source', { defaultValue: 'Source' })}</th>
-                  <th className="px-2 py-3">{t('sales.items', { defaultValue: 'Items' })}</th>
                   <th className="px-2 py-3">{t('common.dateTime', { defaultValue: 'Date / Time' })}</th>
                   <th className="px-2 py-3">{t('common.payment', { defaultValue: 'Payment' })}</th>
                   <th className="px-2 py-3">{t('common.total', { defaultValue: 'Total' })}</th>
@@ -344,7 +329,7 @@ export default function SalesHistory() {
               <tbody className="table-divider">
                 {filteredLogs.length === 0 ? (
                   <tr>
-                    <td colSpan={9}className="px-2 py-10 text-center text-sm text-stone-500 dark:text-zinc-400">
+                    <td colSpan={8} className="px-2 py-10 text-center text-sm text-stone-500 dark:text-zinc-400">
                       {t('sales.emptyLogs', {
                         defaultValue: 'No completed orders found for this month and search filter.',
                       })}
@@ -367,27 +352,6 @@ export default function SalesHistory() {
                         </td>
                         <td className="min-w-0 break-words px-2 py-3 text-stone-600 dark:text-stone-300">
                           {order.source ?? '—'}
-                        </td>
-                        <td className="px-2 py-3 text-stone-700 dark:text-stone-200">
-                          {order.items?.length > 0 ? (
-                            <ul className="space-y-1" title={order.summary}>
-                              {order.items.slice(0, 3).map((item, index) => (
-                                <li key={index} className="flex min-w-0 items-baseline gap-1.5 leading-tight">
-                                  <span className="shrink-0 rounded-md bg-forest-500/10 px-1.5 py-0.5 text-2xs font-semibold tabular-nums text-forest-700 dark:text-forest-300">
-                                    {item.qty}×
-                                  </span>
-                                  <span className="min-w-0 truncate">{item.name}</span>
-                                </li>
-                              ))}
-                              {order.items.length > 3 && (
-                                <li className="text-2xs font-semibold text-stone-500 dark:text-stone-400">
-                                  +{order.items.length - 3} {t('sales.more', { defaultValue: 'more' })}
-                                </li>
-                              )}
-                            </ul>
-                          ) : (
-                            '—'
-                          )}
                         </td>
                         <td className="px-2 py-3 tabular-nums leading-tight text-stone-600 dark:text-stone-300">
                           <span className="block whitespace-nowrap">{formatOrderDate(order.date)}</span>
@@ -432,17 +396,6 @@ export default function SalesHistory() {
                             >
                               <Printer className={`h-3.5 w-3.5 shrink-0 ${isPrinting ? 'animate-pulse' : ''}`} />
                             </button>
-                            {isAdmin && (
-                              <button
-                                type="button"
-                                onClick={() => setDeleteTargetOrder(order)}
-                                title={t('sales.deleteOrder', { defaultValue: 'Delete Order' })}
-                                aria-label={t('sales.deleteOrder', { defaultValue: 'Delete Order' })}
-                                className="inline-flex items-center justify-center whitespace-nowrap rounded-lg border border-red-200 bg-red-50/70 px-2.5 py-1.5 text-xs font-semibold text-red-600 transition-colors hover:border-red-300 hover:bg-red-100 hover:text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300 dark:hover:bg-red-900/60"
-                              >
-                                <Trash2 className="h-3.5 w-3.5 shrink-0" />
-                              </button>
-                            )}
                           </div>
                         </td>
                       </tr>
