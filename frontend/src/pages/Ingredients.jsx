@@ -881,21 +881,21 @@ export default function Ingredients() {
       label: t('ingredients.summaryTotal'),
       value: counts.total,
       icon: Package,
-      iconTone: 'bg-forest-50 text-forest-600 dark:bg-forest-950/50 dark:text-forest-300',
+      iconTone: 'text-forest-600 dark:text-forest-400',
     },
     {
       key: 'low',
       label: t('ingredients.summaryLow'),
       value: counts.low,
       icon: AlertTriangle,
-      iconTone: 'bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-300',
+      iconTone: 'text-amber-500 dark:text-amber-400',
     },
     {
       key: 'out',
       label: t('ingredients.summaryOut'),
       value: counts.out,
       icon: CircleX,
-      iconTone: 'bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-300',
+      iconTone: 'text-rose-500 dark:text-rose-400',
     },
   ]
 
@@ -927,8 +927,8 @@ export default function Ingredients() {
               const Icon = card.icon
               return (
                 <div key={card.key} className="surface-card flex items-center gap-4 p-4">
-                  <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${card.iconTone}`}>
-                    <Icon className="h-6 w-6" aria-hidden />
+                  <span className={`flex shrink-0 items-center justify-center ${card.iconTone}`}>
+                    <Icon className="h-10 w-10" strokeWidth={1.75} aria-hidden />
                   </span>
                   <div className="min-w-0">
                     <p className="text-muted truncate text-xs font-semibold uppercase tracking-wide">{card.label}</p>
