@@ -1109,7 +1109,6 @@ export default function MenuManagement() {
         itemName={menuDeleteTarget?.name}
         onCancel={() => setMenuDeleteTarget(null)}
         onConfirm={confirmDeleteMenuItem}
-        confirmLabel={t('common.deleteConfirm')}
       />
 
       <MenuDeleteBlockedModal
@@ -1129,7 +1128,6 @@ export default function MenuManagement() {
         itemName={categoryDeleteTarget ? labelOf(categoryDeleteTarget) : ''}
         onCancel={() => setCategoryDeleteTarget(null)}
         onConfirm={confirmDeleteCategory}
-        confirmLabel={t('common.deleteConfirm')}
       >
         {deleteItemCount > 0 ? (
           <div className="mt-4">
