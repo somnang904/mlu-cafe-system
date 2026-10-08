@@ -370,8 +370,33 @@ async function run() {
       const paid = await call('POST', '/orders/checkout', { token, body: { target_id: 'takeout', payment_method: 'Cash' } });
       return { placed, paid };
     };
+    const badRecipe = await call('PUT', `/menu-recipes/${newMenuId}`, { token, body: { lines: [{ ingredient_id: id, quantity: 0 }] } });
+    check('recipe with a zero amount is 400', badRecipe.status === 400, badRecipe);
+    const dupRecipe = await call('PUT', `/menu-recipes/${newMenuId}`, { token, body: { lines: [{ ingredient_id: id, quantity: 1 }, { ingredient_id: id, quantity: 2 }] } });
+    check('recipe listing the same ingredient twice is 400', dupRecipe.status === 400, dupRecipe);
+    const unknownRecipe = await call('PUT', `/menu-recipes/${newMenuId}`, { token, body: { lines: [{ ingredient_id: 99999999, quantity: 1 }] } });
+    check('recipe with an unknown ingredient is 400', unknownRecipe.status === 400, unknownRecipe);
+    const setRecipe = await call('PUT', `/menu-recipes/${newMenuId}`, { token, body: { lines: [{ ingredient_id: id, quantity: 1.5 }] } });
+    check('saving a recipe returns 200 with the line', setRecipe.status === 200 && setRecipe.body?.lines?.length === 1 && Number(setRecipe.body.lines[0].quantity) === 1.5, setRecipe);
+    const getRecipe = await call('GET', `/menu-recipes/${newMenuId}`, { token });
+    check('GET recipe returns the saved line', getRecipe.status === 200 && getRecipe.body?.lines?.[0]?.ingredient_id === id, getRecipe);
+    const listWithUse = await call('GET', '/ingredients', { token });
+    const usedRow = listWithUse.body?.items?.find((row) => row.id === id);
+    check('GET /ingredients shows where the ingredient is used', usedRow?.used_in?.some((use) => use.menu_item_id === newMenuId), usedRow);
+    const beforeRecipeSale = Number(await dbQty(id));
     const s1 = await sellOne(newMenuId, menuName);
     check('sale of a new menu item succeeds (201 then 200)', s1.placed.status === 201 && s1.paid.status === 200, s1);
+    check('selling 2 servings takes 2 x 1.5 = 3 from the ingredient', Number(await dbQty(id)) === beforeRecipeSale - 3, { before: beforeRecipeSale, after: await dbQty(id) });
+    const refundOrderId = s1.placed.body?.orderId;
+    const refund = await call('POST', `/orders/${refundOrderId}/refund`, { token, body: { reason: 'E2E recipe refund' } });
+    if (refund.status === 200) {
+      check('refunding the sale puts the ingredient back', Number(await dbQty(id)) === beforeRecipeSale, { after: await dbQty(id) });
+    } else {
+      console.log(`INFO  refund route returned ${refund.status}; refund restore check skipped`);
+    }
+    const clearRecipe = await call('PUT', `/menu-recipes/${newMenuId}`, { token, body: { lines: [] } });
+    check('clearing a recipe returns 200 with no lines', clearRecipe.status === 200 && clearRecipe.body?.lines?.length === 0, clearRecipe);
+    await call('POST', `/ingredients/${id}/adjust`, { token, body: { mode: 'count', quantity: 20 } });
     if (sellMenuId) {
       const [mn] = await conn.query('SELECT name FROM menu_items WHERE id = ?', [sellMenuId]);
       const s2 = await sellOne(sellMenuId, mn[0].name);
@@ -380,11 +405,10 @@ async function run() {
       console.log('INFO  no available menu item is linked to an ingredient in this dump; linked-sale check skipped');
     }
     const [snapAfter] = await conn.query('SELECT id, stock_quantity FROM inventory WHERE is_ingredient = 1 ORDER BY id');
-    const same = snapAfter.length === snapRows.length && snapAfter.every((r, i) => r.id === snapRows[i].id && Number(r.stock_quantity) === Number(snapRows[i].stock_quantity));
-    check('selling menu items changes no ingredient quantity', same);
-    check('the created ingredient quantity is still 20 after sales', Number(await dbQty(id)) === 20, await dbQty(id));
+    check('ingredient rows are still present after sales', snapAfter.length === snapRows.length);
+    check('the created ingredient is back to 20 after the recipe was cleared and recounted', Number(await dbQty(id)) === 20, await dbQty(id));
     const [ingrMoves] = await conn.query("SELECT COUNT(*) AS n FROM stock_movements WHERE reason = 'sale' AND inventory_id IN (SELECT id FROM inventory WHERE is_ingredient = 1)");
-    check('no new sale movement was written for any ingredient', Number(ingrMoves[0].n) === Number(saleMovesBefore[0].n), { before: saleMovesBefore, after: ingrMoves });
+    check('recipe sales write sale movements for ingredients', Number(ingrMoves[0].n) > Number(saleMovesBefore[0].n), { before: saleMovesBefore, after: ingrMoves });
     check('Whole Milk row still exists as an ingredient', milkRow.length === 1);
 
     const movesBeforeDelete = (await moves(id)).length;

@@ -137,8 +137,96 @@ async function listIngredients(db) {
   const [rows] = await db.execute(
     'SELECT * FROM inventory WHERE is_ingredient = 1 ORDER BY category, item_name',
   )
-  const items = rows.map(serializeIngredient)
+  const [uses] = await db.execute(
+    `SELECT l.inventory_id, l.quantity_per_unit, m.id AS menu_item_id, m.name
+     FROM menu_item_stock_links l
+     JOIN inventory i ON i.id = l.inventory_id AND i.is_ingredient = 1
+     JOIN menu_items m ON m.id = l.menu_item_id
+     WHERE l.variant = '' AND l.option_key = '' AND l.option_value = ''
+     ORDER BY m.name`,
+  )
+  const usedIn = new Map()
+  for (const use of uses) {
+    const list = usedIn.get(Number(use.inventory_id)) || []
+    list.push({ menu_item_id: Number(use.menu_item_id), name: use.name, quantity: Number(use.quantity_per_unit) })
+    usedIn.set(Number(use.inventory_id), list)
+  }
+  const items = rows.map((row) => ({ ...serializeIngredient(row), used_in: usedIn.get(Number(row.id)) || [] }))
   return { items, summary: summarizeIngredients(items) }
+}
+
+const MAX_RECIPE_LINES = 30
+const MAX_RECIPE_QUANTITY = 1000
+
+function parseRecipeLines(body) {
+  const lines = body?.lines
+  if (!Array.isArray(lines)) throw httpError(400, 'lines must be a list')
+  if (lines.length > MAX_RECIPE_LINES) throw httpError(400, `A recipe can have at most ${MAX_RECIPE_LINES} ingredients`)
+  const seen = new Set()
+  return lines.map((line) => {
+    const ingredientId = Number(line?.ingredient_id)
+    const quantity = Number(line?.quantity)
+    if (!Number.isInteger(ingredientId) || ingredientId <= 0) throw httpError(400, 'Choose an ingredient for every line')
+    if (typeof line?.quantity === 'boolean' || !Number.isFinite(quantity) || quantity <= 0 || quantity > MAX_RECIPE_QUANTITY) {
+      throw httpError(400, `Amount per serving must be more than 0 and at most ${MAX_RECIPE_QUANTITY}`)
+    }
+    if (seen.has(ingredientId)) throw httpError(400, 'Each ingredient can appear only once', 'duplicate_ingredient')
+    seen.add(ingredientId)
+    return { ingredient_id: ingredientId, quantity: Math.round(quantity * 1e6) / 1e6 }
+  })
+}
+
+async function loadRecipe(conn, menuItemId) {
+  const [menus] = await conn.execute('SELECT id, name FROM menu_items WHERE id = ? LIMIT 1', [menuItemId])
+  if (!menus.length) throw httpError(404, 'Menu item not found')
+  const [rows] = await conn.execute(
+    `SELECT l.inventory_id, l.quantity_per_unit, i.item_name, i.unit_label, i.unit_singular, i.stock_quantity
+     FROM menu_item_stock_links l
+     JOIN inventory i ON i.id = l.inventory_id AND i.is_ingredient = 1
+     WHERE l.menu_item_id = ? AND l.variant = '' AND l.option_key = '' AND l.option_value = ''
+     ORDER BY i.item_name`,
+    [menuItemId],
+  )
+  return {
+    menu_item_id: Number(menus[0].id),
+    name: menus[0].name,
+    lines: rows.map((row) => ({
+      ingredient_id: Number(row.inventory_id),
+      item_name: row.item_name,
+      unit_label: row.unit_label,
+      unit_singular: row.unit_singular,
+      stock_quantity: Number(row.stock_quantity),
+      quantity: Number(row.quantity_per_unit),
+    })),
+  }
+}
+
+async function saveRecipe(conn, menuItemId, body) {
+  const lines = parseRecipeLines(body)
+  const [menus] = await conn.execute('SELECT id FROM menu_items WHERE id = ? LIMIT 1 FOR UPDATE', [menuItemId])
+  if (!menus.length) throw httpError(404, 'Menu item not found')
+  if (lines.length) {
+    const ids = lines.map((line) => line.ingredient_id)
+    const [found] = await conn.execute(
+      `SELECT id FROM inventory WHERE is_ingredient = 1 AND id IN (${ids.map(() => '?').join(', ')})`,
+      ids,
+    )
+    if (found.length !== ids.length) throw httpError(400, 'One of the ingredients no longer exists', 'unknown_ingredient')
+  }
+  await conn.execute(
+    `DELETE l FROM menu_item_stock_links l
+     JOIN inventory i ON i.id = l.inventory_id AND i.is_ingredient = 1
+     WHERE l.menu_item_id = ? AND l.variant = '' AND l.option_key = '' AND l.option_value = ''`,
+    [menuItemId],
+  )
+  for (const line of lines) {
+    await conn.execute(
+      `INSERT INTO menu_item_stock_links (menu_item_id, variant, option_key, option_value, inventory_id, quantity_per_unit)
+       VALUES (?, '', '', '', ?, ?)`,
+      [menuItemId, line.ingredient_id, line.quantity],
+    )
+  }
+  return loadRecipe(conn, menuItemId)
 }
 
 async function loadIngredient(conn, id, { lock = false } = {}) {
@@ -244,6 +332,9 @@ async function removeIngredient(conn, id) {
 }
 
 module.exports = {
+  parseRecipeLines,
+  loadRecipe,
+  saveRecipe,
   DEFAULT_CATEGORY,
   DEFAULT_LOW_THRESHOLD,
   findDuplicateName,

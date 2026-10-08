@@ -842,6 +842,14 @@ export default function Ingredients() {
                       <td className="px-6 py-4">
                         <p className="text-heading text-sm font-semibold">{item.item_name}</p>
                         {item.category ? <span className="badge-olive mt-1 inline-block">{categoryLabel(t, item.category)}</span> : null}
+                        <p
+                          className="text-muted mt-1 max-w-[18rem] truncate text-2xs"
+                          title={(item.used_in || []).map((use) => use.name).join(', ')}
+                        >
+                          {item.used_in?.length
+                            ? t('recipe.usedIn', { count: localizeDigits(item.used_in.length), names: item.used_in.map((use) => use.name).join(', ') })
+                            : t('recipe.notUsed')}
+                        </p>
                       </td>
                       <td className="px-6 py-4">
                         <p className="text-heading text-sm font-semibold tabular-nums">

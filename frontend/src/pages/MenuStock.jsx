@@ -5,6 +5,7 @@ import {
   Check,
   CircleOff,
   ClipboardList,
+  ChefHat,
   Hash,
   History,
   Infinity as InfinityIcon,
@@ -22,6 +23,7 @@ import {
 import { useTranslation } from 'react-i18next'
 import { apiFetch } from '../services/apiClient'
 import MenuItemImage from '../components/menu/MenuItemImage'
+import RecipeModal from '../components/menu/RecipeModal'
 import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal'
 import FieldLabel from '../components/ui/FieldLabel'
 import IconSelect from '../components/ui/IconSelect'
@@ -972,6 +974,17 @@ export default function MenuStock() {
                       </td>
                       <td className="px-6 py-4">
                         <div className="ml-auto flex w-fit items-center gap-0.5 rounded-full bg-white/90 p-0.5 shadow-sm ring-1 ring-slate-200 dark:bg-zinc-800/90 dark:ring-zinc-700">
+                          <Tooltip label={t('recipe.title')} side="left">
+                            <button
+                              type="button"
+                              onClick={() => setModal({ type: 'recipe', item })}
+                              aria-label={t('recipe.title')}
+                              className={ACTION_BUTTON}
+                            >
+                              <ChefHat className="h-4 w-4" aria-hidden />
+                            </button>
+                          </Tooltip>
+                          <span className="h-4 w-px bg-slate-200 dark:bg-zinc-700" aria-hidden />
                           {item.tracked ? (
                             <>
                               <Tooltip label={t('menuStock.restock')} side="left">
@@ -1073,6 +1086,18 @@ export default function MenuStock() {
           displayName={nameOf(modal.item)}
           onClose={() => setModal(null)}
           onSaved={applyItem}
+        />
+      ) : null}
+      {modal?.type === 'recipe' ? (
+        <RecipeModal
+          key={modal.item.menu_item_id}
+          menuItemId={modal.item.menu_item_id}
+          displayName={nameOf(modal.item)}
+          onClose={() => setModal(null)}
+          onSaved={() => {
+            setModal(null)
+            showToast(t('recipe.saved'))
+          }}
         />
       ) : null}
       {modal?.type === 'history' ? (

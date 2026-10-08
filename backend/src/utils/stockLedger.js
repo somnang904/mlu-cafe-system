@@ -114,11 +114,11 @@ async function loadDirectLinks(conn, menuIds) {
   if (!menuIds.length) return []
   const placeholders = menuIds.map(() => '?').join(', ')
   const [rows] = await conn.execute(
-    `SELECT l.menu_item_id, l.inventory_id, l.quantity_per_unit
+    `SELECT l.menu_item_id, l.inventory_id, l.quantity_per_unit, i.is_ingredient
      FROM menu_item_stock_links l
      JOIN inventory i ON i.id = l.inventory_id
      WHERE l.variant = '' AND l.option_key = '' AND l.option_value = ''
-       AND i.archived_at IS NULL
+       AND (i.archived_at IS NULL OR i.is_ingredient = 1)
        AND l.menu_item_id IN (${placeholders})`,
     menuIds,
   )
@@ -150,6 +150,9 @@ async function reconcileOrderStock(conn, orderId, lines, userId, { blockShortage
   const links = await loadDirectLinks(conn, menuIds)
   const taken = await loadNetTaken(conn, orderId)
   const deltas = planStockDeltas(lines, links, taken)
+  const ingredientIds = new Set(
+    links.filter((link) => Number(link.is_ingredient) === 1).map((link) => Number(link.inventory_id)),
+  )
 
   const lowStockWarnings = []
   for (const entry of deltas) {
@@ -159,7 +162,7 @@ async function reconcileOrderStock(conn, orderId, lines, userId, { blockShortage
       reason: entry.delta > 0 ? 'sale' : 'cancel',
       orderId,
       userId,
-      allowNegative: !(blockShortage && entry.delta > 0),
+      allowNegative: !(blockShortage && entry.delta > 0 && !ingredientIds.has(Number(entry.inventoryId))),
     })
     if (result && (result.status === 'LOW_STOCK' || result.status === 'OUT_OF_STOCK' || result.isCritical)) {
       lowStockWarnings.push(result)

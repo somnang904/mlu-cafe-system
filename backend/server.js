@@ -118,6 +118,8 @@ const {
     updateIngredient,
     adjustIngredient,
     removeIngredient,
+    loadRecipe,
+    saveRecipe,
 } = require('./src/utils/ingredients');
 const {
     assertRefundable,
@@ -2401,6 +2403,34 @@ function parseIngredientParam(req, res) {
     }
     return id;
 }
+
+app.get('/api/menu-recipes/:menuItemId', requirePermission('inventory_stock'), async (req, res) => {
+    const menuItemId = parseMenuItemParam(req, res);
+    if (menuItemId == null) return;
+    try {
+        res.status(200).json(await loadRecipe(db, menuItemId));
+    } catch (error) {
+        sendInventoryError(res, error, 'Failed to load the recipe');
+    }
+});
+
+app.put('/api/menu-recipes/:menuItemId', requireStockAccess, async (req, res) => {
+    const menuItemId = parseMenuItemParam(req, res);
+    if (menuItemId == null) return;
+    try {
+        const recipe = await withTransaction(db, (conn) => saveRecipe(conn, menuItemId, req.body));
+        await auditFromRequest(db, req, {
+            action: 'menu_recipe_update',
+            module: 'Inventory',
+            description: `Set recipe for menu item #${menuItemId} "${recipe.name}": ${recipe.lines.length
+                ? recipe.lines.map((line) => `${line.quantity} ${line.unit_label || ''} ${line.item_name}`.replace(/\s+/g, ' ')).join(', ')
+                : 'no ingredients'}.`,
+        });
+        res.status(200).json(recipe);
+    } catch (error) {
+        sendInventoryError(res, error, 'Failed to save the recipe');
+    }
+});
 
 app.get('/api/ingredients', requirePermission('inventory_stock'), async (_req, res) => {
     try {
