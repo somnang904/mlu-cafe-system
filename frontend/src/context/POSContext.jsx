@@ -21,6 +21,7 @@ import {
 import { getFloorTableLabel, TAKEOUT_BILL } from '../data/tables'
 
 import { apiFetch, getAuthToken } from '../services/apiClient'
+import { readSession } from '../services/sessionStorage'
 
 const POSContext = createContext(null)
 
@@ -169,6 +170,8 @@ export function POSProvider({ children }) {
         const formattedHistory = historyRows.map((row) => ({
           id: row.invoice_id || row.id,
           order_id: row.order_id,
+          staff_id: row.staff_id ?? null,
+          staff_name: row.staff_name ?? null,
           void_reason: row.void_reason || null,
           voided_at: row.voided_at || null,
           refundDate: row.refund_date || null,
@@ -671,8 +674,15 @@ export function POSProvider({ children }) {
       const recordedItems = serverBillItems(destinationId, data.lines)
       const paidItems = recordedItems?.length ? recordedItems : bill.items
 
+      const currentUser = readSession()?.user
+      const staffName = data.staff_name || currentUser?.display_name || currentUser?.username || null
+      const staffId = data.staff_id || currentUser?.id || null
+
       const transaction = {
         id: invoiceId,
+        staff_id: staffId,
+        staff_name: staffName,
+        cashier: staffName,
         date,
         time,
         monthKey: date.slice(0, 7),
@@ -799,6 +809,9 @@ export function POSProvider({ children }) {
         tax: 0,
         total: recordedTotal,
         status: 'Completed',
+        staff_id: (data.staff_id || readSession()?.user?.id) ?? null,
+        staff_name: (data.staff_name || readSession()?.user?.display_name || readSession()?.user?.username) ?? null,
+        cashier: (data.staff_name || readSession()?.user?.display_name || readSession()?.user?.username) ?? null,
         source: `${bill.name} (Split)`,
         summary: paidItems.map((it) => `${it.qty}× ${it.name}`).join(', '),
         items: paidItems.map((item) => ({ ...item })),
