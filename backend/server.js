@@ -2925,7 +2925,7 @@ app.get('/api/expenses/:id/receipt', requireExpenseAccess, async (req, res) => {
 
 function removeReceiptFile(file) {
     if (!file) return;
-    fs.promises.unlink(path.join(receiptsDir, path.basename(file))).catch(() => {});
+    fs.promises.unlink(path.join(receiptsDir, path.basename(file))).catch(() => { });
 }
 
 app.put('/api/expenses/:id', requireExpenseAccess, async (req, res) => {

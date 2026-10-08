@@ -1,4 +1,4 @@
-const { TIME_SLOTS, getTimeSlotsForDate, isMonday, formatTimeRange12Hour } = require('../config/siteData')
+const { TIME_SLOTS, getTimeSlotsForDate, isMonday, isHighSeasonMonth, STORE_SCHEDULE, formatTimeRange12Hour } = require('../config/siteData')
 const { dismissReservationAlerts } = require('./adminNotifications')
 
 const ACTIVE_STATUSES = ['Pending', 'Confirmed', 'Paid', 'Reserved']
@@ -54,10 +54,10 @@ async function ensureColumn(db, table, column, definition) {
 async function ensureFloorTables(db) {
   try {
     await db.execute('ALTER TABLE `tables` MODIFY table_name VARCHAR(60) NOT NULL')
-  } catch {}
+  } catch { }
   try {
     await db.execute("ALTER TABLE `tables` MODIFY COLUMN `status` VARCHAR(30) NOT NULL DEFAULT 'Empty'")
-  } catch {}
+  } catch { }
   await ensureColumn(db, 'tables', 'section', "VARCHAR(20) NOT NULL DEFAULT 'standard' AFTER table_name")
   await ensureColumn(db, 'tables', 'capacity', 'INT NOT NULL DEFAULT 4 AFTER section')
   // Set while a table's guests are merged onto another table; the table is hidden from the floor.
@@ -252,17 +252,28 @@ function parsePayload(payload = {}) {
     throw httpError(400, 'The cafe is closed on Mondays. Please choose another date.')
   }
 
+  const isHigh = isHighSeasonMonth(reservationDate)
+  const season = isHigh ? STORE_SCHEDULE.highSeason : STORE_SCHEDULE.lowSeason
+  const [h, m] = timeSlot.split(':').map(Number)
+  const timeMinutes = (Number.isInteger(h) ? h : 0) * 60 + (Number.isInteger(m) ? m : 0)
+  const openMinutes = season.openHour * 60
+  const lastReservationMinutes = (season.lastReservationStartHour || 20) * 60 + 30
+  const isWithinHours = timeMinutes >= openMinutes && timeMinutes <= lastReservationMinutes
+
+  if (isActive && !isWithinHours) {
+throw httpError(400, 'That time slot is outside operating hours for the selected date')
+}
+
   const bookable = isMonday(reservationDate) ? [] : getTimeSlotsForDate(reservationDate)
   const matchedSlot = bookable.find((slot) => slot.value === timeSlot)
-  if (isActive && !matchedSlot) {
-    throw httpError(400, 'That time slot is outside operating hours for the selected date')
-  }
+  const remainingMin = season.closeHour * 60 - timeMinutes
+  const defaultDuration = Math.min(120, Math.max(30, remainingMin))
 
   const parsedDuration = Number.parseInt(payload.duration_minutes, 10)
   const durationMinutes =
     (Number.isInteger(parsedDuration) && parsedDuration > 0 ? parsedDuration : null) ||
     matchedSlot?.durationMinutes ||
-    slotMeta(timeSlot).durationMinutes
+    defaultDuration
 
   return {
     customerName,

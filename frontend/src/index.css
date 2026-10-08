@@ -66,6 +66,7 @@
 
 @layer base {
   :root {
+    color-scheme: light;
     --background: #eef2ea;
     --foreground: #0f172a;
     --card: rgba(255, 255, 255, 0.76);
@@ -86,6 +87,7 @@
   }
 
   .dark {
+    color-scheme: dark;
     --background: #0c0f0c;
     --foreground: #f7f3ee;
     --card: rgba(24, 28, 24, 0.58);
@@ -503,6 +505,39 @@
   .dark .brand-logo-glow > img,
   .dark .brand-logo-glow__img {
     filter: brightness(1.2) saturate(1.08) drop-shadow(0 0 16px rgba(16, 185, 129, 0.38));
+  }
+
+  
+  /* Native date, time, and datetime inputs adapt icon color to theme */
+  input[type="date"],
+  input[type="time"],
+  input[type="datetime-local"],
+  input[type="month"] {
+    color-scheme: light;
+  }
+
+  .dark input[type="date"],
+  .dark input[type="time"],
+  .dark input[type="datetime-local"],
+  .dark input[type="month"] {
+    color-scheme: dark;
+  }
+
+  input[type="date"]::-webkit-calendar-picker-indicator,
+  input[type="time"]::-webkit-calendar-picker-indicator,
+  input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+  input[type="month"]::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+    border-radius: 4px;
+    opacity: 0.75;
+    transition: opacity 0.15s ease;
+  }
+
+  input[type="date"]::-webkit-calendar-picker-indicator:hover,
+  input[type="time"]::-webkit-calendar-picker-indicator:hover,
+  input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover,
+  input[type="month"]::-webkit-calendar-picker-indicator:hover {
+    opacity: 1;
   }
 
   .input-field {

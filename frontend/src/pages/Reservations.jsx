@@ -35,6 +35,7 @@ import PageContainer from '../components/common/PageContainer'
 import StatusBadge from '../components/common/StatusBadge'
 import FieldLabel from '../components/ui/FieldLabel'
 import IconSelect from '../components/ui/IconSelect'
+import WheelTimePicker from '../components/ui/WheelTimePicker'
 import ModalHeader from '../components/ui/ModalHeader'
 import { useModalKeyboard } from '../hooks/useModalKeyboard'
 import { apiFetch } from '../services/apiClient'
@@ -50,7 +51,7 @@ import {
 } from '../data/reservations'
 import { getTimeSlotsForDate, isMonday, isValidReservationSlot, nextOpenDate } from '../config/siteData'
 import { floorTables } from '../data/tables'
-import { formatLongDate, formatMonthYear, formatTime12Hour, localizeDigits } from '../utils/dateTimeFormat'
+import { formatLongDate, formatMonthYear, formatSlotRange12Hour, formatTime12Hour, localizeDigits } from '../utils/dateTimeFormat'
 import { canIssueConfirmationLetter } from '../utils/reservationLetter'
 import { useAlerts } from '../context/AlertsContext'
 import { useNotifications } from '../context/NotificationContext'
@@ -184,15 +185,14 @@ function ReservationCalendar({ monthDate, selectedDate, countsByDate, onSelectDa
                 onClick={() => onSelectDate(iso)}
                 aria-label={closed ? `${localizeDigits(day)} - ${t('reservations.closed')}` : undefined}
                 aria-pressed={isSelected}
-                className={`relative flex h-10 w-10 items-center justify-center rounded-full text-sm tabular-nums transition focus-visible:outline-2 focus-visible:outline-forest-500 ${
-                  isSelected
-                    ? 'bg-forest-600 font-semibold text-white shadow-[0_4px_12px_rgba(16,185,129,0.4)]'
-                    : closed
-                      ? 'bg-rose-50 text-rose-400 hover:bg-rose-100 dark:bg-rose-950/30 dark:text-rose-300/70 dark:hover:bg-rose-950/50'
-                      : isToday
-                        ? 'font-bold text-forest-700 ring-2 ring-forest-300 hover:bg-forest-50 dark:text-forest-300 dark:ring-forest-700 dark:hover:bg-forest-950/40'
-                        : 'text-foreground hover:bg-forest-50 dark:hover:bg-zinc-800'
-                }`}
+                className={`relative flex h-10 w-10 items-center justify-center rounded-full text-sm tabular-nums transition focus-visible:outline-2 focus-visible:outline-forest-500 ${isSelected
+                  ? 'bg-forest-600 font-semibold text-white shadow-[0_4px_12px_rgba(16,185,129,0.4)]'
+                  : closed
+                    ? 'bg-rose-50 text-rose-400 hover:bg-rose-100 dark:bg-rose-950/30 dark:text-rose-300/70 dark:hover:bg-rose-950/50'
+                    : isToday
+                      ? 'font-bold text-forest-700 ring-2 ring-forest-300 hover:bg-forest-50 dark:text-forest-300 dark:ring-forest-700 dark:hover:bg-forest-950/40'
+                      : 'text-foreground hover:bg-forest-50 dark:hover:bg-zinc-800'
+                  }`}
               >
                 {localizeDigits(day)}
                 {count > 0 && !closed ? (
@@ -240,8 +240,17 @@ function BookingFormModal({ isOpen, mode, form, tables, error, saving, onChange,
     },
   ].filter((group) => group.tables.length > 0)
 
+  const isPresetSlot = timeSlots.some((slot) => slot.value === form.time_slot)
+  const [isCustomTime, setIsCustomTime] = useState(!isPresetSlot && Boolean(form.time_slot))
+
+  useEffect(() => {
+    if (!isOpen) {
+      setIsCustomTime(false)
+    }
+  }, [isOpen])
+
   const statusValues = BOOKING_STATUSES.includes(form.status) ? BOOKING_STATUSES : [...BOOKING_STATUSES, form.status]
-  const submitDisabled = saving || closedMonday || timeSlots.length === 0 || !form.table_id
+  const submitDisabled = saving || closedMonday || !form.table_id || !form.time_slot
 
   if (!isOpen) return null
 
@@ -260,7 +269,7 @@ function BookingFormModal({ isOpen, mode, form, tables, error, saving, onChange,
         aria-modal="true"
         aria-labelledby="booking-form-title"
       >
-        <div className="modal-panel-body p-6">
+        <div className="modal-panel-body p-4 sm:p-5">
           <ModalHeader
             icon={mode === 'edit' ? Pencil : CalendarPlus}
             title={mode === 'edit' ? t('reservations.editReservation') : t('reservations.newReservation')}
@@ -269,8 +278,8 @@ function BookingFormModal({ isOpen, mode, form, tables, error, saving, onChange,
             onClose={onClose}
           />
 
-          <form className="mt-4 space-y-3" onSubmit={onSubmit}>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <form className="mt-3 space-y-2.5" onSubmit={onSubmit}>
+            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
               <div>
                 <FieldLabel icon={User} htmlFor="booking-customer-name">
                   {t('reservations.customerName')}
@@ -283,7 +292,7 @@ function BookingFormModal({ isOpen, mode, form, tables, error, saving, onChange,
                   required
                   value={form.customer_name}
                   onChange={handleFieldChange('customer_name')}
-                  className="input-field px-3 py-2 text-sm"
+                  className="input-field px-3 py-1.5 text-sm"
                   placeholder={t('reservations.guestNamePlaceholder')}
                 />
               </div>
@@ -299,7 +308,7 @@ function BookingFormModal({ isOpen, mode, form, tables, error, saving, onChange,
                   required
                   value={form.phone}
                   onChange={handleFieldChange('phone')}
-                  className="input-field px-3 py-2 text-sm"
+                  className="input-field px-3 py-1.5 text-sm"
                   placeholder="012 345 678"
                 />
               </div>
@@ -314,23 +323,110 @@ function BookingFormModal({ isOpen, mode, form, tables, error, saving, onChange,
                   required
                   value={form.reservation_date}
                   onChange={handleFieldChange('reservation_date')}
-                  className="input-field px-3 py-2 text-sm"
+                  className="input-field px-3 py-1.5 text-sm"
                 />
               </div>
               <div>
-                <FieldLabel icon={Clock} htmlFor="booking-time-slot">
-                  {t('reservations.timeSlot')}
-                </FieldLabel>
-                <div className={closedMonday || timeSlots.length === 0 ? 'pointer-events-none opacity-60' : ''}>
-                  <IconSelect
-                    id="booking-time-slot"
-                    value={closedMonday ? '' : String(form.time_slot ?? '')}
-                    onChange={(value) => onChange('time_slot', value)}
-                    placeholder={timeSlots.length === 0 ? t('reservations.closedMondayValidation') : ''}
-                    options={timeSlots.map((slot) => ({ value: slot.value, label: slot.label, icon: Clock }))}
-                    className="rounded-xl"
-                  />
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <FieldLabel icon={Clock} htmlFor={isCustomTime ? 'booking-custom-time' : 'booking-time-slot'} className="!mb-0">
+                    {t('reservations.timeSlot')}
+                  </FieldLabel>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (isCustomTime) {
+                        setIsCustomTime(false)
+                        const isPreset = timeSlots.some((s) => s.value === form.time_slot)
+                        if (!isPreset && timeSlots.length > 0) {
+                          onChange('time_slot', timeSlots[0].value)
+                        }
+                      } else {
+                        setIsCustomTime(true)
+                      }
+                    }}
+                    className="inline-flex items-center gap-1 rounded-lg bg-forest-50 px-2 py-0.5 text-2xs font-semibold text-forest-700 hover:bg-forest-100 dark:bg-forest-950/60 dark:text-forest-300 dark:hover:bg-forest-900 transition-colors"
+                  >
+                    {isCustomTime ? (
+                      <>
+                        <ListFilter className="h-3 w-3 shrink-0" />
+                        <span>{t('reservations.presetSlots')}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Clock className="h-3 w-3 shrink-0" />
+                        <span>{t('reservations.wheelTime')}</span>
+                      </>
+                    )}
+                  </button>
                 </div>
+
+                {isCustomTime ? (
+                  <div className={closedMonday ? 'pointer-events-none opacity-60' : 'space-y-1.5'}>
+                    <WheelTimePicker
+                      value={form.time_slot || '09:00'}
+                      onChange={(nextVal) => onChange('time_slot', nextVal)}
+                      disabled={closedMonday}
+                    />
+                    {form.time_slot ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsCustomTime(false)
+                        }}
+                        className="w-full flex items-center justify-between gap-2 rounded-xl bg-forest-600 hover:bg-forest-700 active:bg-forest-800 text-white px-3 py-1.5 text-xs font-semibold shadow-md active:scale-[0.99] transition-all cursor-pointer ring-1 ring-forest-500/50"
+                        title={t('reservations.selectThisTime')}
+                      >
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-200" />
+                          <span className="truncate">{t('reservations.selectThisTime')}</span>
+                        </div>
+                        <span className="font-mono text-2xs font-bold bg-white/20 px-2 py-0.5 rounded shrink-0">
+                          {formatTime12Hour(form.time_slot)}
+                        </span>
+                      </button>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className={closedMonday || timeSlots.length === 0 ? 'pointer-events-none opacity-60' : 'space-y-1'}>
+                    <IconSelect
+                      id="booking-time-slot"
+                      value={closedMonday ? '' : String(form.time_slot ?? '')}
+                      onChange={(value) => {
+                        if (value === '__custom__') {
+                          setIsCustomTime(true)
+                          return
+                        }
+                        onChange('time_slot', value)
+                      }}
+                      placeholder={timeSlots.length === 0 ? t('reservations.closedMondayValidation') : ''}
+                      options={[
+                        ...(!isPresetSlot && form.time_slot ? [{
+                          value: form.time_slot,
+                          label: `${formatSlotRange12Hour(form.time_slot, 120)} (${t('reservations.custom')})`,
+                          icon: Clock,
+                        }] : []),
+                        ...timeSlots.map((slot) => ({ value: slot.value, label: slot.label, icon: Clock })),
+                        { value: '__custom__', label: `+ ${t('reservations.wheelTime')}...`, icon: Clock },
+                      ]}
+                      className="rounded-xl"
+                    />
+                    {!isPresetSlot && form.time_slot ? (
+                      <div className="flex items-center justify-between rounded-xl bg-forest-50/80 px-2.5 py-1 text-2xs font-semibold text-forest-800 ring-1 ring-forest-200/80 dark:bg-forest-950/40 dark:text-forest-300 dark:ring-forest-800/60">
+                        <div className="flex items-center gap-1.5 truncate">
+                          <Clock className="h-3 w-3 shrink-0 text-forest-600 dark:text-forest-400" />
+                          <span className="truncate">{formatSlotRange12Hour(form.time_slot, 120)}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setIsCustomTime(true)}
+                          className="text-2xs text-forest-600 dark:text-forest-400 hover:underline font-normal shrink-0 ml-1 cursor-pointer"
+                        >
+                          {t('reservations.changeTime')}
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                )}
               </div>
               <div>
                 <FieldLabel icon={Armchair} htmlFor="booking-table">
@@ -372,7 +468,7 @@ function BookingFormModal({ isOpen, mode, form, tables, error, saving, onChange,
                   required
                   value={form.guest_count}
                   onChange={handleFieldChange('guest_count')}
-                  className="input-field px-3 py-2 text-sm"
+                  className="input-field px-3 py-1.5 text-sm"
                 />
               </div>
             </div>
@@ -406,32 +502,31 @@ function BookingFormModal({ isOpen, mode, form, tables, error, saving, onChange,
                 name="notes"
                 value={form.notes}
                 onChange={handleFieldChange('notes')}
-                rows={3}
-                className="input-field px-3 py-2 text-sm"
+                rows={2}
+                className="input-field px-3 py-1.5 text-sm min-h-[46px] max-h-[70px] resize-none"
                 placeholder={t('reservations.notesPlaceholder')}
               />
             </div>
 
             {closedMonday ? (
-              <p className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-800 dark:border-rose-800/60 dark:bg-rose-950/40 dark:text-rose-200">
+              <p className="rounded-xl border border-rose-200 bg-rose-50 px-2.5 py-1 text-2xs font-medium text-rose-800 dark:border-rose-800/60 dark:bg-rose-950/40 dark:text-rose-200">
                 {t('reservations.closedMondayBooking')}
               </p>
             ) : (
-              <OperatingHoursNotice />
+              <OperatingHoursNotice className="!py-1 !px-2.5 !text-2xs !rounded-xl" />
             )}
 
             {error ? <p className="text-xs font-medium text-red-600 dark:text-red-400">{error}</p> : null}
 
-            <div className="flex gap-3 pt-2">
+            <div className="flex gap-2.5 pt-1">
               <button type="button" onClick={onClose} className="btn-secondary flex-1 py-2 text-sm">
                 {t('common.cancel')}
               </button>
               <button
                 type="submit"
                 disabled={submitDisabled}
-                className={`btn-primary flex-1 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60 ${
-                  submitDisabled ? '' : 'beam-border shadow-[0_4px_14px_rgba(16,185,129,0.35)]'
-                }`}
+                className={`btn-primary flex-1 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60 ${submitDisabled ? '' : 'beam-border shadow-[0_4px_14px_rgba(16,185,129,0.35)]'
+                  }`}
               >
                 {saving
                   ? t('common.saving')
@@ -457,9 +552,8 @@ function ReservationActions({
   touch = false,
 }) {
   const { t } = useTranslation()
-  const iconButton = `flex shrink-0 items-center justify-center rounded-full transition focus-visible:outline-2 focus-visible:outline-forest-500 ${
-    touch ? 'h-10 w-10' : 'h-8 w-8'
-  }`
+  const iconButton = `flex shrink-0 items-center justify-center rounded-full transition focus-visible:outline-2 focus-visible:outline-forest-500 ${touch ? 'h-10 w-10' : 'h-8 w-8'
+    }`
   const canLetter = canIssueConfirmationLetter(reservation)
 
   return (
@@ -469,9 +563,8 @@ function ReservationActions({
           type="button"
           disabled={checkingInId === reservation.id}
           onClick={() => onCheckIn(reservation)}
-          className={`inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-600 font-semibold text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60 ${
-            touch ? 'min-h-10 px-3 text-sm' : 'px-2.5 py-1 text-2xs'
-          }`}
+          className={`inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-600 font-semibold text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60 ${touch ? 'min-h-10 px-3 text-sm' : 'px-2.5 py-1 text-2xs'
+            }`}
           aria-label={t('a11y.checkInGuest', { name: reservation.customer_name })}
         >
           <UserCheck className={touch ? 'h-4 w-4' : 'h-3.5 w-3.5'} />
@@ -652,14 +745,13 @@ export default function Reservations() {
 
   const openEdit = (reservation) => {
     const date = reservation.reservation_date
-    const slots = getTimeSlotsForDate(date)
     const currentSlot = String(reservation.time_slot).slice(0, 5)
     setEditing(reservation)
     setForm({
       customer_name: reservation.customer_name,
       phone: reservation.phone,
       reservation_date: date,
-      time_slot: slots.some((slot) => slot.value === currentSlot) ? currentSlot : slots[0]?.value || currentSlot,
+      time_slot: currentSlot,
       table_id: String(reservation.table_id),
       guest_count: reservation.guest_count,
       status: reservation.status,
@@ -674,9 +766,9 @@ export default function Reservations() {
     setForm((prev) => {
       if (field !== 'reservation_date') return { ...prev, [field]: value }
       const slots = getTimeSlotsForDate(value)
-      const nextSlot = slots.some((slot) => slot.value === prev.time_slot)
+      const nextSlot = isValidReservationSlot(value, prev.time_slot)
         ? prev.time_slot
-        : slots[0]?.value || ''
+        : slots[0]?.value || prev.time_slot || ''
       return { ...prev, reservation_date: value, time_slot: nextSlot }
     })
   }, [])
@@ -885,131 +977,131 @@ export default function Reservations() {
         {emptyMessage ? (
           <p className="px-5 py-10 text-center text-muted-foreground lg:hidden">{emptyMessage}</p>
         ) : null}
-          <>
-            <div className="lg:hidden">
-              {pagedRows.map((reservation) => {
-                const meta = RESERVATION_STATUS_META[reservation.status] || RESERVATION_STATUS_META.Pending
-                return (
-                  <article key={reservation.id} className="min-w-0 border-b border-border/60 px-4 py-4 last:border-b-0">
-                    <div className="flex min-w-0 items-start justify-between gap-3">
-                      <p className="min-w-0 break-words font-medium">{reservation.customer_name}</p>
-                      <StatusBadge className={`shrink-0 ring-1 ${meta.badge}`}>
-                        {t(meta.labelKey)}
-                      </StatusBadge>
+        <>
+          <div className="lg:hidden">
+            {pagedRows.map((reservation) => {
+              const meta = RESERVATION_STATUS_META[reservation.status] || RESERVATION_STATUS_META.Pending
+              return (
+                <article key={reservation.id} className="min-w-0 border-b border-border/60 px-4 py-4 last:border-b-0">
+                  <div className="flex min-w-0 items-start justify-between gap-3">
+                    <p className="min-w-0 break-words font-medium">{reservation.customer_name}</p>
+                    <StatusBadge className={`shrink-0 ring-1 ${meta.badge}`}>
+                      {t(meta.labelKey)}
+                    </StatusBadge>
+                  </div>
+                  <dl className="mt-3 grid min-w-0 grid-cols-2 gap-x-3 gap-y-2 text-sm">
+                    <div className="min-w-0">
+                      <dt className="text-muted text-2xs">{t('reservations.date')}</dt>
+                      <dd className="break-words tabular-nums">{reservation.reservation_date}</dd>
                     </div>
-                    <dl className="mt-3 grid min-w-0 grid-cols-2 gap-x-3 gap-y-2 text-sm">
-                      <div className="min-w-0">
-                        <dt className="text-muted text-2xs">{t('reservations.date')}</dt>
-                        <dd className="break-words tabular-nums">{reservation.reservation_date}</dd>
-                      </div>
-                      <div className="min-w-0">
-                        <dt className="text-muted text-2xs">{t('reservations.timeSlot')}</dt>
-                        <dd className="break-words">
-                          {slotLabel(reservation.time_slot, reservation.time_slot_label, reservation.duration_minutes)}
-                        </dd>
-                      </div>
-                      <div className="min-w-0">
-                        <dt className="text-muted text-2xs">{t('reservations.phoneNumber')}</dt>
-                        <dd className="break-words">{reservation.phone}</dd>
-                      </div>
-                      <div className="min-w-0">
-                        <dt className="text-muted text-2xs">{t('reservations.guestCount')}</dt>
-                        <dd className="tabular-nums">{reservation.guest_count}</dd>
-                      </div>
-                      <div className="min-w-0">
-                        <dt className="text-muted text-2xs">{t('tables.table')}</dt>
-                        <dd className="break-words">{reservationTableLabel(reservation, t)}</dd>
-                      </div>
-                    </dl>
-                    {reservation.status === 'Seated' && reservation.checked_in_at ? (
-                      <p className="text-muted mt-2 text-2xs">
-                        {t('reservations.checkedInAt', { time: formatTime12Hour(reservation.checked_in_at) })}
-                      </p>
-                    ) : null}
-                    <div className="mt-3">
-                      <ReservationActions
-                        reservation={reservation}
-                        checkingInId={checkingInId}
-                        onCheckIn={handleCheckIn}
-                        onLetter={setLetterReservation}
-                        onEdit={openEdit}
-                        onDelete={setDeleteTarget}
-                        touch
-                      />
+                    <div className="min-w-0">
+                      <dt className="text-muted text-2xs">{t('reservations.timeSlot')}</dt>
+                      <dd className="break-words">
+                        {slotLabel(reservation.time_slot, reservation.time_slot_label, reservation.duration_minutes)}
+                      </dd>
                     </div>
-                  </article>
-                )
-              })}
-            </div>
+                    <div className="min-w-0">
+                      <dt className="text-muted text-2xs">{t('reservations.phoneNumber')}</dt>
+                      <dd className="break-words">{reservation.phone}</dd>
+                    </div>
+                    <div className="min-w-0">
+                      <dt className="text-muted text-2xs">{t('reservations.guestCount')}</dt>
+                      <dd className="tabular-nums">{reservation.guest_count}</dd>
+                    </div>
+                    <div className="min-w-0">
+                      <dt className="text-muted text-2xs">{t('tables.table')}</dt>
+                      <dd className="break-words">{reservationTableLabel(reservation, t)}</dd>
+                    </div>
+                  </dl>
+                  {reservation.status === 'Seated' && reservation.checked_in_at ? (
+                    <p className="text-muted mt-2 text-2xs">
+                      {t('reservations.checkedInAt', { time: formatTime12Hour(reservation.checked_in_at) })}
+                    </p>
+                  ) : null}
+                  <div className="mt-3">
+                    <ReservationActions
+                      reservation={reservation}
+                      checkingInId={checkingInId}
+                      onCheckIn={handleCheckIn}
+                      onLetter={setLetterReservation}
+                      onEdit={openEdit}
+                      onDelete={setDeleteTarget}
+                      touch
+                    />
+                  </div>
+                </article>
+              )
+            })}
+          </div>
 
-            <div className="hidden min-h-[37.5rem] overflow-x-auto lg:block">
-              <table className="w-full min-w-[56rem] border-collapse text-left text-sm">
-                <thead className="bg-olive-50/70 text-xs uppercase tracking-wide text-muted-foreground dark:bg-zinc-900/60">
+          <div className="hidden min-h-[37.5rem] overflow-x-auto lg:block">
+            <table className="w-full min-w-[56rem] border-collapse text-left text-sm">
+              <thead className="bg-olive-50/70 text-xs uppercase tracking-wide text-muted-foreground dark:bg-zinc-900/60">
+                <tr>
+                  <th className="whitespace-nowrap px-4 py-3 font-semibold">{t('reservations.date')}</th>
+                  <th className="whitespace-nowrap px-4 py-3 font-semibold">{t('reservations.timeSlot')}</th>
+                  <th className="whitespace-nowrap px-4 py-3 font-semibold">{t('reservations.customerName')}</th>
+                  <th className="whitespace-nowrap px-4 py-3 font-semibold">{t('reservations.phoneNumber')}</th>
+                  <th className="whitespace-nowrap px-4 py-3 font-semibold">{t('reservations.guestCount')}</th>
+                  <th className="whitespace-nowrap px-4 py-3 font-semibold">{t('tables.table')}</th>
+                  <th className="whitespace-nowrap px-4 py-3 font-semibold">{t('common.status')}</th>
+                  <th className="whitespace-nowrap px-4 py-3 font-semibold">{t('common.actions')}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {emptyMessage ? (
                   <tr>
-                    <th className="whitespace-nowrap px-4 py-3 font-semibold">{t('reservations.date')}</th>
-                    <th className="whitespace-nowrap px-4 py-3 font-semibold">{t('reservations.timeSlot')}</th>
-                    <th className="whitespace-nowrap px-4 py-3 font-semibold">{t('reservations.customerName')}</th>
-                    <th className="whitespace-nowrap px-4 py-3 font-semibold">{t('reservations.phoneNumber')}</th>
-                    <th className="whitespace-nowrap px-4 py-3 font-semibold">{t('reservations.guestCount')}</th>
-                    <th className="whitespace-nowrap px-4 py-3 font-semibold">{t('tables.table')}</th>
-                    <th className="whitespace-nowrap px-4 py-3 font-semibold">{t('common.status')}</th>
-                    <th className="whitespace-nowrap px-4 py-3 font-semibold">{t('common.actions')}</th>
+                    <td colSpan={8} className="h-[34rem] px-5 text-center text-muted-foreground">
+                      {emptyMessage}
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {emptyMessage ? (
-                    <tr>
-                      <td colSpan={8} className="h-[34rem] px-5 text-center text-muted-foreground">
-                        {emptyMessage}
+                ) : null}
+                {pagedRows.map((reservation) => {
+                  const meta = RESERVATION_STATUS_META[reservation.status] || RESERVATION_STATUS_META.Pending
+                  return (
+                    <tr
+                      key={reservation.id}
+                      className="align-middle transition-colors even:bg-slate-50 hover:bg-slate-100/80 dark:even:bg-zinc-900/30 dark:hover:bg-zinc-800/60"
+                    >
+                      <td className="whitespace-nowrap px-4 py-4 tabular-nums">{reservation.reservation_date}</td>
+                      <td className="whitespace-nowrap px-4 py-4">
+                        {slotLabel(
+                          reservation.time_slot,
+                          reservation.time_slot_label,
+                          reservation.duration_minutes,
+                        )}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-4 font-medium">{reservation.customer_name}</td>
+                      <td className="whitespace-nowrap px-4 py-4">{reservation.phone}</td>
+                      <td className="whitespace-nowrap px-4 py-4 tabular-nums">{reservation.guest_count}</td>
+                      <td className="whitespace-nowrap px-4 py-4">{reservationTableLabel(reservation, t)}</td>
+                      <td className="whitespace-nowrap px-4 py-4">
+                        <StatusBadge className={`ring-1 ${meta.badge}`}>
+                          {t(meta.labelKey)}
+                        </StatusBadge>
+                        {reservation.status === 'Seated' && reservation.checked_in_at ? (
+                          <span className="text-muted mt-1 block text-2xs">
+                            {t('reservations.checkedInAt', { time: formatTime12Hour(reservation.checked_in_at) })}
+                          </span>
+                        ) : null}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-4">
+                        <ReservationActions
+                          reservation={reservation}
+                          checkingInId={checkingInId}
+                          onCheckIn={handleCheckIn}
+                          onLetter={setLetterReservation}
+                          onEdit={openEdit}
+                          onDelete={setDeleteTarget}
+                        />
                       </td>
                     </tr>
-                  ) : null}
-                  {pagedRows.map((reservation) => {
-                    const meta = RESERVATION_STATUS_META[reservation.status] || RESERVATION_STATUS_META.Pending
-                    return (
-                      <tr
-                        key={reservation.id}
-                        className="align-middle transition-colors even:bg-slate-50 hover:bg-slate-100/80 dark:even:bg-zinc-900/30 dark:hover:bg-zinc-800/60"
-                      >
-                        <td className="whitespace-nowrap px-4 py-4 tabular-nums">{reservation.reservation_date}</td>
-                        <td className="whitespace-nowrap px-4 py-4">
-                          {slotLabel(
-                            reservation.time_slot,
-                            reservation.time_slot_label,
-                            reservation.duration_minutes,
-                          )}
-                        </td>
-                        <td className="whitespace-nowrap px-4 py-4 font-medium">{reservation.customer_name}</td>
-                        <td className="whitespace-nowrap px-4 py-4">{reservation.phone}</td>
-                        <td className="whitespace-nowrap px-4 py-4 tabular-nums">{reservation.guest_count}</td>
-                        <td className="whitespace-nowrap px-4 py-4">{reservationTableLabel(reservation, t)}</td>
-                        <td className="whitespace-nowrap px-4 py-4">
-                          <StatusBadge className={`ring-1 ${meta.badge}`}>
-                            {t(meta.labelKey)}
-                          </StatusBadge>
-                          {reservation.status === 'Seated' && reservation.checked_in_at ? (
-                            <span className="text-muted mt-1 block text-2xs">
-                              {t('reservations.checkedInAt', { time: formatTime12Hour(reservation.checked_in_at) })}
-                            </span>
-                          ) : null}
-                        </td>
-                        <td className="whitespace-nowrap px-4 py-4">
-                          <ReservationActions
-                            reservation={reservation}
-                            checkingInId={checkingInId}
-                            onCheckIn={handleCheckIn}
-                            onLetter={setLetterReservation}
-                            onEdit={openEdit}
-                            onDelete={setDeleteTarget}
-                          />
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
 
         <div className="flex flex-col gap-3 border-t border-border/60 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-muted shrink-0 text-xs tabular-nums">
