@@ -4,8 +4,10 @@ import {
   Ban,
   Banknote,
   CheckCheck,
+  CalendarClock,
   CalendarDays,
   CalendarPlus,
+  CalendarRange,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
@@ -59,6 +61,11 @@ import { useAlerts } from '../context/AlertsContext'
 import { useNotifications } from '../context/NotificationContext'
 
 const SUMMARY_STATUSES = ['Pending', 'Confirmed', 'Paid', 'Seated']
+const UPCOMING_STATUSES = ['Pending', 'Confirmed', 'Paid', 'Seated']
+
+const bySchedule = (a, b) =>
+  String(a.reservation_date).localeCompare(String(b.reservation_date)) ||
+  String(a.time_slot || '').localeCompare(String(b.time_slot || ''))
 const WEEKDAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
 const DEFAULT_OPEN_DATE = nextOpenDate()
 const DEFAULT_SLOTS = getTimeSlotsForDate(DEFAULT_OPEN_DATE)
@@ -556,6 +563,8 @@ export default function Reservations() {
   const [reservations, setReservations] = useState([])
   const [statusFilter, setStatusFilter] = useState('all')
   const [search, setSearch] = useState('')
+  const [sheetScope, setSheetScope] = useState('day')
+  const [upcoming, setUpcoming] = useState([])
   const [sheetPage, setSheetPage] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
@@ -578,10 +587,19 @@ export default function Reservations() {
   const loadReservations = useCallback(async (customRange) => {
     const activeRange = customRange?.from && customRange?.to ? customRange : range
     try {
-      const response = await apiFetch(`/reservations?from=${activeRange.from}&to=${activeRange.to}`)
+      const [response, upcomingResponse] = await Promise.all([
+        apiFetch(`/reservations?from=${activeRange.from}&to=${activeRange.to}`),
+        apiFetch(`/reservations?from=${toLocalDateISO()}`).catch(() => null),
+      ])
       const data = await response.json().catch(() => [])
       if (!response.ok) throw new Error(data.message || t('reservations.errors.load'))
       setReservations(Array.isArray(data) ? data : [])
+      const upcomingData = upcomingResponse?.ok ? await upcomingResponse.json().catch(() => []) : []
+      setUpcoming(
+        (Array.isArray(upcomingData) ? upcomingData : [])
+          .filter((row) => UPCOMING_STATUSES.includes(row.status))
+          .sort(bySchedule),
+      )
       setError('')
     } catch (err) {
       setError(err.message || t('reservations.errors.load'))
@@ -630,16 +648,17 @@ export default function Reservations() {
 
   const sheetRows = useMemo(() => {
     const query = search.trim().toLowerCase()
-    return reservations.filter((reservation) => {
-      if (reservation.reservation_date !== selectedDate) return false
+    const source = sheetScope === 'upcoming' ? upcoming : reservations
+    return source.filter((reservation) => {
+      if (sheetScope === 'day' && reservation.reservation_date !== selectedDate) return false
       if (statusFilter !== 'all' && reservation.status !== statusFilter) return false
       if (!query) return true
       return [reservation.customer_name, reservation.phone, reservation.table_name, reservation.notes]
         .join(' ')
         .toLowerCase()
         .includes(query)
-    })
-  }, [reservations, selectedDate, statusFilter, search])
+    }).sort(bySchedule)
+  }, [reservations, upcoming, sheetScope, selectedDate, statusFilter, search])
 
   const sheetPageCount = Math.max(1, Math.ceil(sheetRows.length / SHEET_PAGE_SIZE))
   const activeSheetPage = Math.min(sheetPage, sheetPageCount - 1)
@@ -668,9 +687,28 @@ export default function Reservations() {
       : ''
 
   const activeRowsForSummary = useMemo(
-    () => reservations.filter((row) => row.reservation_date === selectedDate),
+    () => reservations.filter((row) => row.reservation_date === selectedDate).sort(bySchedule),
     [reservations, selectedDate],
   )
+
+  const dayCardRows = activeRowsForSummary.length > 0 ? activeRowsForSummary : upcoming.slice(0, 6)
+  const dayCardIsUpcoming = activeRowsForSummary.length === 0 && dayCardRows.length > 0
+
+  const scopeOptions = [
+    { value: 'day', label: t('reservations.scopeDay'), icon: CalendarDays },
+    { value: 'month', label: t('reservations.scopeMonth'), icon: CalendarRange },
+    { value: 'upcoming', label: t('reservations.scopeUpcoming'), icon: CalendarClock },
+  ]
+
+  const jumpToDate = (iso) => {
+    const target = parseISODate(iso)
+    if (target.getMonth() !== monthDate.getMonth() || target.getFullYear() !== monthDate.getFullYear()) {
+      setMonthDate(new Date(target.getFullYear(), target.getMonth(), 1))
+    }
+    setSelectedDate(iso)
+    setSheetScope('day')
+    setSheetPage(0)
+  }
 
   const openCreate = () => {
     setEditing(null)
@@ -896,6 +934,57 @@ export default function Reservations() {
               t('reservations.bookingCount', { count: selectedDayCount })
             )}
           </p>
+          {dayCardRows.length > 0 ? (
+            <div className="mt-3 flex min-h-0 flex-1 flex-col">
+              {dayCardIsUpcoming ? (
+                <p className="text-muted mb-2 text-2xs font-semibold uppercase tracking-wide">
+                  {t('reservations.upcomingBookings')}
+                </p>
+              ) : null}
+              <ul className="max-h-72 min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1">
+                {dayCardRows.map((reservation) => {
+                  const meta = RESERVATION_STATUS_META[reservation.status] || RESERVATION_STATUS_META.Pending
+                  return (
+                    <li key={reservation.id}>
+                      <button
+                        type="button"
+                        onClick={() => jumpToDate(reservation.reservation_date)}
+                        className="flex w-full min-w-0 items-center gap-3 rounded-xl border border-border px-3 py-2 text-left text-sm transition hover:bg-slate-50 dark:hover:bg-zinc-800/60"
+                      >
+                        <span className="w-24 shrink-0 text-xs tabular-nums">
+                          {dayCardIsUpcoming ? (
+                            <span className="text-muted block">{localizeDigits(reservation.reservation_date)}</span>
+                          ) : null}
+                          <span className="font-semibold">
+                            {localizeDigits(formatTime12Hour(reservation.time_slot))}
+                          </span>
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate font-medium">{reservation.customer_name}</span>
+                          <span className="text-muted block truncate text-2xs">
+                            {reservationTableLabel(reservation, t)} · {t('reservations.guestsShort', { count: reservation.guest_count })}
+                          </span>
+                        </span>
+                        <StatusBadge className={`shrink-0 ring-1 ${meta.badge}`}>{t(meta.labelKey)}</StatusBadge>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+              {dayCardIsUpcoming && upcoming.length > dayCardRows.length ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSheetScope('upcoming')
+                    setSheetPage(0)
+                  }}
+                  className="mt-2 self-start text-xs font-semibold text-forest-700 hover:underline dark:text-forest-300"
+                >
+                  {t('reservations.viewAllUpcoming', { count: upcoming.length })}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
           <div className="mt-auto grid w-full grid-cols-2 gap-2.5 pt-4 sm:grid-cols-4">
             {SUMMARY_STATUSES.map((status) => {
               const count = activeRowsForSummary.filter((row) => row.status === status).length
@@ -926,6 +1015,17 @@ export default function Reservations() {
               }}
               placeholder={t('reservations.searchPlaceholder')}
               className="input-field w-full min-w-0 py-2 pl-9 pr-3 text-sm"
+            />
+          </div>
+          <div className="w-full shrink-0 sm:w-44">
+            <IconSelect
+              value={sheetScope}
+              options={scopeOptions}
+              onChange={(value) => {
+                setSheetScope(value)
+                setSheetPage(0)
+              }}
+              className="w-full px-3 py-2 text-sm"
             />
           </div>
           <div className="w-full shrink-0 sm:w-52">
