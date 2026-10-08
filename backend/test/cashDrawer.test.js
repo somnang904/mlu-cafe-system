@@ -131,3 +131,9 @@ test('shift summary, expected cash and difference for a mixed shift', () => {
     { usd: -1, khr: 4100, totalUsd: 0 },
   )
 })
+
+test('paying the rounded riel total gives no change', () => {
+  const payment = cash({ totalUsd: 2.5, receivedUsd: 0, receivedKhr: 10300, changeUsd: 0 })
+  assert.equal(payment.change_usd, 0)
+  assert.equal(payment.change_khr, 0)
+})

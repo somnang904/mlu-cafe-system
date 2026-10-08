@@ -85,7 +85,8 @@ function normalizeCheckoutPayment({
     )
   }
 
-  const change = Math.max(0, roundUsd(receivedTotalUsd - total))
+  const rawChange = receivedTotalUsd - total
+  const change = rawChange * rate > KHR_ROUNDING_SLACK + 1e-6 ? roundUsd(rawChange) : 0
   if (claimedChange !== null && Math.abs(claimedChange - change) > USD_SLACK + 1e-9) {
     throw badRequest(
       `Change does not match the bill: expected $${change.toFixed(2)}, got $${claimedChange.toFixed(2)}. Refresh the bill and try again.`,
