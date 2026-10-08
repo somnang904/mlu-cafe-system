@@ -13,6 +13,7 @@ import PaymentModule from '../components/pos/PaymentModule'
 import ReceiptModal from '../components/pos/ReceiptModal'
 import SplitBillModal from '../components/pos/SplitBillModal'
 import ShiftModal from '../components/pos/ShiftModal'
+import ExchangeRateChip from '../components/common/ExchangeRateChip'
 
 function ActiveBillList({ bills, selectedId, onSelect }) {
   const { t, i18n } = useTranslation()
@@ -349,14 +350,17 @@ export default function Payment() {
     <div className="flex flex-col gap-4 page-enter lg:h-[calc(100vh-5rem)] lg:min-h-0 lg:overflow-hidden">
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
         <h3 className="page-title">{t('nav.payment')}</h3>
-        <button
-          type="button"
-          onClick={() => setShowShiftModal(true)}
-          className="inline-flex items-center gap-2 rounded-2xl border border-border bg-white px-3.5 py-2 text-xs font-semibold text-foreground shadow-sm hover:bg-slate-50 dark:bg-zinc-900 dark:hover:bg-zinc-800"
-        >
-          <Clock className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-          {t('shifts.manageShift', { defaultValue: 'Shift & Cash Drawer' })}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <ExchangeRateChip />
+          <button
+            type="button"
+            onClick={() => setShowShiftModal(true)}
+            className="inline-flex items-center gap-2 rounded-2xl border border-border bg-white px-3.5 py-2 text-xs font-semibold text-foreground shadow-sm hover:bg-slate-50 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+          >
+            <Clock className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+            {t('shifts.manageShift', { defaultValue: 'Shift & Cash Drawer' })}
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-col gap-4 lg:min-h-0 lg:flex-1 lg:flex-row">

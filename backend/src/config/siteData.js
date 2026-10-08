@@ -55,26 +55,26 @@ function isHighSeasonMonth(dateInput) {
 function generateTimeSlots(isHighSeason) {
   const season = isHighSeason ? STORE_SCHEDULE.highSeason : STORE_SCHEDULE.lowSeason
   const slots = []
-  const seen = new Set()
+  const closeMinutes = season.closeHour * 60
+  const lastReservationMinutes = (season.lastReservationStartHour || 20) * 60 + 30
 
-  for (let hour = season.openHour; hour + 2 <= season.closeHour; hour += 2) {
-    const start = toHHmm(hour)
-    const end = toHHmm(hour + 2)
-    seen.add(start)
+  for (let totalMin = season.openHour * 60; totalMin <= lastReservationMinutes; totalMin += 30) {
+    const hour = Math.floor(totalMin / 60)
+    const minute = totalMin % 60
+    const start = toHHmm(hour, minute)
+
+    const remainingMin = closeMinutes - totalMin
+    const durationMinutes = Math.min(120, Math.max(30, remainingMin))
+
+    const endTotalMin = totalMin + durationMinutes
+    const endHour = Math.floor(endTotalMin / 60)
+    const endMinute = endTotalMin % 60
+    const end = toHHmm(endHour, endMinute)
+
     slots.push({
       value: start,
       label: formatTimeRange12Hour(start, end),
-      durationMinutes: 120,
-    })
-  }
-
-  const lastStart = toHHmm(season.lastReservationStartHour)
-  const lastEnd = toHHmm(season.closeHour)
-  if (!seen.has(lastStart)) {
-    slots.push({
-      value: lastStart,
-      label: formatTimeRange12Hour(lastStart, lastEnd),
-      durationMinutes: 60,
+      durationMinutes,
     })
   }
 

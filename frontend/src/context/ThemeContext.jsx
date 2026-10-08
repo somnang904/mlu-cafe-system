@@ -101,7 +101,7 @@ export function ThemeProvider({ children }) {
           { duration: 650, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', pseudoElement: '::view-transition-new(root)' },
         )
       })
-      .catch(() => {})
+      .catch(() => { })
     transition.finished.finally(() => root.classList.remove('theme-switching'))
   }, [])
 

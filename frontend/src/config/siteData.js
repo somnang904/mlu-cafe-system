@@ -64,26 +64,26 @@ export function isHighSeasonMonth(dateInput, seasonMode = 'auto') {
 export function generateTimeSlots(isHighSeason) {
   const season = isHighSeason ? STORE_SCHEDULE.highSeason : STORE_SCHEDULE.lowSeason
   const slots = []
-  const seen = new Set()
+  const closeMinutes = season.closeHour * 60
+  const lastReservationMinutes = (season.lastReservationStartHour || 20) * 60 + 30
 
-  for (let hour = season.openHour; hour + 2 <= season.closeHour; hour += 2) {
-    const start = toHHmm(hour)
-    const end = toHHmm(hour + 2)
-    seen.add(start)
+  for (let totalMin = season.openHour * 60; totalMin <= lastReservationMinutes; totalMin += 30) {
+    const hour = Math.floor(totalMin / 60)
+    const minute = totalMin % 60
+    const start = toHHmm(hour, minute)
+
+    const remainingMin = closeMinutes - totalMin
+    const durationMinutes = Math.min(120, Math.max(30, remainingMin))
+
+    const endTotalMin = totalMin + durationMinutes
+    const endHour = Math.floor(endTotalMin / 60)
+    const endMinute = endTotalMin % 60
+    const end = toHHmm(endHour, endMinute)
+
     slots.push({
       value: start,
       label: formatTimeRange12Hour(start, end),
-      durationMinutes: 120,
-    })
-  }
-
-  const lastStart = toHHmm(season.lastReservationStartHour)
-  const lastEnd = toHHmm(season.closeHour)
-  if (!seen.has(lastStart)) {
-    slots.push({
-      value: lastStart,
-      label: formatTimeRange12Hour(lastStart, lastEnd),
-      durationMinutes: 60,
+      durationMinutes,
     })
   }
 
@@ -108,6 +108,15 @@ export function nextOpenDate(from = new Date()) {
 
 export function isValidReservationSlot(dateInput, timeSlot, seasonMode = 'auto') {
   if (isMonday(dateInput)) return false
-  const start = String(timeSlot || '').slice(0, 5)
-  return getTimeSlotsForDate(dateInput, seasonMode).some((slot) => slot.value === start)
+  const raw = String(timeSlot || '').trim()
+  const match = raw.match(/^(\d{1,2}):(\d{2})/)
+  if (!match) return false
+  const hour = Number.parseInt(match[1], 10)
+  const minute = Number.parseInt(match[2], 10)
+  if (Number.isNaN(hour) || Number.isNaN(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) return false
+  const timeMinutes = hour * 60 + minute
+  const season = isHighSeasonMonth(dateInput, seasonMode) ? STORE_SCHEDULE.highSeason : STORE_SCHEDULE.lowSeason
+  const openMinutes = season.openHour * 60
+  const lastReservationMinutes = (season.lastReservationStartHour || 20) * 60 + 30
+  return timeMinutes >= openMinutes && timeMinutes <= lastReservationMinutes
 }

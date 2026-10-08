@@ -6,7 +6,6 @@ import ThemeToggle from '../ui/ThemeToggle'
 import LanguageToggle from '../ui/LanguageToggle'
 import NotificationBell from './NotificationBell'
 import InstallAppButton from './InstallAppButton'
-import ExchangeRateChip from './ExchangeRateChip'
 import { useAuth } from '../../context/AuthContext'
 import { useConnection } from '../../context/ConnectionContext'
 
@@ -102,7 +101,6 @@ export default function DashboardLayout({ children, activePage, onNavigate }) {
               </p>
             ) : null}
             <InstallAppButton />
-            <ExchangeRateChip />
             <NotificationBell onNavigate={onNavigate} />
             <LanguageToggle />
             <ThemeToggle variant="icon" />

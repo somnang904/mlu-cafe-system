@@ -389,9 +389,25 @@ export default function SalesHistory() {
                       </p>
                       <PaymentMethodBadge method={order.payment} bank={order.payment_bank} bankOnly />
                     </div>
-                    <p className="mt-2 min-w-0 break-words text-sm text-stone-600 dark:text-stone-300">
-                      {order.source ?? '—'}
-                    </p>
+                    <div className="mt-2 flex min-w-0 items-center justify-between gap-2 text-sm">
+                      <p className="min-w-0 break-words text-stone-600 dark:text-stone-300">
+                        {order.source ?? '—'}
+                      </p>
+                      {order.staff_name && (
+                        <p className="shrink-0 text-xs text-stone-500 dark:text-stone-400">
+                          {t('sales.cashier', { defaultValue: 'អ្នកលក់' })}: <span className="font-semibold text-stone-800 dark:text-stone-200">{order.staff_name}</span>
+                        </p>
+                      )}
+                    </div>
+                    {order.items?.length > 0 && (
+                      <ul className="mt-2 space-y-0.5 text-sm text-stone-700 dark:text-stone-200">
+                        {order.items.map((item, index) => (
+                          <li key={index} className="break-words">
+                            <span className="font-semibold tabular-nums">{item.qty}×</span> {item.name}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                     <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-sm">
                       <p className="tabular-nums leading-tight text-stone-600 dark:text-stone-300">
                         <span className="block">{formatOrderDate(order.date)}</span>
@@ -454,29 +470,33 @@ export default function SalesHistory() {
           <div className="hidden min-w-0 lg:block">
             <table className="w-full table-fixed text-left text-sm">
               <colgroup>
-                <col className="w-[13%]" />
-                <col />
-                <col className="w-[15%]" />
-                <col className="w-[18%]" />
+                <col className="w-[9%]" />
+                <col className="w-[10%]" />
+                <col className="w-[9%]" />
+                <col className="w-[24%]" />
                 <col className="w-[11%]" />
-                <col className="w-[14%]" />
-                <col className="w-[12%]" />
+                <col className="w-[9%]" />
+                <col className="w-[10%]" />
+                <col className="w-[9%]" />
+                <col className="w-[9%]" />
               </colgroup>
               <thead>
                 <tr className="table-head">
                   <th className="px-2 py-3">{t('sales.orderId')}</th>
+                  <th className="px-2 py-3">{t('sales.cashier', { defaultValue: 'អ្នកលក់' })}</th>
                   <th className="px-2 py-3">{t('common.source', { defaultValue: 'Source' })}</th>
+                  <th className="px-2 py-3">{t('sales.items', { defaultValue: 'Items' })}</th>
                   <th className="px-2 py-3">{t('common.dateTime', { defaultValue: 'Date / Time' })}</th>
                   <th className="px-2 py-3">{t('common.payment', { defaultValue: 'Payment' })}</th>
                   <th className="px-2 py-3">{t('common.total', { defaultValue: 'Total' })}</th>
                   <th className="px-2 py-3">{t('common.status', { defaultValue: 'Status' })}</th>
-                  <th className="px-2 py-3 text-right">{t('common.actions', { defaultValue: 'Actions' })}</th>
+                  <th className="px-2 py-3 text-center">{t('common.actions', { defaultValue: 'Actions' })}</th>
                 </tr>
               </thead>
               <tbody className="table-divider">
                 {filteredLogs.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-2 py-10 text-center text-sm text-stone-500 dark:text-zinc-400">
+                    <td colSpan={9} className="px-2 py-10 text-center text-sm text-stone-500 dark:text-zinc-400">
                       {isLoading ? t('common.loading') : t('sales.emptyLogs', {
                         defaultValue: 'No completed orders found for this month and search filter.',
                       })}
@@ -494,8 +514,32 @@ export default function SalesHistory() {
                         <td className="whitespace-nowrap px-2 py-3 font-semibold text-forest-600 dark:text-forest-400">
                           {order.id}
                         </td>
+                        <td className="min-w-0 break-words px-2 py-3 text-stone-700 dark:text-stone-200 font-medium">
+                          {order.staff_name || '—'}
+                        </td>
                         <td className="min-w-0 break-words px-2 py-3 text-stone-600 dark:text-stone-300">
                           {order.source ?? '—'}
+                        </td>
+                        <td className="px-2 py-3 text-stone-700 dark:text-stone-200">
+                          {order.items?.length > 0 ? (
+                            <ul className="space-y-1" title={order.summary}>
+                              {order.items.slice(0, 3).map((item, index) => (
+                                <li key={index} className="flex min-w-0 items-baseline gap-1.5 leading-tight">
+                                  <span className="shrink-0 rounded-md bg-forest-500/10 px-1.5 py-0.5 text-2xs font-semibold tabular-nums text-forest-700 dark:text-forest-300">
+                                    {item.qty}×
+                                  </span>
+                                  <span className="min-w-0 truncate">{item.name}</span>
+                                </li>
+                              ))}
+                              {order.items.length > 3 && (
+                                <li className="text-2xs font-semibold text-stone-500 dark:text-stone-400">
+                                  +{order.items.length - 3} {t('sales.more', { defaultValue: 'more' })}
+                                </li>
+                              )}
+                            </ul>
+                          ) : (
+                            '—'
+                          )}
                         </td>
                         <td className="px-2 py-3 tabular-nums leading-tight text-stone-600 dark:text-stone-300">
                           <span className="block whitespace-nowrap">{formatOrderDate(order.date)}</span>

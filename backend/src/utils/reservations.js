@@ -1,4 +1,4 @@
-const { TIME_SLOTS, getTimeSlotsForDate, isMonday, formatTimeRange12Hour } = require('../config/siteData')
+const { TIME_SLOTS, getTimeSlotsForDate, isMonday, isHighSeasonMonth, STORE_SCHEDULE, formatTimeRange12Hour } = require('../config/siteData')
 const { dismissReservationAlerts } = require('./adminNotifications')
 const { withTransaction } = require('./stockLedger')
 
@@ -67,7 +67,7 @@ async function ensureColumn(db, table, column, definition) {
 async function ensureFloorTables(db) {
   try {
     await db.execute('ALTER TABLE `tables` MODIFY table_name VARCHAR(60) NOT NULL')
-  } catch {}
+  } catch { }
   try {
     await db.execute("ALTER TABLE `tables` MODIFY COLUMN `status` VARCHAR(30) NOT NULL DEFAULT 'Empty'")
   } catch {}

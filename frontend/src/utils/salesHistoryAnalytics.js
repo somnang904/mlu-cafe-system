@@ -30,6 +30,8 @@ export function mapHistoryRow(row) {
   return {
     id: row.invoice_id || row.id,
     order_id: row.order_id,
+    staff_id: row.staff_id ?? null,
+    staff_name: row.staff_name ?? null,
     void_reason: row.void_reason || null,
     voided_at: row.voided_at || null,
     refundDate: row.refund_date || null,

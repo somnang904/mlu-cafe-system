@@ -21,6 +21,7 @@ import {
 import { TAKEOUT_BILL } from '../data/tables'
 
 import { apiFetch, getAuthToken } from '../services/apiClient'
+import { readSession } from '../services/sessionStorage'
 
 const POSContext = createContext(null)
 
@@ -256,6 +257,36 @@ export function POSProvider({ children }) {
     }
     await refreshFloorTables()
     return data.table
+  }, [refreshFloorTables])
+
+  const updateTable = useCallback(async (id, { name, section, capacity }) => {
+    const token = getAuthToken()
+    const response = await apiFetch(`/tables/${id}`, {
+      method: 'PUT',
+      token,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, section, capacity }),
+    })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      throw new Error(data.message || 'Failed to update table')
+    }
+    await refreshFloorTables()
+    return data.table
+  }, [refreshFloorTables])
+
+  const deleteTable = useCallback(async (id) => {
+    const token = getAuthToken()
+    const response = await apiFetch(`/tables/${id}`, {
+      method: 'DELETE',
+      token,
+    })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      throw new Error(data.message || 'Failed to delete table')
+    }
+    await refreshFloorTables()
+    return true
   }, [refreshFloorTables])
 
   const transferTable = useCallback(async (fromId, toId) => {
@@ -666,8 +697,15 @@ export function POSProvider({ children }) {
       const recordedItems = serverBillItems(destinationId, data.lines)
       const paidItems = recordedItems?.length ? recordedItems : bill.items
 
+      const currentUser = readSession()?.user
+      const staffName = data.staff_name || currentUser?.display_name || currentUser?.username || null
+      const staffId = data.staff_id || currentUser?.id || null
+
       const transaction = {
         id: invoiceId,
+        staff_id: staffId,
+        staff_name: staffName,
+        cashier: staffName,
         date,
         time,
         monthKey: date.slice(0, 7),
@@ -794,6 +832,9 @@ export function POSProvider({ children }) {
         tax: 0,
         total: recordedTotal,
         status: 'Completed',
+        staff_id: (data.staff_id || readSession()?.user?.id) ?? null,
+        staff_name: (data.staff_name || readSession()?.user?.display_name || readSession()?.user?.username) ?? null,
+        cashier: (data.staff_name || readSession()?.user?.display_name || readSession()?.user?.username) ?? null,
         source: `${bill.name} (Split)`,
         summary: paidItems.map((it) => `${it.qty}× ${it.name}`).join(', '),
         items: paidItems.map((item) => ({ ...item })),
@@ -989,6 +1030,8 @@ export function POSProvider({ children }) {
         registerNavigate,
         refreshFloorTables,
         addTable,
+        updateTable,
+        deleteTable,
         transferTable,
         clearTable,
       }}

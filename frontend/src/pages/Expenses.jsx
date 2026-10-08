@@ -177,7 +177,7 @@ export default function Expenses() {
   const matches = useCallback((expense) => {
     const query = search.trim().toLowerCase()
     if (!query) return true
-    return [expense.title, expense.vendor, expense.note, expense.category, categoryName(expense.category), expense.amount.toFixed(2)]
+    return [expense.title, expense.vendor, expense.note, expense.category, categoryName(expense.category), expense.amount.toFixed(2), expense.amount_khr]
       .some((value) => String(value || '').toLowerCase().includes(query))
   }, [search, categoryName])
 
@@ -456,7 +456,10 @@ export default function Expenses() {
                             <span className="truncate">{categoryName(expense.category)}</span>
                           </span>
                         </td>
-                        <td className="whitespace-nowrap px-4 py-3 font-semibold tabular-nums text-heading">{formatMoney(expense.amount)}</td>
+                        <td className="whitespace-nowrap px-4 py-3 font-semibold tabular-nums text-heading">
+                          {/* Shown in the currency it was entered in. */}
+                          {expense.currency === 'KHR' && expense.amount_khr ? formatKhr(expense.amount_khr) : formatMoney(expense.amount)}
+                        </td>
                         <td className="whitespace-nowrap px-4 py-3 tabular-nums">{expense.expense_date}</td>
                         <td className="truncate px-4 py-3">{expense.created_by_name || '—'}</td>
                         <td className="px-4 py-3">

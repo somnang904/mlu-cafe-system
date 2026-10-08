@@ -72,6 +72,8 @@ export function toReceiptTransaction(order) {
 
   return {
     id: order.id ?? order.invoice_id ?? '—',
+    staff_name: order.staff_name ?? order.cashier ?? null,
+    cashier: order.staff_name ?? order.cashier ?? null,
     date: formatOrderDate(order.date),
     time: formatTime12Hour(order.time),
     source: formatSource(order),
@@ -104,6 +106,8 @@ export async function fetchReceiptTransaction(order) {
     if (match) {
       return toReceiptTransaction({
         id: match.invoice_id || order.id,
+        staff_name: match.staff_name || order.staff_name || null,
+        cashier: match.staff_name || order.staff_name || null,
         date: match.date || order.date,
         time: formatTime12Hour(match.time || order.time),
         source: order.source,

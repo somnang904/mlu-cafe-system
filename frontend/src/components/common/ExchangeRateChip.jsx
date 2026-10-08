@@ -120,8 +120,9 @@ function RateEditor({ rate, onDone }) {
 }
 
 /**
- * The shop's USD -> KHR rate, always in view in the top bar. An admin clicks it to
- * change the rate; everyone else just reads it.
+ * The shop's USD -> KHR rate, shown beside the Shift button on the Payment page. It is an
+ * admin control: the admin sees the rate and changes it with the pencil, and a cashier does
+ * not see the chip at all (the till itself already shows the rate it is using).
  */
 export default function ExchangeRateChip() {
   const { t } = useTranslation()
@@ -149,17 +150,10 @@ export default function ExchangeRateChip() {
 
   const label = t('dashboard.usdToKhr', { rate: formatKhr(rate) })
 
-  if (!canEdit) {
-    return (
-      <span className={`${CHIP_CLASS} hidden sm:flex`} title={t('dashboard.exchangeRate')}>
-        <Banknote className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
-        <span className="whitespace-nowrap tabular-nums">{label}</span>
-      </span>
-    )
-  }
+  if (!canEdit) return null
 
   return (
-    <div ref={wrapperRef} className="relative hidden sm:block">
+    <div ref={wrapperRef} className="relative">
       <div className={`${CHIP_CLASS} pr-1.5`}>
         <Banknote className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
         <span className="whitespace-nowrap tabular-nums">{label}</span>

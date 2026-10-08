@@ -12,11 +12,13 @@ import {
   Clock,
   LayoutGrid,
   NotebookPen,
+  Pencil,
   Phone,
   Plus,
   ReceiptText,
   Sparkles,
   Tag,
+  Trash2,
   User,
   UserCheck,
   Users,
@@ -393,6 +395,226 @@ function AddTableModal({ isOpen, onClose, onAddTable }) {
   )
 }
 
+
+function EditTableModal({ isOpen, onClose, table, onUpdateTable, onDeleteTable }) {
+  const { t } = useTranslation()
+  const panelRef = useModalKeyboard({ isOpen, onEscape: onClose, primaryActionMode: 'never' })
+  const [name, setName] = useState('')
+  const [section, setSection] = useState('standard')
+  const [capacity, setCapacity] = useState('4')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [confirmDelete, setConfirmDelete] = useState(false)
+
+  useEffect(() => {
+    if (isOpen && table) {
+      setName(table.name || '')
+      setSection(table.section === 'vip' || String(table.name || '').startsWith('VIP') ? 'vip' : 'standard')
+      setCapacity(String(table.capacity || (table.section === 'vip' ? 12 : 4)))
+      setError('')
+      setBusy(false)
+      setConfirmDelete(false)
+    }
+  }, [isOpen, table])
+
+  if (!isOpen || !table) return null
+
+  const handleSectionChange = (newSection) => {
+    setSection(newSection)
+    if (newSection === 'vip' && capacity === '4') {
+      setCapacity('12')
+    } else if (newSection === 'standard' && capacity === '12') {
+      setCapacity('4')
+    }
+  }
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    const trimmed = name.trim()
+    if (!trimmed) {
+      setError(t('tables.errors.tableNameRequired'))
+      return
+    }
+    const cap = parseInt(capacity, 10)
+    if (!Number.isInteger(cap) || cap < 1) {
+      setError('Capacity must be at least 1')
+      return
+    }
+
+    setBusy(true)
+    setError('')
+    try {
+      await onUpdateTable(table.id, { name: trimmed, section, capacity: cap })
+      onClose()
+    } catch (err) {
+      setError(err.message || t('tables.errors.editTable'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    setBusy(true)
+    setError('')
+    try {
+      await onDeleteTable(table.id)
+      onClose()
+    } catch (err) {
+      setError(err.message || t('tables.errors.deleteTable'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const isTableDeletable = table.status === 'empty' || table.status === 'Empty'
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+      <div className="modal-backdrop" aria-hidden="true" />
+      <div
+        ref={panelRef}
+        tabIndex={-1}
+        className="modal-panel relative z-10 w-full max-w-md p-6"
+        role="dialog"
+        aria-modal="true"
+      >
+        <div className="mb-4">
+          <ModalHeader icon={Pencil} title={t('tables.editTableTitle')} subtitle={table.name} onClose={onClose} />
+        </div>
+
+        {error && (
+          <div className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">
+            {error}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <FieldLabel icon={Tag} htmlFor="edit-table-name">
+              {t('tables.tableName')}
+            </FieldLabel>
+            <input
+              id="edit-table-name"
+              type="text"
+              required
+              autoFocus
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={t('tables.tableNamePlaceholder')}
+              className="input-field w-full"
+            />
+          </div>
+
+          <div>
+            <FieldLabel icon={LayoutGrid}>{t('tables.section')}</FieldLabel>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => handleSectionChange('standard')}
+                className={`inline-flex items-center justify-center gap-2 rounded-xl border py-2.5 text-sm font-semibold transition ${
+                  section === 'standard'
+                    ? 'border-forest-600 bg-forest-50 text-forest-800 dark:border-forest-400 dark:bg-forest-950/40 dark:text-forest-200'
+                    : 'border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-obsidian-850 dark:text-zinc-300'
+                }`}
+              >
+                <Armchair className="h-4 w-4" aria-hidden />
+                {t('tables.standard')}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSectionChange('vip')}
+                className={`inline-flex items-center justify-center gap-2 rounded-xl border py-2.5 text-sm font-semibold transition ${
+                  section === 'vip'
+                    ? 'border-violet-600 bg-violet-50 text-violet-800 dark:border-violet-400 dark:bg-violet-950/40 dark:text-violet-200'
+                    : 'border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-obsidian-850 dark:text-zinc-300'
+                }`}
+              >
+                <Crown className="h-4 w-4" aria-hidden />
+                {t('tables.vip')}
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <FieldLabel icon={Users} htmlFor="edit-table-capacity">
+              {t('tables.capacity')}
+            </FieldLabel>
+            <input
+              id="edit-table-capacity"
+              type="number"
+              min="1"
+              max="50"
+              required
+              value={capacity}
+              onChange={(e) => setCapacity(e.target.value)}
+              placeholder={t('tables.capacityPlaceholder')}
+              className="input-field w-full"
+            />
+          </div>
+
+          <div className="mt-6 flex items-center justify-between gap-3 pt-2">
+            {isTableDeletable ? (
+              confirmDelete ? (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={handleDelete}
+                    className="rounded-xl bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-500 disabled:opacity-60"
+                  >
+                    {busy ? <span className="spinner mr-1 h-3 w-3" /> : null}
+                    {t('common.confirm', { defaultValue: 'Confirm Delete' })}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => setConfirmDelete(false)}
+                    className="btn-secondary px-2.5 py-2 text-xs"
+                  >
+                    {t('tables.cancelButton')}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setConfirmDelete(true)}
+                  className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30 transition"
+                  title={t('tables.deleteTable')}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  <span>{t('tables.deleteTable')}</span>
+                </button>
+              )
+            ) : <div />}
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={onClose}
+                className="btn-secondary px-4 py-2 text-sm"
+              >
+                {t('tables.cancelButton')}
+              </button>
+              <button
+                type="submit"
+                disabled={busy}
+                className={`btn-primary inline-flex items-center gap-2 px-5 py-2 text-sm font-semibold ${
+                  busy ? '' : 'beam-border shadow-[0_4px_14px_rgba(16,185,129,0.35)]'
+                }`}
+              >
+                {busy ? <span className="spinner h-4 w-4" /> : null}
+                {t('tables.saveChanges', { defaultValue: 'Save' })}
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 function TransferTableModal({ isOpen, onClose, sourceBill, emptyTables, onTransfer }) {
   const { t } = useTranslation()
   const panelRef = useModalKeyboard({ isOpen, onEscape: onClose, primaryActionMode: 'never' })
@@ -660,10 +882,12 @@ function TableCard({
   onChangeTable,
   onClearTable,
   onOpenOrder,
+  onEditTable,
   mergedNames = [],
 }) {
   const { t } = useTranslation()
-  const { isAdmin } = useAuth()
+  const { isAdmin, canAccess } = useAuth()
+  const canManageTables = isAdmin || canAccess?.('table')
   const floorStatus = getFloorStatus(bill, reservation)
   const meta = TABLE_STATUS_META[floorStatus] || TABLE_STATUS_META.empty
   const isEmpty = floorStatus === 'empty'
@@ -729,9 +953,26 @@ function TableCard({
             )}
           </div>
         </div>
-        <span className={`shrink-0 cursor-default select-none rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${meta.badge}`}>
-          {t(meta.labelKey)}
-        </span>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {canManageTables && onEditTable && (
+            <Tooltip label={t('tables.editTable')}>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onEditTable(bill)
+                }}
+                className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 shadow-2xs transition hover:border-forest-500 hover:text-forest-600 hover:bg-forest-50 active:scale-95 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:border-forest-400 dark:hover:text-forest-300 dark:hover:bg-forest-950/40"
+                aria-label={t('tables.editTable')}
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+            </Tooltip>
+          )}
+          <span className={`shrink-0 cursor-default select-none rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${meta.badge}`}>
+            {t(meta.labelKey)}
+          </span>
+        </div>
       </div>
 
       <div className="mt-4 flex flex-1 flex-col justify-end">
@@ -758,18 +999,25 @@ function TableCard({
         )}
         {isEmpty && (
           <div className="space-y-2">
-            <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">{t('statuses.available')}</p>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation()
-                onOpenOrder(bill)
-              }}
-              className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-emerald-300/80 bg-white py-2 text-xs font-semibold text-emerald-800 shadow-sm transition hover:bg-emerald-50 dark:border-emerald-700/60 dark:bg-obsidian-850 dark:text-emerald-300 dark:hover:bg-emerald-950/40"
-            >
-              <UtensilsCrossed className="h-3.5 w-3.5" />
-              {t('tables.openOrderTicket')}
-            </button>
+            <div className="flex items-center justify-between text-sm">
+              <p className="font-medium text-emerald-600 dark:text-emerald-400">{t('statuses.available')}</p>
+              {bill.capacity ? (
+                <span className="text-xs text-muted-foreground">{t('tables.seatsCount', { count: bill.capacity })}</span>
+              ) : null}
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onOpenOrder(bill)
+                }}
+                className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-emerald-300/80 bg-white py-2 text-xs font-semibold text-emerald-800 shadow-sm transition hover:bg-emerald-50 active:scale-95 dark:border-emerald-700/60 dark:bg-obsidian-850 dark:text-emerald-300 dark:hover:bg-emerald-950/40"
+              >
+                <UtensilsCrossed className="h-3.5 w-3.5" />
+                {t('tables.openOrderTicket')}
+              </button>
+            </div>
           </div>
         )}
         {isReserved && (
@@ -959,19 +1207,23 @@ export default function Table() {
     openPaymentFor,
     openOrderFor,
     addTable,
+    updateTable,
+    deleteTable,
     transferTable,
     clearTable,
     mergeTables,
     refreshFloorTables,
   } = usePOS()
   const { refresh: refreshAlerts } = useAlerts()
-  const { isAdmin } = useAuth()
+  const { isAdmin, canAccess } = useAuth()
+  const canManageTables = isAdmin || canAccess?.('table')
   const [floorReservations, setFloorReservations] = useState({})
   const [preview, setPreview] = useState(null)
   const [previewBusy, setPreviewBusy] = useState(false)
   const [previewError, setPreviewError] = useState('')
 
   const [showAddModal, setShowAddModal] = useState(false)
+  const [editTarget, setEditTarget] = useState(null)
   const [showMergeModal, setShowMergeModal] = useState(false)
   const [transferSource, setTransferSource] = useState(null)
   const [clearTarget, setClearTarget] = useState(null)
@@ -1067,6 +1319,20 @@ export default function Table() {
   const handleAddTable = async (data) => {
     await addTable(data)
     showToast(t('tables.tableAdded'))
+    await loadFloorReservations()
+    refreshAlerts?.()
+  }
+
+  const handleUpdateTable = async (id, data) => {
+    await updateTable(id, data)
+    showToast(t('tables.tableUpdated'))
+    await loadFloorReservations()
+    refreshAlerts?.()
+  }
+
+  const handleDeleteTable = async (id) => {
+    await deleteTable(id)
+    showToast(t('tables.tableDeleted'))
     await loadFloorReservations()
     refreshAlerts?.()
   }
@@ -1167,7 +1433,7 @@ export default function Table() {
           <h3 className="page-title">{t('nav.table')}</h3>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {isAdmin && (
+          {canManageTables && (
             <button
               type="button"
               onClick={() => setShowAddModal(true)}
@@ -1224,6 +1490,7 @@ export default function Table() {
               onChangeTable={setTransferSource}
               onClearTable={setClearTarget}
               onOpenOrder={handleOpenOrder}
+              onEditTable={setEditTarget}
               mergedNames={mergedNamesByHost[table.id]}
             />
           ))}
@@ -1243,6 +1510,7 @@ export default function Table() {
               onChangeTable={setTransferSource}
               onClearTable={setClearTarget}
               onOpenOrder={handleOpenOrder}
+              onEditTable={setEditTarget}
               mergedNames={mergedNamesByHost[table.id]}
             />
           ))}
@@ -1265,6 +1533,14 @@ export default function Table() {
         isOpen={showAddModal}
         onClose={() => setShowAddModal(false)}
         onAddTable={handleAddTable}
+      />
+
+      <EditTableModal
+        isOpen={Boolean(editTarget)}
+        table={editTarget}
+        onClose={() => setEditTarget(null)}
+        onUpdateTable={handleUpdateTable}
+        onDeleteTable={handleDeleteTable}
       />
 
       <TransferTableModal

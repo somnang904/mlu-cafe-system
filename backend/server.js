@@ -32,7 +32,7 @@ const {
     pendingOrderLockName,
     tableLockName,
 } = require('./src/utils/orderTargets');
-const { normalizeAllowedRole, passwordPolicyError, assignableRoleError } = require('./src/utils/accountPolicy');
+const { normalizeAllowedRole, passwordPolicyError, assignableRoleError, mustChangePassword } = require('./src/utils/accountPolicy');
 const { hashPassword, findUserIdsWithHistory, normalizeUsername, displayNameValidationError, USERNAME_PATTERN } = require('./src/utils/userAccounts');
 const { saveMenuImage } = require('./src/utils/menuImage');
 const { downloadRemoteImage } = require('./src/utils/remoteImage');
@@ -444,7 +444,7 @@ app.post('/api/users', requireAdmin, async (req, res) => {
         const passwordHash = await hashPassword(trimmedPassword);
 
         const [created] = await db.execute(
-            'INSERT INTO users (display_name, username, password_hash, role, permissions, must_change_password) VALUES (?, ?, ?, ?, ?, 1)',
+            'INSERT INTO users (display_name, username, password_hash, role, permissions, must_change_password) VALUES (?, ?, ?, ?, ?, 0)',
             [display_name, normalizedUsername, passwordHash, allowedRole, savedPermissions.json]
         );
 
@@ -588,9 +588,9 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
             await db.execute(
                 `UPDATE users
                  SET display_name = ?, username = ?, role = ?, permissions = ?, is_active = ?,
-                     password_hash = ?, must_change_password = ?
+                     password_hash = ?, must_change_password = 0
                  WHERE id = ?`,
-                [display_name, nextUsername, allowedRole, savedPermissions.json, nextActive ? 1 : 0, passwordHash, Number(req.user?.id) === userId ? 0 : 1, userId],
+                [display_name, nextUsername, allowedRole, savedPermissions.json, nextActive ? 1 : 0, passwordHash, userId],
             );
         } else {
             await db.execute(
@@ -615,7 +615,7 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
             permissions: isAdminRole(updated.role)
                 ? [...VALID_PERMISSIONS]
                 : normalizePermissions(updated.permissions),
-            must_change_password: Number(updated.must_change_password) === 1,
+            must_change_password: mustChangePassword(updated),
             is_active: updated.is_active == null ? true : Number(updated.is_active) === 1,
         };
 
@@ -2166,8 +2166,11 @@ app.get('/api/orders/history/page', requireSalesHistoryAccess, async (req, res) 
         const like = `%${search.replace(/[\%_]/g, (ch) => `\${ch}`)}%`;
         searchSql = ` AND (invoice_id LIKE ? OR payment_method LIKE ? OR payment_bank LIKE ? OR status LIKE ?
             OR target_id IN (SELECT id FROM tables WHERE table_name LIKE ?)
-            OR ((target_id IS NULL OR CAST(target_id AS CHAR) = 'takeout') AND 'Take Out' LIKE ?))`;
-        whereParams.push(like, like, like, like, like, like);
+            OR ((target_id IS NULL OR CAST(target_id AS CHAR) = 'takeout') AND 'Take Out' LIKE ?)
+            OR staff_name LIKE ?
+            OR id IN (SELECT oi.order_id FROM order_items oi LEFT JOIN menu_items m ON m.id = oi.menu_item_id
+                WHERE COALESCE(m.name, oi.item_name) LIKE ?))`;
+        whereParams.push(like, like, like, like, like, like, like, like);
     }
 
     try {
@@ -3170,7 +3173,7 @@ app.get('/api/expenses/:id/receipt', requireExpenseAccess, async (req, res) => {
 
 function removeReceiptFile(file) {
     if (!file) return;
-    fs.promises.unlink(path.join(receiptsDir, path.basename(file))).catch(() => {});
+    fs.promises.unlink(path.join(receiptsDir, path.basename(file))).catch(() => { });
 }
 
 app.put('/api/expenses/:id', requireExpenseAccess, async (req, res) => {
@@ -3352,6 +3355,7 @@ app.delete('/api/expenses/:id', requireExpenseAccess, async (req, res) => {
 // ==========================================
 
 const requireReservationsAccess = requireAnyPermission('reservations', 'table')
+const requireTableManage = requireAnyPermission('table')
 const requireReportsAccess = requirePermission('reports')
 
 app.get('/api/tables', requireReservationsAccess, async (_req, res) => {
@@ -3387,7 +3391,7 @@ app.get('/api/tables', requireReservationsAccess, async (_req, res) => {
     }
 })
 
-app.post('/api/tables', requireAdmin, async (req, res) => {
+app.post('/api/tables', requireTableManage, async (req, res) => {
     try {
         const rawName = String(req.body?.name || '').trim();
         const section = String(req.body?.section || 'standard').trim().toLowerCase() === 'vip' ? 'vip' : 'standard';
@@ -3432,6 +3436,67 @@ app.post('/api/tables', requireAdmin, async (req, res) => {
     } catch (error) {
         console.error('❌ CREATE TABLE ERROR:', error.message);
         res.status(500).json({ message: 'Failed to create table', errorId: logError(error, { route: 'POST /api/tables' }) });
+    }
+});
+
+app.put('/api/tables/:id', requireTableManage, async (req, res) => {
+    const tableId = Number.parseInt(req.params.id, 10);
+    if (!Number.isInteger(tableId) || tableId <= 0) {
+        return res.status(400).json({ message: 'Invalid table ID' });
+    }
+
+    try {
+        const rawName = String(req.body?.name || '').trim();
+        const section = String(req.body?.section || 'standard').trim().toLowerCase() === 'vip' ? 'vip' : 'standard';
+        const parsedCapacity = Number.parseInt(req.body?.capacity, 10);
+        const capacity = Number.isInteger(parsedCapacity) && parsedCapacity > 0 ? parsedCapacity : (section === 'vip' ? 12 : 4);
+
+        if (!rawName) {
+            return res.status(400).json({ message: 'Table name is required' });
+        }
+        if (rawName.length > 60) {
+            return res.status(400).json({ message: 'Table name cannot exceed 60 characters' });
+        }
+
+        const [existing] = await db.execute(
+            'SELECT id, table_name, section, capacity, status FROM tables WHERE id = ? LIMIT 1',
+            [tableId],
+        );
+        if (existing.length === 0) {
+            return res.status(404).json({ message: 'Table not found' });
+        }
+
+        const [duplicate] = await db.execute(
+            'SELECT id FROM tables WHERE LOWER(table_name) = LOWER(?) AND id <> ? LIMIT 1',
+            [rawName, tableId],
+        );
+        if (duplicate.length > 0) {
+            return res.status(409).json({ message: 'A table with this name already exists' });
+        }
+
+        await db.execute(
+            'UPDATE tables SET table_name = ?, section = ?, capacity = ? WHERE id = ?',
+            [rawName, section, capacity, tableId],
+        );
+
+        const updatedTable = {
+            id: tableId,
+            name: rawName,
+            section,
+            capacity,
+            status: existing[0].status,
+        };
+
+        await auditFromRequest(db, req, {
+            action: 'update_table',
+            module: 'Tables',
+            description: `Updated table #${tableId} from "${existing[0].table_name}" to "${rawName}" (Section: ${section}, Capacity: ${capacity})`,
+        });
+
+        res.status(200).json({ message: 'Table updated successfully', table: updatedTable });
+    } catch (error) {
+        console.error('❌ UPDATE TABLE ERROR:', error.message);
+        res.status(500).json({ message: 'Failed to update table', errorId: logError(error, { route: `PUT /api/tables/${tableId}` }) });
     }
 });
 
@@ -3740,7 +3805,7 @@ app.post('/api/tables/:id/clear', requirePosFloorAccess, async (req, res) => {
     }
 });
 
-app.delete('/api/tables/:id', requireAdmin, async (req, res) => {
+app.delete('/api/tables/:id', requireTableManage, async (req, res) => {
     const tableId = Number.parseInt(req.params.id, 10);
     if (!Number.isInteger(tableId) || tableId <= 0) {
         return res.status(400).json({ message: 'Invalid table ID' });

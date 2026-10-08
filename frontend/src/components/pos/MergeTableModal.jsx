@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AlertCircle, Armchair, ArrowRightFromLine, ArrowRightToLine, Crown, GitMerge } from 'lucide-react'
+import { AlertCircle, Armchair, ArrowRightFromLine, ArrowRightToLine, Crown, GitMerge, Info } from 'lucide-react'
 import { useModalKeyboard } from '../../hooks/useModalKeyboard'
 import IconSelect from '../ui/IconSelect'
 import ModalHeader from '../ui/ModalHeader'
@@ -63,6 +63,8 @@ export default function MergeTableModal({ isOpen, onClose, tables = [], onMerge 
     }
   }
 
+  const hasNoOccupied = occupiedTables.length === 0
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="modal-backdrop" aria-hidden="true" />
@@ -92,6 +94,20 @@ export default function MergeTableModal({ isOpen, onClose, tables = [], onMerge 
             </div>
           )}
 
+          {hasNoOccupied && (
+            <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 text-xs text-amber-800 dark:text-amber-200">
+              <Info className="h-4 w-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+              <div>
+                <p className="font-semibold">
+                  {t('tables.noOccupiedTablesTitle', { defaultValue: 'គ្មានតុដែលមានការកុម្ម៉ង់ (No Occupied Tables)' })}
+                </p>
+                <p className="mt-1 text-2xs leading-relaxed text-amber-700 dark:text-amber-300">
+                  {t('tables.noOccupiedTablesDesc', { defaultValue: 'មុខងារផ្ដុំតុ (Merge) គឺសម្រាប់បញ្ចូលការកុម្ម៉ង់ពីតុមួយទៅតុមួយទៀត។ បច្ចុប្បន្នតុទាំងអស់នៅទំនេរ (គ្មានការកុម្ម៉ង់កំពុងដំណើរការទេ)។ សូមបើកការកុម្ម៉ង់លើតុជាមុនសិន។' })}
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Source Table */}
           <div>
             <FieldLabel icon={ArrowRightFromLine} htmlFor="merge-from">
@@ -104,8 +120,13 @@ export default function MergeTableModal({ isOpen, onClose, tables = [], onMerge 
                 setFromTableId(value)
                 setError('')
               }}
-              placeholder={t('tables.selectSourceTable', { defaultValue: 'Select an occupied table' })}
+              placeholder={
+                hasNoOccupied
+                  ? t('tables.noOccupiedPlaceholder', { defaultValue: 'គ្មានតុដែលមានការកុម្ម៉ង់ទេ' })
+                  : t('tables.selectSourceTable', { defaultValue: 'Select an occupied table' })
+              }
               options={sourceOptions}
+              disabled={hasNoOccupied}
               className="rounded-xl"
             />
             <p className="mt-1.5 text-2xs text-slate-500 dark:text-zinc-400">
@@ -127,6 +148,7 @@ export default function MergeTableModal({ isOpen, onClose, tables = [], onMerge 
               }}
               placeholder={t('tables.selectDestTable', { defaultValue: 'Select a target table' })}
               options={targetOptions}
+              disabled={hasNoOccupied}
               className="rounded-xl"
             />
           </div>
@@ -141,9 +163,9 @@ export default function MergeTableModal({ isOpen, onClose, tables = [], onMerge 
             </button>
             <button
               type="submit"
-              disabled={submitting || !fromTableId || !toTableId}
+              disabled={submitting || !fromTableId || !toTableId || hasNoOccupied}
               className={`btn-primary flex-1 py-2.5 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${
-                submitting || !fromTableId || !toTableId ? '' : 'beam-border shadow-[0_4px_14px_rgba(16,185,129,0.35)]'
+                submitting || !fromTableId || !toTableId || hasNoOccupied ? '' : 'beam-border shadow-[0_4px_14px_rgba(16,185,129,0.35)]'
               }`}
             >
               {submitting ? t('common.saving', { defaultValue: 'Merging...' }) : t('tables.confirmMerge', { defaultValue: 'Confirm Merge' })}

@@ -9,7 +9,7 @@ import { ConnectionProvider } from './context/ConnectionContext'
 import { POSProvider, usePOS } from './context/POSContext'
 import { AlertsProvider } from './context/AlertsContext'
 import { NotificationProvider } from './context/NotificationContext'
-import { readActiveView, writeActiveView, VALID_VIEWS } from './utils/activeViewStorage'
+import { readActiveView, writeActiveView, resolveViewId, VALID_VIEWS } from './utils/activeViewStorage'
 import { getDefaultViewForUser } from './utils/permissions'
 
 import Dashboard from './pages/Dashboard'
@@ -53,7 +53,8 @@ function AuthenticatedApp() {
   }, [user, activePage, canAccess])
 
   const handleNavigate = useCallback(
-    (page) => {
+    (rawPage) => {
+      const page = resolveViewId(rawPage) || rawPage
       if (!VALID_VIEWS.has(page)) return
       if (!canAccess(page)) return
       setActivePage(page)
