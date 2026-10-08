@@ -5,7 +5,7 @@ import ModalHeader from '../ui/ModalHeader'
 import PaymentMethodBadge from '../common/PaymentMethodBadge'
 import { useModalKeyboard } from '../../hooks/useModalKeyboard'
 import { formatOrderDate, formatTime12Hour } from '../../utils/dateTimeFormat'
-import { formatKhr, usdToKhr } from '../../utils/currency'
+import { formatKhr, splitChange, usdToKhr } from '../../utils/currency'
 import { cashPaidIn } from '../../utils/salesHistoryAnalytics'
 
 function money(value) {
@@ -25,6 +25,11 @@ export default function SaleDetailsModal({ order, onClose }) {
   const received = [
     Number(order.received_usd) > 0 ? money(order.received_usd) : null,
     Number(order.received_khr) > 0 ? formatKhr(order.received_khr) : null,
+  ].filter(Boolean).join(' + ')
+  const changeSplit = splitChange(order.change_usd, order.exchange_rate || undefined)
+  const changeGiven = [
+    changeSplit.usd > 0 ? money(changeSplit.usd) : null,
+    changeSplit.khr > 0 ? formatKhr(changeSplit.khr) : null,
   ].filter(Boolean).join(' + ')
 
   return createPortal(
@@ -105,7 +110,7 @@ export default function SaleDetailsModal({ order, onClose }) {
               </div>
               <div className="text-muted flex justify-between">
                 <span>{t('sales.change')}</span>
-                <span className="tabular-nums">{Number(order.change_usd) > 0 ? `${money(order.change_usd)} (${formatKhr(order.change_khr)})` : money(0)}</span>
+                <span className="tabular-nums">{changeGiven || money(0)}</span>
               </div>
             </>
           ) : null}
