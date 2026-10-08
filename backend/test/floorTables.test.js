@@ -107,6 +107,24 @@ describe('Floor Tables Management', () => {
     assert.equal(res.status, 409)
   })
 
+  it('PUT /api/tables/:id updates table details', async () => {
+    const updatedName = `Updated Table ${Date.now()}`
+    const res = await request('PUT', `/tables/${testTableId}`, {
+      token: adminToken,
+      body: { name: updatedName, section: 'vip', capacity: 8 },
+    })
+    assert.equal(res.status, 200)
+    assert.equal(res.json?.table?.name, updatedName)
+    assert.equal(res.json?.table?.section, 'vip')
+    assert.equal(res.json?.table?.capacity, 8)
+
+    const all = await listFloorTables(db)
+    const found = all.find((t) => t.id === testTableId)
+    assert.equal(found.name, updatedName)
+    assert.equal(found.section, 'vip')
+    assert.equal(found.capacity, 8)
+  })
+
   it('POST /api/tables/transfer moves pending order to another table', async () => {
     // Create a pending order on testTableId
     const [orderRes] = await db.execute(

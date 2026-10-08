@@ -3349,6 +3349,67 @@ app.post('/api/tables', requireAdmin, async (req, res) => {
     }
 });
 
+app.put('/api/tables/:id', requireAdmin, async (req, res) => {
+    const tableId = Number.parseInt(req.params.id, 10);
+    if (!Number.isInteger(tableId) || tableId <= 0) {
+        return res.status(400).json({ message: 'Invalid table ID' });
+    }
+
+    try {
+        const rawName = String(req.body?.name || '').trim();
+        const section = String(req.body?.section || 'standard').trim().toLowerCase() === 'vip' ? 'vip' : 'standard';
+        const parsedCapacity = Number.parseInt(req.body?.capacity, 10);
+        const capacity = Number.isInteger(parsedCapacity) && parsedCapacity > 0 ? parsedCapacity : (section === 'vip' ? 12 : 4);
+
+        if (!rawName) {
+            return res.status(400).json({ message: 'Table name is required' });
+        }
+        if (rawName.length > 60) {
+            return res.status(400).json({ message: 'Table name cannot exceed 60 characters' });
+        }
+
+        const [existing] = await db.execute(
+            'SELECT id, table_name, section, capacity, status FROM tables WHERE id = ? LIMIT 1',
+            [tableId],
+        );
+        if (existing.length === 0) {
+            return res.status(404).json({ message: 'Table not found' });
+        }
+
+        const [duplicate] = await db.execute(
+            'SELECT id FROM tables WHERE LOWER(table_name) = LOWER(?) AND id <> ? LIMIT 1',
+            [rawName, tableId],
+        );
+        if (duplicate.length > 0) {
+            return res.status(409).json({ message: 'A table with this name already exists' });
+        }
+
+        await db.execute(
+            'UPDATE tables SET table_name = ?, section = ?, capacity = ? WHERE id = ?',
+            [rawName, section, capacity, tableId],
+        );
+
+        const updatedTable = {
+            id: tableId,
+            name: rawName,
+            section,
+            capacity,
+            status: existing[0].status,
+        };
+
+        await auditFromRequest(db, req, {
+            action: 'update_table',
+            module: 'Tables',
+            description: `Updated table #${tableId} from "${existing[0].table_name}" to "${rawName}" (Section: ${section}, Capacity: ${capacity})`,
+        });
+
+        res.status(200).json({ message: 'Table updated successfully', table: updatedTable });
+    } catch (error) {
+        console.error('❌ UPDATE TABLE ERROR:', error.message);
+        res.status(500).json({ message: 'Failed to update table', errorId: logError(error, { route: `PUT /api/tables/${tableId}` }) });
+    }
+});
+
 app.post('/api/tables/transfer', requirePosFloorAccess, async (req, res) => {
     const fromId = Number.parseInt(req.body?.from_table_id, 10);
     const toId = Number.parseInt(req.body?.to_table_id, 10);

@@ -283,6 +283,36 @@ export function POSProvider({ children }) {
     return data.table
   }, [refreshFloorTables])
 
+  const updateTable = useCallback(async (id, { name, section, capacity }) => {
+    const token = getAuthToken()
+    const response = await apiFetch(`/tables/${id}`, {
+      method: 'PUT',
+      token,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, section, capacity }),
+    })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      throw new Error(data.message || 'Failed to update table')
+    }
+    await refreshFloorTables()
+    return data.table
+  }, [refreshFloorTables])
+
+  const deleteTable = useCallback(async (id) => {
+    const token = getAuthToken()
+    const response = await apiFetch(`/tables/${id}`, {
+      method: 'DELETE',
+      token,
+    })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      throw new Error(data.message || 'Failed to delete table')
+    }
+    await refreshFloorTables()
+    return true
+  }, [refreshFloorTables])
+
   const transferTable = useCallback(async (fromId, toId) => {
     const token = getAuthToken()
     const endSync = beginSync()
