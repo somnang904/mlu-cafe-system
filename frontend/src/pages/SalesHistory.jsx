@@ -324,7 +324,7 @@ export default function SalesHistory() {
         <div className="table-shell">
           <div className="flex flex-wrap items-center gap-3 border-b border-olive-100/60 p-4 dark:border-olive-800/30">
             <div className="relative min-w-[12rem] max-w-md flex-1">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
+              <Search className="pointer-events-none absolute left-3.5 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-slate-500 dark:text-zinc-400" aria-hidden />
               <input
                 type="text"
                 placeholder={t('sales.searchPlaceholder', {
