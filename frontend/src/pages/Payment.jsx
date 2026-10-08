@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { CheckCircle2, Clock, CreditCard, Minus, Receipt, Scissors } from 'lucide-react'
+import { CheckCircle2, CreditCard, Minus, Receipt, Scissors } from 'lucide-react'
 import { usePOS } from '../context/POSContext'
 import { useConnection } from '../context/ConnectionContext'
 import { useAuth } from '../context/AuthContext'
@@ -12,7 +12,6 @@ import { playAlertSound } from '../utils/soundAlert'
 import PaymentModule from '../components/pos/PaymentModule'
 import ReceiptModal from '../components/pos/ReceiptModal'
 import SplitBillModal from '../components/pos/SplitBillModal'
-import ShiftModal from '../components/pos/ShiftModal'
 import ExchangeRateChip from '../components/common/ExchangeRateChip'
 
 function ActiveBillList({ bills, selectedId, onSelect }) {
@@ -241,7 +240,6 @@ export default function Payment() {
   const [selectedId, setSelectedId] = useState(null)
   const [completedReceipt, setCompletedReceipt] = useState(null)
   const [showSplitModal, setShowSplitModal] = useState(false)
-  const [showShiftModal, setShowShiftModal] = useState(false)
 
   useEffect(() => {
     if (paymentTargetId != null) {
@@ -352,14 +350,6 @@ export default function Payment() {
         <h3 className="page-title">{t('nav.payment')}</h3>
         <div className="flex flex-wrap items-center gap-2">
           <ExchangeRateChip />
-          <button
-            type="button"
-            onClick={() => setShowShiftModal(true)}
-            className="inline-flex items-center gap-2 rounded-2xl border border-border bg-white px-3.5 py-2 text-xs font-semibold text-foreground shadow-sm hover:bg-slate-50 dark:bg-zinc-900 dark:hover:bg-zinc-800"
-          >
-            <Clock className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-            {t('shifts.manageShift', { defaultValue: 'Shift & Cash Drawer' })}
-          </button>
         </div>
       </div>
 
@@ -438,13 +428,6 @@ export default function Payment() {
           onClose={() => setShowSplitModal(false)}
           bill={selectedBill}
           onPaySplit={handlePaySplit}
-        />
-      )}
-
-      {showShiftModal && (
-        <ShiftModal
-          isOpen={showShiftModal}
-          onClose={() => setShowShiftModal(false)}
         />
       )}
     </div>

@@ -2019,9 +2019,12 @@ app.get('/api/orders/history', requireSalesHistoryAccess, async (req, res) => {
         dateFilterParams = [days];
     }
 
+    // Cashiers only see the sales they rang up themselves; admins see everyone's.
+    const ownSalesOnly = !isAdminRole(req.user?.role);
+
     try {
         const query = `
-            SELECT 
+            SELECT
                 id AS order_id,
                 invoice_id,
                 target_id,
@@ -2051,11 +2054,14 @@ app.get('/api/orders/history', requireSalesHistoryAccess, async (req, res) => {
                 staff_id,
                 staff_name
             FROM orders
-            WHERE (${SALE_STATUS_SQL} AND ${rangeSql('updated_at')})
-               OR (${REFUNDED_STATUS_SQL} AND ${rangeSql(REFUND_DATE_SQL)})
+            WHERE ((${SALE_STATUS_SQL} AND ${rangeSql('updated_at')})
+               OR (${REFUNDED_STATUS_SQL} AND ${rangeSql(REFUND_DATE_SQL)}))
+               ${ownSalesOnly ? 'AND staff_id = ?' : ''}
             ORDER BY updated_at DESC
         `;
-        const [historyRows] = await db.execute(query, [...dateFilterParams, ...dateFilterParams]);
+        const queryParams = [...dateFilterParams, ...dateFilterParams];
+        if (ownSalesOnly) queryParams.push(req.user.id);
+        const [historyRows] = await db.execute(query, queryParams);
 
         if (historyRows.length === 0) {
             return res.status(200).json([]);
