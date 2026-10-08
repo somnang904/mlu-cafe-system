@@ -888,8 +888,8 @@ function TableCard({
   mergedNames = [],
 }) {
   const { t } = useTranslation()
-  const { isAdmin, canAccess } = useAuth()
-  const canManageTables = isAdmin || canAccess?.('table')
+  const { isAdmin } = useAuth()
+  const canManageTables = isAdmin
   const floorStatus = getFloorStatus(bill, reservation)
   const meta = TABLE_STATUS_META[floorStatus] || TABLE_STATUS_META.empty
   const isEmpty = floorStatus === 'empty'
@@ -1243,8 +1243,8 @@ export default function Table() {
     refreshFloorTables,
   } = usePOS()
   const { refresh: refreshAlerts } = useAlerts()
-  const { isAdmin, canAccess } = useAuth()
-  const canManageTables = isAdmin || canAccess?.('table')
+  const { isAdmin } = useAuth()
+  const canManageTables = isAdmin
   const [floorReservations, setFloorReservations] = useState({})
   const [preview, setPreview] = useState(null)
   const [previewBusy, setPreviewBusy] = useState(false)

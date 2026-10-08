@@ -9,6 +9,7 @@ const {
   CASHIER_DEFAULT_PERMISSIONS,
   STAFF_DEFAULT_PERMISSIONS,
 } = require('../src/constants/permissions')
+const { requireAdmin } = require('../src/middleware/auth')
 const {
   normalizeAllowedRole,
   assignableRoleError,
@@ -37,6 +38,37 @@ describe('permissions policy', () => {
 
   it('Admin bypasses permission checks', () => {
     assert.equal(userHasPermission({ role: 'Admin', permissions: [] }, 'reports'), true)
+  })
+
+  it('table management requires the Admin role, even when Cashier has table permission', () => {
+    let cashierNextCalled = false
+    let cashierStatus = null
+    const cashierResponse = {
+      status(status) {
+        cashierStatus = status
+        return this
+      },
+      json() {},
+    }
+    requireAdmin(
+      { user: { role: 'Cashier', permissions: ['table'] } },
+      cashierResponse,
+      () => {
+        cashierNextCalled = true
+      },
+    )
+    assert.equal(cashierStatus, 403)
+    assert.equal(cashierNextCalled, false)
+
+    let adminNextCalled = false
+    requireAdmin(
+      { user: { role: 'Admin', permissions: [] } },
+      {},
+      () => {
+        adminNextCalled = true
+      },
+    )
+    assert.equal(adminNextCalled, true)
   })
 
   it('Cashier/Staff defaults match plan', () => {

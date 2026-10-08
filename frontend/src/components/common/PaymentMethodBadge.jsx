@@ -7,11 +7,11 @@ const PAYMENT_BADGE_STYLES = {
   'Bank Scan': 'badge-forest',
 }
 
-export default function PaymentMethodBadge({ method, bank = null }) {
+export default function PaymentMethodBadge({ method, bank = null, bankOnly = false }) {
   const { t } = useTranslation()
   const style = PAYMENT_BADGE_STYLES[method]
     || 'bg-stone-100 text-stone-700 dark:bg-stone-800 dark:text-stone-300'
-  const label = paymentLabel(method, bank, t)
+  const label = bankOnly && bank ? bank : paymentLabel(method, bank, t)
 
   return (
     <StatusBadge className={style}>{label}</StatusBadge>

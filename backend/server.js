@@ -2040,6 +2040,108 @@ function parseDayRange(rawFrom, rawTo) {
 
 const HISTORY_ITEM_CHUNK = 1000;
 
+const HISTORY_COLUMNS_SQL = `
+        id AS order_id,
+        invoice_id,
+        target_id,
+        source_type,
+        payment_method,
+        payment_type,
+        payment_bank,
+        subtotal,
+        tax,
+        total,
+        status,
+        received_usd,
+        received_khr,
+        change_usd,
+        change_khr,
+        exchange_rate,
+        void_reason,
+        DATE_FORMAT(voided_at, '%Y-%m-%d %h:%i %p') AS voided_at,
+        CASE
+            WHEN ${REFUNDED_STATUS_SQL} THEN DATE_FORMAT(${REFUND_DATE_SQL}, '%Y-%m-%d')
+            ELSE NULL
+        END AS refund_date,
+        DATE_FORMAT(updated_at, '%Y-%m-%d') AS date,
+        DATE_FORMAT(updated_at, '%h:%i %p') AS time,
+        HOUR(updated_at) AS hour,
+        DATE_FORMAT(updated_at, '%Y-%m') AS month_key,
+        staff_id,
+        staff_name
+`;
+
+async function enrichHistoryRows(historyRows) {
+    if (historyRows.length === 0) return [];
+    const orderIds = historyRows.map((row) => row.order_id);
+    const itemRows = [];
+    for (let offset = 0; offset < orderIds.length; offset += HISTORY_ITEM_CHUNK) {
+        const chunk = orderIds.slice(offset, offset + HISTORY_ITEM_CHUNK);
+        const placeholders = chunk.map(() => '?').join(', ');
+        const [chunkRows] = await db.execute(
+            `
+            SELECT
+                oi.order_id,
+                oi.menu_item_id,
+                COALESCE(m.name, oi.item_name, 'Custom item') AS name,
+                COALESCE(oi.item_category, m.category) AS category,
+                m.image_url,
+                oi.notes,
+                oi.quantity AS qty,
+                oi.price AS unitPrice,
+                (oi.quantity * oi.price) AS lineTotal
+            FROM order_items oi
+            LEFT JOIN menu_items m ON oi.menu_item_id = m.id
+            WHERE oi.order_id IN (${placeholders})
+            `,
+            chunk,
+        );
+        for (const chunkRow of chunkRows) itemRows.push(chunkRow);
+    }
+
+    const itemsByOrder = itemRows.reduce((acc, row) => {
+        if (!acc[row.order_id]) acc[row.order_id] = [];
+        acc[row.order_id].push({
+            menu_item_id: row.menu_item_id,
+            image_url: row.image_url,
+            category: row.category || null,
+            // Name without the serving/sugar note, so Reports can group "Latte (Iced)" with "Latte".
+            base_name: row.name,
+            name: formatOrderLineName(row.name, row.notes),
+            notes: row.notes || '',
+            qty: row.qty,
+            unitPrice: parseFloat(row.unitPrice),
+            lineTotal: parseFloat(row.lineTotal),
+        });
+        return acc;
+    }, {});
+
+    const enrichedHistory = historyRows.map((row) => {
+        const items = itemsByOrder[row.order_id] || [];
+        const targetKey = row.target_id != null ? String(row.target_id) : 'takeout';
+        return {
+            ...row,
+            target_id: targetKey,
+            payment_method: row.payment_method || row.payment_type || 'Cash',
+            payment_bank: row.payment_bank || null,
+            received_usd: row.received_usd != null ? parseFloat(row.received_usd) : null,
+            received_khr: row.received_khr != null ? parseFloat(row.received_khr) : null,
+            change_usd: row.change_usd != null ? parseFloat(row.change_usd) : null,
+            change_khr: row.change_khr != null ? parseFloat(row.change_khr) : null,
+            exchange_rate: row.exchange_rate != null ? parseFloat(row.exchange_rate) : null,
+            void_reason: row.void_reason || null,
+            voided_at: row.voided_at || null,
+            refund_date: row.refund_date || null,
+            summary: items.length
+                ? items.map((item) => `${item.qty}× ${item.name}`).join(', ')
+                : 'Items logged',
+            items,
+        };
+    });
+
+    return enrichedHistory;
+}
+
 app.get('/api/orders/history', requireSalesHistoryAccess, async (req, res) => {
     const monthParam = typeof req.query.month === 'string' ? req.query.month.trim() : '';
     const monthMatch = /^(\d{4})-(\d{2})$/.exec(monthParam);
@@ -2081,35 +2183,7 @@ app.get('/api/orders/history', requireSalesHistoryAccess, async (req, res) => {
 
     try {
         const query = `
-            SELECT
-                id AS order_id,
-                invoice_id,
-                target_id,
-                source_type,
-                payment_method,
-                payment_type,
-                payment_bank,
-                subtotal,
-                tax,
-                total,
-                status,
-                received_usd,
-                received_khr,
-                change_usd,
-                change_khr,
-                exchange_rate,
-                void_reason,
-                DATE_FORMAT(voided_at, '%Y-%m-%d %h:%i %p') AS voided_at,
-                CASE
-                    WHEN ${REFUNDED_STATUS_SQL} THEN DATE_FORMAT(${REFUND_DATE_SQL}, '%Y-%m-%d')
-                    ELSE NULL
-                END AS refund_date,
-                DATE_FORMAT(updated_at, '%Y-%m-%d') AS date,
-                DATE_FORMAT(updated_at, '%h:%i %p') AS time,
-                HOUR(updated_at) AS hour,
-                DATE_FORMAT(updated_at, '%Y-%m') AS month_key,
-                staff_id,
-                staff_name
+            SELECT ${HISTORY_COLUMNS_SQL}
             FROM orders
             WHERE ((${SALE_STATUS_SQL} AND ${rangeSql('updated_at')})
                OR (${REFUNDED_STATUS_SQL} AND ${rangeSql(REFUND_DATE_SQL)}))
@@ -2124,75 +2198,102 @@ app.get('/api/orders/history', requireSalesHistoryAccess, async (req, res) => {
             return res.status(200).json([]);
         }
 
-        const orderIds = historyRows.map((row) => row.order_id);
-        const itemRows = [];
-        for (let offset = 0; offset < orderIds.length; offset += HISTORY_ITEM_CHUNK) {
-            const chunk = orderIds.slice(offset, offset + HISTORY_ITEM_CHUNK);
-            const placeholders = chunk.map(() => '?').join(', ');
-            const [chunkRows] = await db.execute(
-                `
-                SELECT
-                    oi.order_id,
-                    oi.menu_item_id,
-                    COALESCE(m.name, oi.item_name, 'Custom item') AS name,
-                    COALESCE(oi.item_category, m.category) AS category,
-                    m.image_url,
-                    oi.notes,
-                    oi.quantity AS qty,
-                    oi.price AS unitPrice,
-                    (oi.quantity * oi.price) AS lineTotal
-                FROM order_items oi
-                LEFT JOIN menu_items m ON oi.menu_item_id = m.id
-                WHERE oi.order_id IN (${placeholders})
-                `,
-                chunk,
-            );
-            for (const chunkRow of chunkRows) itemRows.push(chunkRow);
-        }
-
-        const itemsByOrder = itemRows.reduce((acc, row) => {
-            if (!acc[row.order_id]) acc[row.order_id] = [];
-            acc[row.order_id].push({
-                menu_item_id: row.menu_item_id,
-                image_url: row.image_url,
-                category: row.category || null,
-                // Name without the serving/sugar note, so Reports can group "Latte (Iced)" with "Latte".
-                base_name: row.name,
-                name: formatOrderLineName(row.name, row.notes),
-                notes: row.notes || '',
-                qty: row.qty,
-                unitPrice: parseFloat(row.unitPrice),
-                lineTotal: parseFloat(row.lineTotal),
-            });
-            return acc;
-        }, {});
-
-        const enrichedHistory = historyRows.map((row) => {
-            const items = itemsByOrder[row.order_id] || [];
-            const targetKey = row.target_id != null ? String(row.target_id) : 'takeout';
-            return {
-                ...row,
-                target_id: targetKey,
-                payment_method: row.payment_method || row.payment_type || 'Cash',
-                payment_bank: row.payment_bank || null,
-                received_usd: row.received_usd != null ? parseFloat(row.received_usd) : null,
-                received_khr: row.received_khr != null ? parseFloat(row.received_khr) : null,
-                change_usd: row.change_usd != null ? parseFloat(row.change_usd) : null,
-                change_khr: row.change_khr != null ? parseFloat(row.change_khr) : null,
-                exchange_rate: row.exchange_rate != null ? parseFloat(row.exchange_rate) : null,
-                void_reason: row.void_reason || null,
-                voided_at: row.voided_at || null,
-                refund_date: row.refund_date || null,
-                summary: items.length
-                    ? items.map((item) => `${item.qty}× ${item.name}`).join(', ')
-                    : 'Items logged',
-                items,
-            };
-        });
-
-        res.status(200).json(enrichedHistory);
+        res.status(200).json(await enrichHistoryRows(historyRows));
     } catch (error) {
         console.error('❌ CRITICAL DATABASE ERROR IN /api/orders/history:', error.message);
+        res.status(500).json({ message: 'Failed to load sales history', errorId: logError(error, { route: `${req.method} ${req.originalUrl}` }) });
+    }
+});
+
+const SALES_PAGE_MAX = 100;
+
+app.get('/api/orders/history/page', requireSalesHistoryAccess, async (req, res) => {
+    const range = parseDayRange(req.query.from, req.query.to);
+    if (!range) {
+        return res.status(400).json({ message: 'Invalid date range. Use from=YYYY-MM-DD&to=YYYY-MM-DD.' });
+    }
+    const limit = Math.min(SALES_PAGE_MAX, Math.max(1, Number.parseInt(req.query.limit, 10) || 20));
+    const page = Math.max(0, Number.parseInt(req.query.page, 10) || 0);
+    const search = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 100) : '';
+    const staffId = Number.parseInt(req.query.staff, 10);
+    const hasStaff = Number.isInteger(staffId) && staffId > 0;
+    const ownSalesOnly = !isAdminRole(req.user?.role);
+    const rangeParams = [range.start, range.endExclusive];
+    const periodSql = `((${SALE_STATUS_SQL} AND updated_at >= ? AND updated_at < ?)
+        OR (${REFUNDED_STATUS_SQL} AND ${REFUND_DATE_SQL} >= ? AND ${REFUND_DATE_SQL} < ?))`;
+    const periodParams = [...rangeParams, ...rangeParams];
+    const staffFilters = [];
+    const staffParams = [];
+    if (hasStaff) {
+        staffFilters.push('staff_id = ?');
+        staffParams.push(staffId);
+    }
+    if (ownSalesOnly) {
+        staffFilters.push('staff_id = ?');
+        staffParams.push(req.user.id);
+    }
+    const inRangeSql = `${periodSql}${staffFilters.length ? ` AND ${staffFilters.join(' AND ')}` : ''}`;
+    const scopeParams = [...periodParams, ...staffParams];
+    const whereParams = [...scopeParams];
+    let searchSql = '';
+    if (search) {
+        const like = `%${search.replace(/[\%_]/g, (ch) => `\${ch}`)}%`;
+        searchSql = ` AND (invoice_id LIKE ? OR payment_method LIKE ? OR payment_bank LIKE ? OR status LIKE ?
+            OR target_id IN (SELECT id FROM tables WHERE table_name LIKE ?)
+            OR ((target_id IS NULL OR CAST(target_id AS CHAR) = 'takeout') AND 'Take Out' LIKE ?)
+            OR staff_name LIKE ?
+            OR id IN (SELECT oi.order_id FROM order_items oi LEFT JOIN menu_items m ON m.id = oi.menu_item_id
+                WHERE COALESCE(m.name, oi.item_name) LIKE ?))`;
+        whereParams.push(like, like, like, like, like, like, like, like);
+    }
+
+    try {
+        const [[summary]] = await db.execute(
+            `SELECT
+                COALESCE(SUM(CASE WHEN ${SALE_STATUS_SQL} AND updated_at >= ? AND updated_at < ? THEN total END), 0) AS gross,
+                COALESCE(SUM(CASE WHEN ${SALE_STATUS_SQL} AND updated_at >= ? AND updated_at < ? THEN 1 ELSE 0 END), 0) AS orders,
+                COALESCE(SUM(CASE WHEN ${REFUNDED_STATUS_SQL} AND ${REFUND_DATE_SQL} >= ? AND ${REFUND_DATE_SQL} < ? THEN total END), 0) AS refunds,
+                COALESCE(SUM(CASE WHEN ${REFUNDED_STATUS_SQL} AND ${REFUND_DATE_SQL} >= ? AND ${REFUND_DATE_SQL} < ? THEN 1 ELSE 0 END), 0) AS refunded
+             FROM orders
+             WHERE ${inRangeSql}`,
+            [...rangeParams, ...rangeParams, ...rangeParams, ...rangeParams, ...scopeParams],
+        );
+        const [cashiers] = await db.execute(
+            `SELECT o.staff_id AS id, COALESCE(MAX(u.display_name), MAX(o.staff_name), CONCAT('#', o.staff_id)) AS name
+             FROM orders o LEFT JOIN users u ON u.id = o.staff_id
+             WHERE o.staff_id IS NOT NULL AND ((${saleStatusSql('o')} AND o.updated_at >= ? AND o.updated_at < ?)
+                OR (${refundedStatusSql('o')} AND ${refundDateSql('o')} >= ? AND ${refundDateSql('o')} < ?))
+                ${ownSalesOnly ? 'AND o.staff_id = ?' : ''}
+             GROUP BY o.staff_id
+             ORDER BY name`,
+            ownSalesOnly ? [...periodParams, req.user.id] : periodParams,
+        );
+        const [[{ total: matching }]] = await db.execute(
+            `SELECT COUNT(*) AS total FROM orders WHERE ${inRangeSql}${searchSql}`,
+            whereParams,
+        );
+        const [rows] = await db.query(
+            `SELECT ${HISTORY_COLUMNS_SQL} FROM orders WHERE ${inRangeSql}${searchSql}
+             ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?`,
+            [...whereParams, limit, page * limit],
+        );
+        const gross = Math.round(Number(summary.gross) * 100) / 100;
+        const refunds = Math.round(Number(summary.refunds) * 100) / 100;
+        res.status(200).json({
+            rows: await enrichHistoryRows(rows),
+            total: Number(matching) || 0,
+            page,
+            limit,
+            cashiers: cashiers.map((row) => ({ id: Number(row.id), name: row.name })),
+            summary: {
+                grossRevenue: gross,
+                refunds,
+                netRevenue: Math.round((gross - refunds) * 100) / 100,
+                ordersFulfilled: Number(summary.orders) || 0,
+                ordersRefunded: Number(summary.refunded) || 0,
+            },
+        });
+    } catch (error) {
         res.status(500).json({ message: 'Failed to load sales history', errorId: logError(error, { route: `${req.method} ${req.originalUrl}` }) });
     }
 });
@@ -3329,7 +3430,7 @@ app.delete('/api/expenses/:id', requireExpenseAccess, async (req, res) => {
 // ==========================================
 
 const requireReservationsAccess = requireAnyPermission('reservations', 'table')
-const requireTableManage = requireAnyPermission('table')
+const requireTableManage = requireAdmin
 const requireReportsAccess = requirePermission('reports')
 
 app.get('/api/tables', requireReservationsAccess, async (_req, res) => {

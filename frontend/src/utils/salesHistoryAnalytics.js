@@ -1,5 +1,7 @@
 import { formatMonthYearFromKey } from './dateTimeFormat'
 import { phnomPenhMonthKey, recentMonthKeys } from './phnomPenhTime'
+import { formatOrderDate, formatTime12Hour } from './dateTimeFormat'
+import { getFloorTableLabel } from '../data/tables'
 
 export const DEFAULT_HISTORY_DAYS = 730
 
@@ -22,6 +24,47 @@ export function buildSalesHistoryQuery(options) {
   }
 
   return `month=${encodeURIComponent(getCurrentMonthKey())}`
+}
+
+export function mapHistoryRow(row) {
+  return {
+    id: row.invoice_id || row.id,
+    order_id: row.order_id,
+    staff_id: row.staff_id ?? null,
+    staff_name: row.staff_name ?? null,
+    void_reason: row.void_reason || null,
+    voided_at: row.voided_at || null,
+    refundDate: row.refund_date || null,
+    date: formatOrderDate(row.date || row.created_at),
+    time: formatTime12Hour(row.time || row.created_at),
+    monthKey: row.month_key || (row.date ? String(row.date).slice(0, 7) : null),
+    payment: row.payment_method || 'Cash',
+    payment_bank: row.payment_bank || null,
+    received_usd: row.received_usd != null ? Number(row.received_usd) : null,
+    received_khr: row.received_khr != null ? Number(row.received_khr) : null,
+    change_usd: row.change_usd != null ? Number(row.change_usd) : null,
+    change_khr: row.change_khr != null ? Number(row.change_khr) : null,
+    exchange_rate: row.exchange_rate != null ? Number(row.exchange_rate) : null,
+    subtotal: parseFloat(row.subtotal || 0),
+    tax: parseFloat(row.tax || 0),
+    total: parseFloat(row.total || 0),
+    status: row.status || 'Completed',
+    source:
+      row.target_id === 'takeout' || row.source_type === 'Take Out'
+        ? 'Take Out'
+        : getFloorTableLabel(row.target_id),
+    summary: row.summary || '',
+    items: row.items || [],
+  }
+}
+
+export function cashPaidIn(order) {
+  if (order?.payment !== 'Cash') return 'usd'
+  const usd = Number(order.received_usd) || 0
+  const khr = Number(order.received_khr) || 0
+  if (khr > 0 && usd > 0) return 'mixed'
+  if (khr > 0) return 'khr'
+  return 'usd'
 }
 
 export function formatMonthLabel(monthKey, t) {
