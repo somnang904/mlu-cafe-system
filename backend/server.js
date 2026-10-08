@@ -3266,6 +3266,7 @@ app.delete('/api/expenses/:id', requireExpenseAccess, async (req, res) => {
 // ==========================================
 
 const requireReservationsAccess = requireAnyPermission('reservations', 'table')
+const requireTableManage = requireAnyPermission('table')
 const requireReportsAccess = requirePermission('reports')
 
 app.get('/api/tables', requireReservationsAccess, async (_req, res) => {
@@ -3301,7 +3302,7 @@ app.get('/api/tables', requireReservationsAccess, async (_req, res) => {
     }
 })
 
-app.post('/api/tables', requireAdmin, async (req, res) => {
+app.post('/api/tables', requireTableManage, async (req, res) => {
     try {
         const rawName = String(req.body?.name || '').trim();
         const section = String(req.body?.section || 'standard').trim().toLowerCase() === 'vip' ? 'vip' : 'standard';
@@ -3349,7 +3350,7 @@ app.post('/api/tables', requireAdmin, async (req, res) => {
     }
 });
 
-app.put('/api/tables/:id', requireAdmin, async (req, res) => {
+app.put('/api/tables/:id', requireTableManage, async (req, res) => {
     const tableId = Number.parseInt(req.params.id, 10);
     if (!Number.isInteger(tableId) || tableId <= 0) {
         return res.status(400).json({ message: 'Invalid table ID' });
@@ -3715,7 +3716,7 @@ app.post('/api/tables/:id/clear', requirePosFloorAccess, async (req, res) => {
     }
 });
 
-app.delete('/api/tables/:id', requireAdmin, async (req, res) => {
+app.delete('/api/tables/:id', requireTableManage, async (req, res) => {
     const tableId = Number.parseInt(req.params.id, 10);
     if (!Number.isInteger(tableId) || tableId <= 0) {
         return res.status(400).json({ message: 'Invalid table ID' });
