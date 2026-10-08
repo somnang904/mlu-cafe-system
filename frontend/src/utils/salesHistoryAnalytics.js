@@ -13,6 +13,10 @@ export function buildSalesHistoryQuery(options) {
     return `days=${options}`
   }
 
+  if (options?.from && options?.to) {
+    return `from=${encodeURIComponent(options.from)}&to=${encodeURIComponent(options.to)}`
+  }
+
   if (options?.month && options.month !== 'all') {
     return `month=${encodeURIComponent(options.month)}`
   }
@@ -149,7 +153,7 @@ function roundMoney(value) {
   return Math.round((Number(value) || 0) * 100) / 100
 }
 
-export function summarizeSalesAndRefunds(orders, periodKey = 'all') {
+function summarizeMatching(orders, matches) {
   let sales = 0
   let salesOrders = 0
   let refunds = 0
@@ -158,11 +162,11 @@ export function summarizeSalesAndRefunds(orders, periodKey = 'all') {
   for (const order of orders || []) {
     if (!isSoldOrder(order)) continue
     const amount = Number.parseFloat(order.total || 0) || 0
-    if (inPeriod(normalizeOrderDate(order), periodKey)) {
+    if (matches(normalizeOrderDate(order))) {
       sales += amount
       salesOrders += 1
     }
-    if (inPeriod(getRefundDateKey(order), periodKey)) {
+    if (matches(getRefundDateKey(order))) {
       refunds += amount
       refundOrders += 1
     }
@@ -175,6 +179,33 @@ export function summarizeSalesAndRefunds(orders, periodKey = 'all') {
     refundOrders,
     net: roundMoney(sales - refunds),
   }
+}
+
+export function summarizeSalesAndRefunds(orders, periodKey = 'all') {
+  return summarizeMatching(orders, (dateKey) => inPeriod(dateKey, periodKey))
+}
+
+function inDayRange(dateKey, from, to) {
+  return Boolean(dateKey) && dateKey >= from && dateKey <= to
+}
+
+export function summarizeSalesMetricsInRange(orders, from, to) {
+  const totals = summarizeMatching(orders, (dateKey) => inDayRange(dateKey, from, to))
+  return {
+    grossRevenue: totals.sales,
+    refunds: totals.refunds,
+    netRevenue: totals.net,
+    ordersFulfilled: totals.salesOrders,
+    ordersRefunded: totals.refundOrders,
+  }
+}
+
+export function filterOrdersInRange(orders, from, to) {
+  return orders.filter(
+    (order) =>
+      inDayRange(normalizeOrderDate(order), from, to) ||
+      inDayRange(getRefundDateKey(order), from, to),
+  )
 }
 
 export function filterOrdersForPeriod(orders, periodKey) {
