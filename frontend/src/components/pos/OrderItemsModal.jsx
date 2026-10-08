@@ -1,9 +1,9 @@
-import { ReceiptText } from 'lucide-react'
+import { ReceiptText, Trash2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import Modal from '../common/Modal'
 import { translateDrinkNotes, translateMenuName } from '../../utils/menuNameTranslations'
 
-export default function OrderItemsModal({ title, items = [], onClose }) {
+export default function OrderItemsModal({ title, items = [], onClose, onRemoveItem }) {
   const { t, i18n } = useTranslation()
   const lines = items.map((item) => {
     const quantity = Number(item.qty ?? item.quantity ?? 1)
@@ -12,6 +12,7 @@ export default function OrderItemsModal({ title, items = [], onClose }) {
     const notes = item.notes ? translateDrinkNotes(item.notes, t) : ''
     return {
       key: item.id ?? `${item.menu_item_id}-${item.notes}`,
+      originalItem: item,
       name,
       extraNotes: notes && !name.includes(`(${notes})`) && !name.includes(notes) ? notes : '',
       quantity,
@@ -64,6 +65,16 @@ export default function OrderItemsModal({ title, items = [], onClose }) {
             <span className="shrink-0 text-sm font-bold tabular-nums text-slate-900 dark:text-zinc-100">
               ${line.lineTotal.toFixed(2)}
             </span>
+            {onRemoveItem && (
+              <button
+                type="button"
+                onClick={() => onRemoveItem(line.originalItem)}
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-600 dark:text-zinc-500 dark:hover:bg-red-950/50 dark:hover:text-red-400"
+                title={t('tables.removeItem', { defaultValue: 'Remove Item' })}
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            )}
           </li>
         ))}
       </ul>

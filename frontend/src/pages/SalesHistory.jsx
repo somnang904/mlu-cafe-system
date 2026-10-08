@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Printer, RotateCcw, Search } from 'lucide-react'
+import { Printer, RotateCcw, Search, Trash2 } from 'lucide-react'
+import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal'
 import ReceiptModal from '../components/pos/ReceiptModal'
 import VoidOrderModal from '../components/pos/VoidOrderModal'
 import { SalesFilterBar } from '../components/ui/SalesFilterBar'
+import { useAuth } from '../context/AuthContext'
 import { usePOS } from '../context/POSContext'
 import { fetchReceiptTransaction } from '../utils/receiptHelpers'
 import {
@@ -37,13 +39,15 @@ function statusLabel(status, t) {
 
 export default function SalesHistory() {
   const { t } = useTranslation()
-  const { salesHistory, loadSalesHistory, releaseSalesHistoryScope, refundOrder } = usePOS()
+  const { isAdmin } = useAuth()
+  const { salesHistory, loadSalesHistory, releaseSalesHistoryScope, refundOrder, deleteOrder } = usePOS()
   const [search, setSearch] = useState('')
   const [selectedMonth, setSelectedMonth] = useState(() => getCurrentMonthKey())
   const [receiptTransaction, setReceiptTransaction] = useState(null)
   const [printingOrderId, setPrintingOrderId] = useState(null)
   const [receiptError, setReceiptError] = useState('')
   const [voidTargetOrder, setVoidTargetOrder] = useState(null)
+  const [deleteTargetOrder, setDeleteTargetOrder] = useState(null)
 
   const completedHistory = useMemo(
     () => filterCompletedOrders(salesHistory || []),
@@ -428,6 +432,17 @@ export default function SalesHistory() {
                             >
                               <Printer className={`h-3.5 w-3.5 shrink-0 ${isPrinting ? 'animate-pulse' : ''}`} />
                             </button>
+                            {isAdmin && (
+                              <button
+                                type="button"
+                                onClick={() => setDeleteTargetOrder(order)}
+                                title={t('sales.deleteOrder', { defaultValue: 'Delete Order' })}
+                                aria-label={t('sales.deleteOrder', { defaultValue: 'Delete Order' })}
+                                className="inline-flex items-center justify-center whitespace-nowrap rounded-lg border border-red-200 bg-red-50/70 px-2.5 py-1.5 text-xs font-semibold text-red-600 transition-colors hover:border-red-300 hover:bg-red-100 hover:text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300 dark:hover:bg-red-900/60"
+                              >
+                                <Trash2 className="h-3.5 w-3.5 shrink-0" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>

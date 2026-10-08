@@ -1820,6 +1820,63 @@ app.post('/api/orders/:id/refund', requirePermission('payment'), async (req, res
     }
 });
 
+app.delete('/api/orders/:id', requireAdmin, async (req, res) => {
+    if (rejectIfMaintenance(res)) return;
+    const orderId = Number.parseInt(req.params.id, 10);
+    if (!Number.isInteger(orderId) || orderId <= 0) {
+        return res.status(400).json({ message: 'Invalid order ID' });
+    }
+
+    try {
+        const deletedOrder = await withTransaction(db, async (conn) => {
+            const [orderRows] = await conn.execute(
+                'SELECT id, invoice_id, total, status FROM orders WHERE id = ? FOR UPDATE',
+                [orderId]
+            );
+            if (!orderRows.length) {
+                const err = new Error('Order not found');
+                err.status = 404;
+                throw err;
+            }
+
+            const order = orderRows[0];
+
+            // If order was not refunded, restore deducted stock for this order
+            if (String(order.status || '').toLowerCase() !== 'refunded') {
+                await reconcileOrderStock(conn, orderId, [], req.user?.id ?? null);
+            }
+
+            // Remove associated order_items
+            await conn.execute('DELETE FROM order_items WHERE order_id = ?', [orderId]);
+
+            // Remove order
+            await conn.execute('DELETE FROM orders WHERE id = ?', [orderId]);
+
+            return order;
+        });
+
+        await auditFromRequest(db, req, {
+            action: 'order_delete',
+            module: 'Sales',
+            description: `Deleted order #${orderId} (${deletedOrder.invoice_id || 'no invoice'}) total ${Number(deletedOrder.total || 0).toFixed(2)}`,
+        });
+
+        res.status(200).json({
+            message: 'Order deleted successfully.',
+            order_id: orderId,
+            invoice_id: deletedOrder.invoice_id,
+        });
+    } catch (error) {
+        if ([400, 403, 404].includes(error.status)) {
+            return res.status(error.status).json({ message: error.message });
+        }
+        res.status(500).json({
+            message: 'Failed to delete order',
+            errorId: logError(error, { route: `${req.method} ${req.originalUrl}` }),
+        });
+    }
+});
+
 // 4. MARK TABLE AS BILL REQUESTED (PENDING BILL STATUS)
 app.post('/api/orders/bill-requested', requirePosFloorAccess, async (req, res) => {
     const { target_id } = req.body ?? {};

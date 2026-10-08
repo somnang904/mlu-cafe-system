@@ -973,6 +973,28 @@ export function POSProvider({ children }) {
     }
   }
 
+  const deleteOrder = async (orderId) => {
+    try {
+      const response = await apiFetch(`/orders/${orderId}`, {
+        method: 'DELETE',
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(data.message || `Server status returned ${response.status}`)
+      }
+
+      setSalesHistory((prev) =>
+        (prev || []).filter((order) => order.order_id !== orderId && order.id !== orderId),
+      )
+
+      loadSalesHistory().catch(() => {})
+      return data
+    } catch (err) {
+      console.error('Failed deleting order:', err.message)
+      throw err
+    }
+  }
+
   const mergeTables = async (fromTableId, toTableId) => {
     const endSync = beginSync()
     try {
@@ -1046,6 +1068,7 @@ export function POSProvider({ children }) {
         processPayment,
         processSplitPayment,
         refundOrder,
+        deleteOrder,
         mergeTables,
         openPaymentFor,
         openOrderFor,

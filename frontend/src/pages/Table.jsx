@@ -1121,7 +1121,18 @@ function TableCard({
         )}
       </div>
       {showItems ? (
-        <OrderItemsModal title={floorTableDisplayName(bill, t)} items={bill.items} onClose={() => setShowItems(false)} />
+        <OrderItemsModal
+          title={floorTableDisplayName(bill, t)}
+          items={bill.items}
+          onClose={() => setShowItems(false)}
+          onRemoveItem={async (itemToRemove) => {
+            const nextItems = (bill.items || []).filter((it) => it.id !== itemToRemove.id)
+            updateBillItems(bill.id, nextItems)
+            if (nextItems.length === 0) {
+              setShowItems(false)
+            }
+          }}
+        />
       ) : null}
     </div>
   )
