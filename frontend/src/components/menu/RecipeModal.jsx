@@ -140,6 +140,7 @@ export default function RecipeModal({ menuItemId, displayName, onClose, onSaved 
                 {t('recipe.addLine')}
               </button>
               {ingredients && ingredients.length === 0 ? <p className="text-muted text-xs">{t('recipe.noIngredients')}</p> : null}
+              <p className="text-muted text-2xs leading-snug">{t('recipe.baseUnitHint')}</p>
             </div>
           ) : null}
 
