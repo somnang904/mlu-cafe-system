@@ -1563,6 +1563,8 @@ const resources = {
         },
       },
       dashboard: {
+        noSalesAccess: 'Sales figures are hidden: this account does not have the Sales history permission.',
+        loadFailed: 'Could not load the sales for today. The numbers below may be out of date.',
         todaySales: "Today's Sales",
         todaySpending: "Today's Spending",
         netProfit: 'Net Profit',
@@ -3314,6 +3316,8 @@ const resources = {
         },
       },
       dashboard: {
+        noSalesAccess: 'តួលេខលក់ត្រូវបានលាក់៖ គណនីនេះមិនមានសិទ្ធិមើលប្រវត្តិលក់ទេ។',
+        loadFailed: 'មិនអាចផ្ទុកការលក់ថ្ងៃនេះបានទេ។ លេខខាងក្រោមប្រហែលមិនទាន់ទាន់សម័យ។',
         todaySales: 'ការលក់ថ្ងៃនេះ',
         todaySpending: 'ចំណាយថ្ងៃនេះ',
         netProfit: 'ប្រាក់ចំណេញសុទ្ធ',
