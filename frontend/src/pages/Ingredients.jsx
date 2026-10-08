@@ -286,7 +286,7 @@ function IngredientFormModal({ item, onClose, onSaved }) {
     }
     const body = {
       name: name.trim(),
-      category: category.trim(),
+      category: category.trim() || 'Other',
       unit_label: unit.trim(),
       low_threshold: low,
       purchase_unit: purchase || null,
