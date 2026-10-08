@@ -50,6 +50,21 @@ function findDuplicateName(name, existing, ignoreId = null) {
   })
 }
 
+const MAX_PURCHASE_SIZE = 1000000
+
+function parsePurchase(input) {
+  if (input.purchase_unit === undefined && input.purchase_size === undefined) return undefined
+  const rawUnit = input.purchase_unit == null ? '' : String(input.purchase_unit).trim()
+  const rawSize = input.purchase_size
+  if (!rawUnit && (rawSize == null || rawSize === '')) return { purchase_unit: null, purchase_size: null }
+  const unit = parseText(rawUnit, 'Purchase unit', MAX_UNIT_LABEL)
+  const size = Number(rawSize)
+  if (typeof rawSize === 'boolean' || !Number.isFinite(size) || size <= 0 || size > MAX_PURCHASE_SIZE) {
+    throw httpError(400, 'Purchase size must be more than 0', 'invalid_purchase_size')
+  }
+  return { purchase_unit: unit, purchase_size: Math.round(size * 1e6) / 1e6 }
+}
+
 function parseCreateBody(body) {
   const input = body || {}
   const name = parseText(input.name, 'Name', MAX_NAME)
@@ -65,6 +80,7 @@ function parseCreateBody(body) {
     quantity,
     low_threshold: low,
     max_stock: Math.max(quantity, MIN_MAX_STOCK),
+    ...(parsePurchase(input) || { purchase_unit: null, purchase_size: null }),
   }
 }
 
@@ -79,6 +95,8 @@ function parseUpdateBody(body) {
     changes.unit_singular = deriveSingular(label)
   }
   if (input.low_threshold !== undefined) changes.low_threshold = parseAmount(input.low_threshold, 'Low stock level')
+  const purchase = parsePurchase(input)
+  if (purchase) Object.assign(changes, purchase)
   if (!Object.keys(changes).length) throw httpError(400, 'Nothing to change')
   return changes
 }
@@ -87,10 +105,18 @@ function resolveAdjust(body, row) {
   const input = body || {}
   const mode = input.mode
   if (mode !== 'add' && mode !== 'remove' && mode !== 'count') throw httpError(400, 'Choose add, remove or count')
+  if (mode === 'add') {
+    const base = input.quantity == null || input.quantity === '' ? 0 : parseAmount(input.quantity, 'Quantity')
+    const packs = input.packs == null || input.packs === '' ? 0 : parseAmount(input.packs, 'Number of packs')
+    const size = Number(row?.purchase_size)
+    if (packs > 0 && !(size > 0)) throw httpError(400, 'Set a purchase unit size for this ingredient first', 'no_purchase_size')
+    const total = roundStock(base + packs * (size > 0 ? size : 0))
+    if (!(total > 0)) throw httpError(400, 'Quantity to add must be greater than zero')
+    return { mode, quantity: total }
+  }
   const quantity = parseAmount(input.quantity, 'Quantity')
   if (mode === 'count') return { mode, quantity }
   if (quantity <= 0) throw httpError(400, `Quantity to ${mode} must be greater than zero`)
-  if (mode === 'add') return { mode, quantity }
   const reason = input.reason
   if (reason !== 'used' && reason !== 'waste' && reason !== 'mistake') {
     throw httpError(400, 'Choose a reason: used, spoiled or wasted, or entered by mistake', 'invalid_reason')
@@ -121,6 +147,8 @@ function serializeIngredient(row) {
     stock_quantity: quantity,
     low_threshold: low,
     stock_status: resolveStockStatus(quantity, low, critical),
+    purchase_unit: row.purchase_unit || null,
+    purchase_size: row.purchase_size != null ? Number(row.purchase_size) : null,
     updated_at: row.updated_at ?? null,
   }
 }
@@ -258,6 +286,9 @@ async function createIngredient(conn, body, userId) {
      ) VALUES (?, ?, 'countable', 0, ?, ?, ?, ?, NULL, 0, ?, 0, NOW(), 1)`,
     [value.name, value.category, value.max_stock, value.unit_label, value.unit_singular, value.low_threshold, status],
   )
+  if (value.purchase_unit) {
+    await conn.execute('UPDATE inventory SET purchase_unit = ?, purchase_size = ? WHERE id = ?', [value.purchase_unit, value.purchase_size, result.insertId])
+  }
   if (value.quantity > 0) {
     await applyStockChange(conn, {
       inventoryId: result.insertId,
@@ -285,14 +316,16 @@ async function updateIngredient(conn, id, body) {
     unit_label: changes.unit_label ?? row.unit_label,
     unit_singular: changes.unit_singular ?? row.unit_singular,
     low_threshold: changes.low_threshold ?? Number(row.low_threshold),
+    purchase_unit: changes.purchase_unit !== undefined ? changes.purchase_unit : row.purchase_unit ?? null,
+    purchase_size: changes.purchase_size !== undefined ? changes.purchase_size : row.purchase_size ?? null,
   }
   const status = resolveStockStatus(Number(row.stock_quantity), Number(next.low_threshold), null)
   await conn.execute(
     `UPDATE inventory
      SET item_name = ?, category = ?, unit_label = ?, unit_singular = ?, low_threshold = ?,
-         critical_threshold = NULL, stock_status = ?
+         critical_threshold = NULL, stock_status = ?, purchase_unit = ?, purchase_size = ?
      WHERE id = ?`,
-    [next.item_name, next.category, next.unit_label, next.unit_singular, next.low_threshold, status, id],
+    [next.item_name, next.category, next.unit_label, next.unit_singular, next.low_threshold, status, next.purchase_unit, next.purchase_size, id],
   )
   return { inventoryId: Number(id), itemName: next.item_name }
 }
@@ -331,7 +364,32 @@ async function removeIngredient(conn, id) {
   return { inventoryId: Number(row.id), itemName: row.item_name }
 }
 
+async function convertIngredient(conn, id, body) {
+  const row = await requireIngredient(conn, id, { lock: true })
+  const unit = parseText(body?.unit_label, 'New unit', MAX_UNIT_LABEL)
+  const factor = Number(body?.factor)
+  if (typeof body?.factor === 'boolean' || !Number.isFinite(factor) || factor <= 0 || factor > MAX_PURCHASE_SIZE) {
+    throw httpError(400, 'Enter how many new units make one old unit', 'invalid_factor')
+  }
+  const next = roundStock(Number(row.stock_quantity) * factor)
+  if (Math.abs(next) > MAX_PURCHASE_SIZE * 100) throw httpError(400, 'The converted amount is too large')
+  const low = roundStock(Number(row.low_threshold || 0) * factor)
+  await conn.execute(
+    `UPDATE inventory
+     SET stock_quantity = ?, low_threshold = ?, critical_threshold = NULL, max_stock = LEAST(max_stock * ?, 99999999),
+         unit_label = ?, unit_singular = ?, purchase_unit = ?, purchase_size = ?, stock_status = ?
+     WHERE id = ?`,
+    [next, low, factor, unit, deriveSingular(unit), row.unit_label || null, factor, resolveStockStatus(next, low, null), id],
+  )
+  await conn.execute(
+    'UPDATE menu_item_stock_links SET quantity_per_unit = ROUND(quantity_per_unit * ?, 6) WHERE inventory_id = ?',
+    [factor, id],
+  )
+  return { inventoryId: Number(id), itemName: row.item_name, from: row.unit_label, to: unit, factor }
+}
+
 module.exports = {
+  convertIngredient,
   parseRecipeLines,
   loadRecipe,
   saveRecipe,

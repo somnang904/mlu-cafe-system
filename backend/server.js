@@ -120,6 +120,7 @@ const {
     removeIngredient,
     loadRecipe,
     saveRecipe,
+    convertIngredient,
 } = require('./src/utils/ingredients');
 const {
     assertRefundable,
@@ -2486,6 +2487,25 @@ app.post('/api/ingredients/:id/adjust', requireStockAccess, async (req, res) => 
         res.status(200).json({ item });
     } catch (error) {
         sendInventoryError(res, error, 'Failed to update the ingredient amount');
+    }
+});
+
+app.post('/api/ingredients/:id/convert', requireStockAccess, async (req, res) => {
+    const id = Number.parseInt(req.params.id, 10);
+    if (!Number.isInteger(id) || id <= 0) {
+        return res.status(400).json({ message: 'Invalid ingredient id' });
+    }
+    try {
+        const result = await withTransaction(db, (conn) => convertIngredient(conn, id, req.body));
+        const row = await loadIngredient(db, id);
+        await auditFromRequest(db, req, {
+            action: 'ingredient_convert_unit',
+            module: 'Inventory',
+            description: `Converted ingredient "${result.itemName}" from ${result.from || '-'} to ${result.to} (1 = ${result.factor}); stock, low level and recipes converted.`,
+        });
+        res.status(200).json({ item: serializeIngredient(row) });
+    } catch (error) {
+        sendInventoryError(res, error, 'Failed to convert the unit');
     }
 });
 

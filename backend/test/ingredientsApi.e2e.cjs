@@ -411,6 +411,35 @@ async function run() {
     check('recipe sales write sale movements for ingredients', Number(ingrMoves[0].n) > Number(saleMovesBefore[0].n), { before: saleMovesBefore, after: ingrMoves });
     check('Whole Milk row still exists as an ingredient', milkRow.length === 1);
 
+    const beans = await call('POST', '/ingredients', { token, body: { name: `E2E Beans ${RUN}`, category: 'Coffee', unit_label: 'g', quantity: 500, purchase_unit: 'bag', purchase_size: 1000 } });
+    check('create with a purchase unit returns 201 with purchase fields', beans.status === 201 && beans.body?.item?.purchase_unit === 'bag' && Number(beans.body?.item?.purchase_size) === 1000, beans);
+    const beansId = beans.body?.item?.id;
+    const packAdd = await call('POST', `/ingredients/${beansId}/adjust`, { token, body: { mode: 'add', packs: 2, quantity: 50 } });
+    check('adding 2 bags + 50 g gives 2550 g', packAdd.status === 200 && Number(packAdd.body?.item?.stock_quantity) === 2550, packAdd);
+    const halfSize = await call('POST', '/ingredients', { token, body: { name: `E2E Bad Size ${RUN}`, unit_label: 'g', purchase_unit: 'bag', purchase_size: 0 } });
+    check('purchase size 0 is 400', halfSize.status === 400, halfSize);
+    const noSize = await call('POST', '/ingredients', { token, body: { name: `E2E No Size ${RUN}`, unit_label: 'ml', quantity: 10 } });
+    const noSizeId = noSize.body?.item?.id;
+    const noSizePacks = await call('POST', `/ingredients/${noSizeId}/adjust`, { token, body: { mode: 'add', packs: 1 } });
+    check('adding packs without a purchase size is 400 no_purchase_size', noSizePacks.status === 400 && noSizePacks.body?.code === 'no_purchase_size', noSizePacks);
+    const clearPurchase = await call('PATCH', `/ingredients/${beansId}`, { token, body: { purchase_unit: null, purchase_size: null } });
+    check('purchase unit can be cleared', clearPurchase.status === 200 && clearPurchase.body?.item?.purchase_unit === null, clearPurchase);
+
+    const bags = await call('POST', '/ingredients', { token, body: { name: `E2E Bag Coffee ${RUN}`, category: 'Coffee', unit_label: 'bags', quantity: 3, low_threshold: 1 } });
+    const bagsId = bags.body?.item?.id;
+    const recipeMenu = await call('POST', '/menu', { token, body: { name: `E2E Convert Drink ${RUN}`, category: 'Coffee', hot_price: 2 } });
+    const recipeMenuId = recipeMenu.body?.item?.id;
+    if (recipeMenuId) itemIds.push(recipeMenuId);
+    await call('PUT', `/menu-recipes/${recipeMenuId}`, { token, body: { lines: [{ ingredient_id: bagsId, quantity: 0.018 }] } });
+    const badConvert = await call('POST', `/ingredients/${bagsId}/convert`, { token, body: { unit_label: 'g', factor: 0 } });
+    check('convert with factor 0 is 400', badConvert.status === 400, badConvert);
+    const convert = await call('POST', `/ingredients/${bagsId}/convert`, { token, body: { unit_label: 'g', factor: 1000 } });
+    check('convert 3 bags at 1000 g each gives 3000 g', convert.status === 200 && Number(convert.body?.item?.stock_quantity) === 3000 && convert.body?.item?.unit_label === 'g', convert);
+    check('convert keeps the old unit as the purchase unit', convert.body?.item?.purchase_unit === 'bags' && Number(convert.body?.item?.purchase_size) === 1000 && Number(convert.body?.item?.low_threshold) === 1000, convert.body?.item);
+    const convertedRecipe = await call('GET', `/menu-recipes/${recipeMenuId}`, { token });
+    check('convert turns the recipe amount 0.018 bags into 18 g', Math.abs(Number(convertedRecipe.body?.lines?.[0]?.quantity) - 18) < 1e-9, convertedRecipe.body);
+    for (const extra of [beansId, noSizeId, bagsId]) if (extra) await call('DELETE', `/ingredients/${extra}`, { token });
+
     const movesBeforeDelete = (await moves(id)).length;
     const del = await call('DELETE', `/ingredients/${id}`, { token });
     check('delete returns 200', del.status === 200, del);
