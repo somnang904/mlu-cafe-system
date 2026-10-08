@@ -156,3 +156,25 @@ test('title is optional, trimmed, and kept when an edit leaves it out', async ()
   const existing = { expense_date: '2026-10-05', amount: 5, category_id: 4, title: 'Rent October' }
   assert.equal((await normalizeExpenseInput(db, { amount: 6 }, { existing })).title, 'Rent October')
 })
+
+test('a riel expense keeps the riel typed; amount stays dollars; a new dollar amount clears it', async () => {
+  const db = categoryDb()
+  const riel = await normalizeExpenseInput(db, { ...valid, amount: 4.88, currency: 'KHR', amount_khr: 20000 })
+  assert.deepEqual([riel.currency, riel.amountKhr, riel.amount], ['KHR', 20000, 4.88])
+  for (const amount_khr of [undefined, 0, -100, 12.5, 'abc']) {
+    await assert.rejects(
+      normalizeExpenseInput(db, { ...valid, currency: 'KHR', amount_khr }),
+      (error) => error.status === 400 && error.field === 'amount',
+    )
+  }
+  await assert.rejects(normalizeExpenseInput(db, { ...valid, currency: 'EUR' }), (error) => error.field === 'amount')
+  const existing = { expense_date: '2026-10-08', amount: 4.88, category_id: 4, currency: 'KHR', amount_khr: 20000 }
+  // Editing other fields keeps the riel.
+  assert.deepEqual(
+    [(await normalizeExpenseInput(db, { title: 'Water' }, { existing })).currency, (await normalizeExpenseInput(db, { title: 'Water' }, { existing })).amountKhr],
+    ['KHR', 20000],
+  )
+  // Sending a new amount without a currency means dollars.
+  const dollars = await normalizeExpenseInput(db, { amount: 6 }, { existing })
+  assert.deepEqual([dollars.currency, dollars.amountKhr, dollars.amount], ['USD', null, 6])
+})

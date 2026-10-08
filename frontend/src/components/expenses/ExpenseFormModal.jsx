@@ -15,8 +15,9 @@ function initialForm(expense, categories) {
   if (expense) {
     return {
       expense_date: expense.expense_date,
-      amount: String(expense.amount),
-      currency: 'usd',
+      // A riel expense opens in riel, with the riel that was typed.
+      amount: expense.currency === 'KHR' && expense.amount_khr ? String(expense.amount_khr) : String(expense.amount),
+      currency: expense.currency === 'KHR' && expense.amount_khr ? 'khr' : 'usd',
       category_id: expense.category_id ?? '',
       // Older expenses may have no title; start from what the table shows for them.
       title: expense.title || expense.vendor || expense.note || '',
@@ -101,6 +102,9 @@ export default function ExpenseFormModal({ expense = null, categories, onClose, 
       const body = {
         expense_date: form.expense_date,
         amount: amountInUsd(form, rate),
+        // Keep the riel as typed; amount (dollars) is what totals and reports add up.
+        currency: form.currency === 'khr' ? 'KHR' : 'USD',
+        ...(form.currency === 'khr' ? { amount_khr: Math.round(Number(form.amount)) } : {}),
         category_id: Number(form.category_id),
         title: form.title.trim(),
         vendor: form.vendor,

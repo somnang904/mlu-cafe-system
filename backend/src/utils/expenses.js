@@ -129,6 +129,10 @@ async function ensureExpensesSchema(db) {
       await addColumn(db, 'vendor', 'VARCHAR(160) NULL AFTER description')
       // Short name for the expense ("Buy vegetables"); shown first in the list.
       await addColumn(db, 'title', 'VARCHAR(160) NULL AFTER category_id')
+      // The currency it was entered in. amount is always dollars (totals, reports); a riel expense
+      // also keeps the riel typed, so it can be shown and edited as riel.
+      await addColumn(db, 'currency', "CHAR(3) NOT NULL DEFAULT 'USD' AFTER amount")
+      await addColumn(db, 'amount_khr', 'INT NULL AFTER currency')
       const addedMethod = await addColumn(db, 'method', "VARCHAR(20) NOT NULL DEFAULT 'cash' AFTER amount")
       if (addedMethod) {
         await db.execute("UPDATE expenses SET method = 'bank_transfer' WHERE paid_from = 'bank'")
@@ -207,6 +211,8 @@ function serializeExpense(row) {
     category: row.category_name || row.category,
     category_color: row.category_color || 'slate',
     title: row.title || '',
+    currency: row.currency === 'KHR' ? 'KHR' : 'USD',
+    amount_khr: row.currency === 'KHR' && row.amount_khr != null ? Number(row.amount_khr) : null,
     vendor: row.vendor || '',
     description: row.description || '',
     note: row.description || '',
@@ -228,7 +234,7 @@ function serializeExpense(row) {
 
 const SELECT_EXPENSE = `
   SELECT
-    e.id, e.category, e.category_id, e.title, e.description, e.vendor, e.amount, e.method, e.status, e.paid_from,
+    e.id, e.category, e.category_id, e.title, e.description, e.vendor, e.amount, e.currency, e.amount_khr, e.method, e.status, e.paid_from,
     e.receipt_file, e.is_recurring, e.recurring_parent_id,
     DATE_FORMAT(e.expense_date, '%Y-%m-%d') AS expense_date,
     e.created_by, e.created_by_name, e.created_at, e.updated_at,
@@ -264,7 +270,7 @@ function sameDayIn(monthKey, dateKey) {
 async function materializeRecurringExpenses(db, now = new Date()) {
   const currentMonth = monthOf(todayKey(now))
   const [roots] = await db.execute(
-    `SELECT id, category, category_id, title, description, vendor, amount, method, paid_from,
+    `SELECT id, category, category_id, title, description, vendor, amount, currency, amount_khr, method, paid_from,
             DATE_FORMAT(expense_date, '%Y-%m-%d') AS expense_date, created_by, created_by_name,
             COALESCE(recurring_last_month, DATE_FORMAT(expense_date, '%Y-%m')) AS last_month
      FROM expenses
@@ -284,12 +290,12 @@ async function materializeRecurringExpenses(db, now = new Date()) {
       await db.execute(
         `INSERT INTO expenses
            (category, category_id, description, vendor, amount, method, status, paid_from, expense_date,
-            is_recurring, recurring_parent_id, created_by, created_by_name, title)
-         VALUES (?, ?, ?, ?, ?, ?, 'unpaid', ?, ?, 1, ?, ?, ?, ?)`,
+            is_recurring, recurring_parent_id, created_by, created_by_name, title, currency, amount_khr)
+         VALUES (?, ?, ?, ?, ?, ?, 'unpaid', ?, ?, 1, ?, ?, ?, ?, ?, ?)`,
         [
           root.category, root.category_id, root.description, root.vendor, root.amount, root.method,
           root.paid_from, sameDayIn(month, root.expense_date), root.id, root.created_by, root.created_by_name,
-          root.title ?? null,
+          root.title ?? null, root.currency === 'KHR' ? 'KHR' : 'USD', root.currency === 'KHR' ? root.amount_khr ?? null : null,
         ],
       )
       added += 1
@@ -393,6 +399,21 @@ async function normalizeExpenseInput(db, payload, { existing = null, receiptsDir
   const status = String(pick('status', existing?.status ?? 'paid')).trim().toLowerCase()
   if (!EXPENSE_STATUSES.includes(status)) throw badRequest('status must be paid or unpaid', 'status')
 
+  // currency: 'USD' or 'KHR'. A riel expense must say how many riel; amount stays the dollar value.
+  // An edit that sends a new amount without a currency means dollars.
+  const rawCurrency = payload.currency !== undefined
+    ? payload.currency
+    : payload.amount !== undefined ? 'USD' : existing?.currency ?? 'USD'
+  const currency = String(rawCurrency || 'USD').trim().toUpperCase()
+  if (!['USD', 'KHR'].includes(currency)) throw badRequest('currency must be USD or KHR', 'amount')
+  let amountKhr = null
+  if (currency === 'KHR') {
+    amountKhr = Number(pick('amount_khr', existing?.amount_khr))
+    if (!Number.isInteger(amountKhr) || amountKhr <= 0 || amountKhr > 4_000_000_000) {
+      throw badRequest('Enter the amount in riel', 'amount')
+    }
+  }
+
   const title = cleanText(pick('title', existing?.title ?? ''), TITLE_MAX)
   const vendor = cleanText(pick('vendor', existing?.vendor ?? ''), VENDOR_MAX)
   const note = String(pick('note', pick('description', existing?.note ?? '')) ?? '').trim().slice(0, NOTE_MAX)
@@ -422,6 +443,8 @@ async function normalizeExpenseInput(db, payload, { existing = null, receiptsDir
     paidFrom,
     status,
     title: title || null,
+    currency,
+    amountKhr,
     vendor: vendor || null,
     note: note || null,
     receiptFile,
@@ -436,8 +459,9 @@ async function createExpense(db, payload, user, { receiptsDir = null } = {}) {
     `
     INSERT INTO expenses
       (category, category_id, description, vendor, amount, method, status, paid_from, receipt_file,
-       is_recurring, recurring_last_month, paid_at, expense_date, created_by, created_by_name, title)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${input.status === 'paid' ? 'NOW()' : 'NULL'}, ?, ?, ?, ?)
+       is_recurring, recurring_last_month, paid_at, expense_date, created_by, created_by_name, title,
+       currency, amount_khr)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${input.status === 'paid' ? 'NOW()' : 'NULL'}, ?, ?, ?, ?, ?, ?)
     `,
     [
       input.category.name,
@@ -455,6 +479,8 @@ async function createExpense(db, payload, user, { receiptsDir = null } = {}) {
       user?.id || null,
       user?.display_name || user?.username || null,
       input.title,
+      input.currency,
+      input.amountKhr,
     ],
   )
   return getExpense(db, result.insertId)
@@ -510,7 +536,7 @@ async function updateExpense(db, expenseId, payload, { receiptsDir = null } = {}
     SET category = ?, category_id = ?, description = ?, vendor = ?, amount = ?, method = ?, status = ?,
         paid_from = ?, receipt_file = ?, is_recurring = ?, recurring_parent_id = ?,
         recurring_last_month = COALESCE(?, recurring_last_month), paid_at = ${paidAtSql}, expense_date = ?,
-        title = ?, updated_at = NOW()
+        title = ?, currency = ?, amount_khr = ?, updated_at = NOW()
     WHERE id = ?
     `,
     [
@@ -528,6 +554,8 @@ async function updateExpense(db, expenseId, payload, { receiptsDir = null } = {}
       startMonth,
       input.expenseDate,
       input.title,
+      input.currency,
+      input.amountKhr,
       id,
     ],
   )
