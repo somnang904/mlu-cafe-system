@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
+  CircleX,
   ArrowLeftRight,
-  Boxes,
   Carrot,
   Check,
   ClipboardList,
@@ -32,20 +32,6 @@ import { localizeDigits } from '../utils/dateTimeFormat'
 
 const PAGE_SIZE = 10
 const DEFAULT_LOW_THRESHOLD = 5
-
-const CATEGORY_SUGGESTIONS = [
-  { key: 'ingredients.categoryDairy', value: 'Dairy' },
-  { key: 'ingredients.categoryCoffee', value: 'Coffee' },
-  { key: 'ingredients.categoryProduce', value: 'Produce' },
-  { key: 'ingredients.categoryPackaging', value: 'Packaging' },
-  { key: 'ingredients.categoryBarSupplies', value: 'Bar Supplies' },
-  { key: 'ingredients.categoryOther', value: 'Other' },
-]
-
-function categoryLabel(t, category) {
-  const match = CATEGORY_SUGGESTIONS.find((entry) => entry.value.toLowerCase() === String(category || '').trim().toLowerCase())
-  return match ? t(match.key) : category
-}
 
 const BASE_UNIT_SUGGESTIONS = [
   { key: 'ingredients.unitG', value: 'g' },
@@ -252,7 +238,7 @@ function IngredientFormModal({ item, onClose, onSaved }) {
   const panelRef = useModalKeyboard({ isOpen: true, onEscape: onClose, primaryActionMode: 'never' })
   const isEdit = Boolean(item)
   const [name, setName] = useState(item?.item_name || '')
-  const [category, setCategory] = useState(item?.category || '')
+  const category = item?.category || ''
   const [unit, setUnit] = useState(item?.unit_label || '')
   const [purchaseUnit, setPurchaseUnit] = useState(item?.purchase_unit || '')
   const [purchaseSize, setPurchaseSize] = useState(item?.purchase_size ? String(Number(item.purchase_size)) : '')
@@ -341,14 +327,6 @@ function IngredientFormModal({ item, onClose, onSaved }) {
             className="input-field w-full px-3 py-2 text-sm"
           />
         </div>
-        <ChipField
-          id="ingredients-form-category"
-          icon={Boxes}
-          label={t('ingredients.categoryLabel')}
-          value={category}
-          onChange={setCategory}
-          suggestions={CATEGORY_SUGGESTIONS}
-        />
         <ChipField
           id="ingredients-form-unit"
           icon={Tag}
@@ -897,10 +875,28 @@ export default function Ingredients() {
     { value: 'out', label: t('ingredients.filterOut'), icon: AlertTriangle },
   ]
 
-  const summaryChips = [
-    { key: 'total', label: t('ingredients.summaryTotal'), value: counts.total, tone: NEUTRAL_PILL },
-    { key: 'low', label: t('ingredients.summaryLow'), value: counts.low, tone: STATUS_TONES.LOW_STOCK.pill },
-    { key: 'out', label: t('ingredients.summaryOut'), value: counts.out, tone: STATUS_TONES.OUT_OF_STOCK.pill },
+  const summaryCards = [
+    {
+      key: 'total',
+      label: t('ingredients.summaryTotal'),
+      value: counts.total,
+      icon: Package,
+      iconTone: 'bg-forest-50 text-forest-600 dark:bg-forest-950/50 dark:text-forest-300',
+    },
+    {
+      key: 'low',
+      label: t('ingredients.summaryLow'),
+      value: counts.low,
+      icon: AlertTriangle,
+      iconTone: 'bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-300',
+    },
+    {
+      key: 'out',
+      label: t('ingredients.summaryOut'),
+      value: counts.out,
+      icon: CircleX,
+      iconTone: 'bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-300',
+    },
   ]
 
   const openAdd = () => setModal({ type: 'form', item: null })
@@ -926,16 +922,21 @@ export default function Ingredients() {
               <p className="text-muted text-xs">{t('ingredients.subtitle')}</p>
             </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {summaryChips.map((chip) => (
-              <span
-                key={chip.key}
-                className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold leading-none ring-1 ${chip.tone}`}
-              >
-                {chip.label}
-                <span className="tabular-nums">{localizeDigits(chip.value)}</span>
-              </span>
-            ))}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
+            {summaryCards.map((card) => {
+              const Icon = card.icon
+              return (
+                <div key={card.key} className="surface-card flex items-center gap-4 p-4">
+                  <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${card.iconTone}`}>
+                    <Icon className="h-6 w-6" aria-hidden />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-muted truncate text-xs font-semibold uppercase tracking-wide">{card.label}</p>
+                    <p className="text-heading mt-0.5 text-2xl font-bold tabular-nums">{localizeDigits(card.value)}</p>
+                  </div>
+                </div>
+              )
+            })}
           </div>
           <button type="button" onClick={openAdd} className={ADD_BUTTON}>
             <Plus className="h-4 w-4" aria-hidden />
@@ -1025,7 +1026,6 @@ export default function Ingredients() {
                     <tr key={item.id} className="table-row hover:bg-stone-50/50 dark:hover:bg-obsidian-900/20">
                       <td className="px-6 py-4">
                         <p className="text-heading text-sm font-semibold">{item.item_name}</p>
-                        {item.category ? <span className="badge-olive mt-1 inline-block">{categoryLabel(t, item.category)}</span> : null}
                         <p
                           className="text-muted mt-1 max-w-[18rem] truncate text-2xs"
                           title={(item.used_in || []).map((use) => use.name).join(', ')}
