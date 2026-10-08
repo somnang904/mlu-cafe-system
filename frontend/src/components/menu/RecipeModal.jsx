@@ -30,6 +30,7 @@ export default function RecipeModal({ menuItemId, displayName, onClose, onSaved 
   const panelRef = useModalKeyboard({ isOpen: true, onEscape: onClose, primaryActionMode: 'never' })
   const [ingredients, setIngredients] = useState(null)
   const [lines, setLines] = useState(null)
+  const [servings, setServings] = useState({ hot: false, iced: false })
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -43,6 +44,7 @@ export default function RecipeModal({ menuItemId, displayName, onClose, onSaved 
         if (!ingredientsRes.ok) throw new Error(list.message || t('recipe.loadFailed'))
         if (cancelled) return
         setIngredients(Array.isArray(list.items) ? list.items : [])
+        setServings({ hot: Boolean(recipe.servings?.hot), iced: Boolean(recipe.servings?.iced) })
         setLines((recipe.lines || []).map((line) => toLine(line)))
       })
       .catch((err) => {
@@ -53,6 +55,7 @@ export default function RecipeModal({ menuItemId, displayName, onClose, onSaved 
     }
   }, [menuItemId, t])
 
+  const hasServings = servings.hot || servings.iced
   const unitOf = (ingredientId) => ingredients?.find((entry) => String(entry.id) === String(ingredientId))?.unit_label || ''
   const options = (ingredients || []).map((entry) => ({ value: String(entry.id), label: entry.item_name }))
   const updateLine = (key, patch) => setLines((prev) => prev.map((line) => (line.key === key ? { ...line, ...patch } : line)))
@@ -106,7 +109,10 @@ export default function RecipeModal({ menuItemId, displayName, onClose, onSaved 
           {lines === null && !error ? <p className="text-muted mt-5 text-sm">{t('recipe.loading')}</p> : null}
 
           {lines !== null
-            ? SECTIONS.map((section) => {
+            ? SECTIONS.filter(
+                (section) =>
+                  !section.variant || servings[section.variant] || lines.some((line) => line.variant === section.variant),
+              ).map((section) => {
                 const SectionIcon = section.icon
                 const sectionLines = lines.filter((line) => line.variant === section.variant)
                 return (
@@ -146,6 +152,7 @@ export default function RecipeModal({ menuItemId, displayName, onClose, onSaved 
                               {unitOf(line.ingredientId)}
                             </span>
                           </div>
+                          {hasServings || line.sugar ? (
                           <label className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-2.5 py-1.5 text-2xs font-semibold text-slate-600 ring-1 ring-slate-200 dark:text-zinc-300 dark:ring-zinc-700">
                             <input
                               type="checkbox"
@@ -155,6 +162,7 @@ export default function RecipeModal({ menuItemId, displayName, onClose, onSaved 
                             />
                             {t('recipe.sugarScaled')}
                           </label>
+                          ) : null}
                           <button
                             type="button"
                             onClick={() => setLines((prev) => prev.filter((entry) => entry.key !== line.key))}
@@ -183,7 +191,7 @@ export default function RecipeModal({ menuItemId, displayName, onClose, onSaved 
           {lines !== null ? (
             <div className="mt-4 space-y-1">
               <p className="text-muted text-2xs leading-snug">{t('recipe.baseUnitHint')}</p>
-              <p className="text-muted text-2xs leading-snug">{t('recipe.sugarHint')}</p>
+              {hasServings ? <p className="text-muted text-2xs leading-snug">{t('recipe.sugarHint')}</p> : null}
               {ingredients && ingredients.length === 0 ? <p className="text-muted text-2xs">{t('recipe.noIngredients')}</p> : null}
             </div>
           ) : null}

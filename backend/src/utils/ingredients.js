@@ -210,7 +210,7 @@ function parseRecipeLines(body) {
 }
 
 async function loadRecipe(conn, menuItemId) {
-  const [menus] = await conn.execute('SELECT id, name FROM menu_items WHERE id = ? LIMIT 1', [menuItemId])
+  const [menus] = await conn.execute('SELECT id, name, hot_price, iced_price FROM menu_items WHERE id = ? LIMIT 1', [menuItemId])
   if (!menus.length) throw httpError(404, 'Menu item not found')
   const [rows] = await conn.execute(
     `SELECT l.inventory_id, l.quantity_per_unit, l.variant, l.option_key, i.item_name, i.unit_label, i.unit_singular, i.stock_quantity
@@ -223,6 +223,7 @@ async function loadRecipe(conn, menuItemId) {
   return {
     menu_item_id: Number(menus[0].id),
     name: menus[0].name,
+    servings: { hot: menus[0].hot_price != null, iced: menus[0].iced_price != null },
     lines: rows.map((row) => ({
       ingredient_id: Number(row.inventory_id),
       item_name: row.item_name,
