@@ -4,8 +4,10 @@ import {
   Ban,
   Banknote,
   CheckCheck,
+  CalendarClock,
   CalendarDays,
   CalendarPlus,
+  CalendarRange,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
@@ -38,7 +40,6 @@ import PageContainer from '../components/common/PageContainer'
 import StatusBadge from '../components/common/StatusBadge'
 import FieldLabel from '../components/ui/FieldLabel'
 import IconSelect from '../components/ui/IconSelect'
-import WheelTimePicker from '../components/ui/WheelTimePicker'
 import ModalHeader from '../components/ui/ModalHeader'
 import { useModalKeyboard } from '../hooks/useModalKeyboard'
 import { apiFetch } from '../services/apiClient'
@@ -54,12 +55,17 @@ import {
 } from '../data/reservations'
 import { getTimeSlotsForDate, isMonday, isValidReservationSlot, nextOpenDate } from '../config/siteData'
 import { floorTables } from '../data/tables'
-import { formatLongDate, formatMonthYear, formatSlotRange12Hour, formatTime12Hour, localizeDigits } from '../utils/dateTimeFormat'
+import { formatLongDate, formatMonthYear, formatTime12Hour, localizeDigits } from '../utils/dateTimeFormat'
 import { canIssueConfirmationLetter } from '../utils/reservationLetter'
 import { useAlerts } from '../context/AlertsContext'
 import { useNotifications } from '../context/NotificationContext'
 
 const SUMMARY_STATUSES = ['Pending', 'Confirmed', 'Paid', 'Seated']
+const UPCOMING_STATUSES = ['Pending', 'Confirmed', 'Paid', 'Seated']
+
+const bySchedule = (a, b) =>
+  String(a.reservation_date).localeCompare(String(b.reservation_date)) ||
+  String(a.time_slot || '').localeCompare(String(b.time_slot || ''))
 const WEEKDAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
 const DEFAULT_OPEN_DATE = nextOpenDate()
 const DEFAULT_SLOTS = getTimeSlotsForDate(DEFAULT_OPEN_DATE)
@@ -188,14 +194,15 @@ function ReservationCalendar({ monthDate, selectedDate, countsByDate, onSelectDa
                 onClick={() => onSelectDate(iso)}
                 aria-label={closed ? `${localizeDigits(day)} - ${t('reservations.closed')}` : undefined}
                 aria-pressed={isSelected}
-                className={`relative flex h-10 w-10 items-center justify-center rounded-full text-sm tabular-nums transition focus-visible:outline-2 focus-visible:outline-forest-500 ${isSelected
-                  ? 'bg-forest-600 font-semibold text-white shadow-[0_4px_12px_rgba(16,185,129,0.4)]'
-                  : closed
-                    ? 'bg-rose-50 text-rose-400 hover:bg-rose-100 dark:bg-rose-950/30 dark:text-rose-300/70 dark:hover:bg-rose-950/50'
-                    : isToday
-                      ? 'font-bold text-forest-700 ring-2 ring-forest-300 hover:bg-forest-50 dark:text-forest-300 dark:ring-forest-700 dark:hover:bg-forest-950/40'
-                      : 'text-foreground hover:bg-forest-50 dark:hover:bg-zinc-800'
-                  }`}
+                className={`relative flex h-10 w-10 items-center justify-center rounded-full text-sm tabular-nums transition focus-visible:outline-2 focus-visible:outline-forest-500 ${
+                  isSelected
+                    ? 'bg-forest-600 font-semibold text-white shadow-[0_4px_12px_rgba(16,185,129,0.4)]'
+                    : closed
+                      ? 'bg-rose-50 text-rose-400 hover:bg-rose-100 dark:bg-rose-950/30 dark:text-rose-300/70 dark:hover:bg-rose-950/50'
+                      : isToday
+                        ? 'font-bold text-forest-700 ring-2 ring-forest-300 hover:bg-forest-50 dark:text-forest-300 dark:ring-forest-700 dark:hover:bg-forest-950/40'
+                        : 'text-foreground hover:bg-forest-50 dark:hover:bg-zinc-800'
+                }`}
               >
                 {localizeDigits(day)}
                 {count > 0 && !closed ? (
@@ -243,17 +250,8 @@ function BookingFormModal({ isOpen, mode, form, tables, error, saving, onChange,
     },
   ].filter((group) => group.tables.length > 0)
 
-  const isPresetSlot = timeSlots.some((slot) => slot.value === form.time_slot)
-  const [isCustomTime, setIsCustomTime] = useState(!isPresetSlot && Boolean(form.time_slot))
-
-  useEffect(() => {
-    if (!isOpen) {
-      setIsCustomTime(false)
-    }
-  }, [isOpen])
-
   const statusValues = BOOKING_STATUSES.includes(form.status) ? BOOKING_STATUSES : [...BOOKING_STATUSES, form.status]
-  const submitDisabled = saving || closedMonday || !form.table_id || !form.time_slot
+  const submitDisabled = saving || closedMonday || timeSlots.length === 0 || !form.table_id
 
   if (!isOpen) return null
 
@@ -272,7 +270,7 @@ function BookingFormModal({ isOpen, mode, form, tables, error, saving, onChange,
         aria-modal="true"
         aria-labelledby="booking-form-title"
       >
-        <div className="modal-panel-body p-4 sm:p-5">
+        <div className="modal-panel-body p-6">
           <ModalHeader
             icon={mode === 'edit' ? Pencil : CalendarPlus}
             title={mode === 'edit' ? t('reservations.editReservation') : t('reservations.newReservation')}
@@ -281,8 +279,8 @@ function BookingFormModal({ isOpen, mode, form, tables, error, saving, onChange,
             onClose={onClose}
           />
 
-          <form className="mt-3 space-y-2.5" onSubmit={onSubmit}>
-            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+          <form className="mt-4 space-y-3" onSubmit={onSubmit}>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
                 <FieldLabel icon={User} htmlFor="booking-customer-name">
                   {t('reservations.customerName')}
@@ -295,7 +293,7 @@ function BookingFormModal({ isOpen, mode, form, tables, error, saving, onChange,
                   required
                   value={form.customer_name}
                   onChange={handleFieldChange('customer_name')}
-                  className="input-field px-3 py-1.5 text-sm"
+                  className="input-field px-3 py-2 text-sm"
                   placeholder={t('reservations.guestNamePlaceholder')}
                 />
               </div>
@@ -311,7 +309,7 @@ function BookingFormModal({ isOpen, mode, form, tables, error, saving, onChange,
                   required
                   value={form.phone}
                   onChange={handleFieldChange('phone')}
-                  className="input-field px-3 py-1.5 text-sm"
+                  className="input-field px-3 py-2 text-sm"
                   placeholder="012 345 678"
                 />
               </div>
@@ -326,110 +324,23 @@ function BookingFormModal({ isOpen, mode, form, tables, error, saving, onChange,
                   required
                   value={form.reservation_date}
                   onChange={handleFieldChange('reservation_date')}
-                  className="input-field px-3 py-1.5 text-sm"
+                  className="input-field px-3 py-2 text-sm"
                 />
               </div>
               <div>
-                <div className="flex items-center justify-between gap-2 mb-1">
-                  <FieldLabel icon={Clock} htmlFor={isCustomTime ? 'booking-custom-time' : 'booking-time-slot'} className="!mb-0">
-                    {t('reservations.timeSlot')}
-                  </FieldLabel>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (isCustomTime) {
-                        setIsCustomTime(false)
-                        const isPreset = timeSlots.some((s) => s.value === form.time_slot)
-                        if (!isPreset && timeSlots.length > 0) {
-                          onChange('time_slot', timeSlots[0].value)
-                        }
-                      } else {
-                        setIsCustomTime(true)
-                      }
-                    }}
-                    className="inline-flex items-center gap-1 rounded-lg bg-forest-50 px-2 py-0.5 text-2xs font-semibold text-forest-700 hover:bg-forest-100 dark:bg-forest-950/60 dark:text-forest-300 dark:hover:bg-forest-900 transition-colors"
-                  >
-                    {isCustomTime ? (
-                      <>
-                        <ListFilter className="h-3 w-3 shrink-0" />
-                        <span>{t('reservations.presetSlots')}</span>
-                      </>
-                    ) : (
-                      <>
-                        <Clock className="h-3 w-3 shrink-0" />
-                        <span>{t('reservations.wheelTime')}</span>
-                      </>
-                    )}
-                  </button>
+                <FieldLabel icon={Clock} htmlFor="booking-time-slot">
+                  {t('reservations.timeSlot')}
+                </FieldLabel>
+                <div className={closedMonday || timeSlots.length === 0 ? 'pointer-events-none opacity-60' : ''}>
+                  <IconSelect
+                    id="booking-time-slot"
+                    value={closedMonday ? '' : String(form.time_slot ?? '')}
+                    onChange={(value) => onChange('time_slot', value)}
+                    placeholder={timeSlots.length === 0 ? t('reservations.closedMondayValidation') : ''}
+                    options={timeSlots.map((slot) => ({ value: slot.value, label: slot.label, icon: Clock }))}
+                    className="rounded-xl"
+                  />
                 </div>
-
-                {isCustomTime ? (
-                  <div className={closedMonday ? 'pointer-events-none opacity-60' : 'space-y-1.5'}>
-                    <WheelTimePicker
-                      value={form.time_slot || '09:00'}
-                      onChange={(nextVal) => onChange('time_slot', nextVal)}
-                      disabled={closedMonday}
-                    />
-                    {form.time_slot ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsCustomTime(false)
-                        }}
-                        className="w-full flex items-center justify-between gap-2 rounded-xl bg-forest-600 hover:bg-forest-700 active:bg-forest-800 text-white px-3 py-1.5 text-xs font-semibold shadow-md active:scale-[0.99] transition-all cursor-pointer ring-1 ring-forest-500/50"
-                        title={t('reservations.selectThisTime')}
-                      >
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-200" />
-                          <span className="truncate">{t('reservations.selectThisTime')}</span>
-                        </div>
-                        <span className="font-mono text-2xs font-bold bg-white/20 px-2 py-0.5 rounded shrink-0">
-                          {formatTime12Hour(form.time_slot)}
-                        </span>
-                      </button>
-                    ) : null}
-                  </div>
-                ) : (
-                  <div className={closedMonday || timeSlots.length === 0 ? 'pointer-events-none opacity-60' : 'space-y-1'}>
-                    <IconSelect
-                      id="booking-time-slot"
-                      value={closedMonday ? '' : String(form.time_slot ?? '')}
-                      onChange={(value) => {
-                        if (value === '__custom__') {
-                          setIsCustomTime(true)
-                          return
-                        }
-                        onChange('time_slot', value)
-                      }}
-                      placeholder={timeSlots.length === 0 ? t('reservations.closedMondayValidation') : ''}
-                      options={[
-                        ...(!isPresetSlot && form.time_slot ? [{
-                          value: form.time_slot,
-                          label: `${formatSlotRange12Hour(form.time_slot, 120)} (${t('reservations.custom')})`,
-                          icon: Clock,
-                        }] : []),
-                        ...timeSlots.map((slot) => ({ value: slot.value, label: slot.label, icon: Clock })),
-                        { value: '__custom__', label: `+ ${t('reservations.wheelTime')}...`, icon: Clock },
-                      ]}
-                      className="rounded-xl"
-                    />
-                    {!isPresetSlot && form.time_slot ? (
-                      <div className="flex items-center justify-between rounded-xl bg-forest-50/80 px-2.5 py-1 text-2xs font-semibold text-forest-800 ring-1 ring-forest-200/80 dark:bg-forest-950/40 dark:text-forest-300 dark:ring-forest-800/60">
-                        <div className="flex items-center gap-1.5 truncate">
-                          <Clock className="h-3 w-3 shrink-0 text-forest-600 dark:text-forest-400" />
-                          <span className="truncate">{formatSlotRange12Hour(form.time_slot, 120)}</span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setIsCustomTime(true)}
-                          className="text-2xs text-forest-600 dark:text-forest-400 hover:underline font-normal shrink-0 ml-1 cursor-pointer"
-                        >
-                          {t('reservations.changeTime')}
-                        </button>
-                      </div>
-                    ) : null}
-                  </div>
-                )}
               </div>
               <div>
                 <FieldLabel icon={Armchair} htmlFor="booking-table">
@@ -471,7 +382,7 @@ function BookingFormModal({ isOpen, mode, form, tables, error, saving, onChange,
                   required
                   value={form.guest_count}
                   onChange={handleFieldChange('guest_count')}
-                  className="input-field px-3 py-1.5 text-sm"
+                  className="input-field px-3 py-2 text-sm"
                 />
               </div>
             </div>
@@ -505,31 +416,32 @@ function BookingFormModal({ isOpen, mode, form, tables, error, saving, onChange,
                 name="notes"
                 value={form.notes}
                 onChange={handleFieldChange('notes')}
-                rows={2}
-                className="input-field px-3 py-1.5 text-sm min-h-[46px] max-h-[70px] resize-none"
+                rows={3}
+                className="input-field px-3 py-2 text-sm"
                 placeholder={t('reservations.notesPlaceholder')}
               />
             </div>
 
             {closedMonday ? (
-              <p className="rounded-xl border border-rose-200 bg-rose-50 px-2.5 py-1 text-2xs font-medium text-rose-800 dark:border-rose-800/60 dark:bg-rose-950/40 dark:text-rose-200">
+              <p className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-800 dark:border-rose-800/60 dark:bg-rose-950/40 dark:text-rose-200">
                 {t('reservations.closedMondayBooking')}
               </p>
             ) : (
-              <OperatingHoursNotice className="!py-1 !px-2.5 !text-2xs !rounded-xl" />
+              <OperatingHoursNotice />
             )}
 
             {error ? <p className="text-xs font-medium text-red-600 dark:text-red-400">{error}</p> : null}
 
-            <div className="flex gap-2.5 pt-1">
+            <div className="flex gap-3 pt-2">
               <button type="button" onClick={onClose} className="btn-secondary flex-1 py-2 text-sm">
                 {t('common.cancel')}
               </button>
               <button
                 type="submit"
                 disabled={submitDisabled}
-                className={`btn-primary flex-1 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60 ${submitDisabled ? '' : 'beam-border shadow-[0_4px_14px_rgba(16,185,129,0.35)]'
-                  }`}
+                className={`btn-primary flex-1 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60 ${
+                  submitDisabled ? '' : 'beam-border shadow-[0_4px_14px_rgba(16,185,129,0.35)]'
+                }`}
               >
                 {saving
                   ? t('common.saving')
@@ -556,8 +468,9 @@ function ReservationActions({
   touch = false,
 }) {
   const { t } = useTranslation()
-  const iconButton = `flex shrink-0 items-center justify-center rounded-full transition focus-visible:outline-2 focus-visible:outline-forest-500 ${touch ? 'h-10 w-10' : 'h-8 w-8'
-    }`
+  const iconButton = `flex shrink-0 items-center justify-center rounded-full transition focus-visible:outline-2 focus-visible:outline-forest-500 ${
+    touch ? 'h-10 w-10' : 'h-8 w-8'
+  }`
   const canLetter = canIssueConfirmationLetter(reservation)
   const isHeld = ['Pending', 'Confirmed', 'Paid'].includes(reservation.status)
   const isPastOrToday = String(reservation.reservation_date || '') <= toLocalDateISO()
@@ -574,8 +487,9 @@ function ReservationActions({
           type="button"
           disabled={checkingInId === reservation.id}
           onClick={() => onCheckIn(reservation)}
-          className={`inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-600 font-semibold text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60 ${touch ? 'min-h-10 px-3 text-sm' : 'px-2.5 py-1 text-2xs'
-            }`}
+          className={`inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-600 font-semibold text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60 ${
+            touch ? 'min-h-10 px-3 text-sm' : 'px-2.5 py-1 text-2xs'
+          }`}
           aria-label={t('a11y.checkInGuest', { name: reservation.customer_name })}
         >
           <UserCheck className={touch ? 'h-4 w-4' : 'h-3.5 w-3.5'} />
@@ -648,8 +562,9 @@ export default function Reservations() {
   const [selectedDate, setSelectedDate] = useState(today)
   const [reservations, setReservations] = useState([])
   const [statusFilter, setStatusFilter] = useState('all')
-  const [showAllDates, setShowAllDates] = useState(false)
   const [search, setSearch] = useState('')
+  const [sheetScope, setSheetScope] = useState('day')
+  const [upcoming, setUpcoming] = useState([])
   const [sheetPage, setSheetPage] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
@@ -672,10 +587,19 @@ export default function Reservations() {
   const loadReservations = useCallback(async (customRange) => {
     const activeRange = customRange?.from && customRange?.to ? customRange : range
     try {
-      const response = await apiFetch(`/reservations?from=${activeRange.from}&to=${activeRange.to}`)
+      const [response, upcomingResponse] = await Promise.all([
+        apiFetch(`/reservations?from=${activeRange.from}&to=${activeRange.to}`),
+        apiFetch(`/reservations?from=${toLocalDateISO()}`).catch(() => null),
+      ])
       const data = await response.json().catch(() => [])
       if (!response.ok) throw new Error(data.message || t('reservations.errors.load'))
       setReservations(Array.isArray(data) ? data : [])
+      const upcomingData = upcomingResponse?.ok ? await upcomingResponse.json().catch(() => []) : []
+      setUpcoming(
+        (Array.isArray(upcomingData) ? upcomingData : [])
+          .filter((row) => UPCOMING_STATUSES.includes(row.status))
+          .sort(bySchedule),
+      )
       setError('')
     } catch (err) {
       setError(err.message || t('reservations.errors.load'))
@@ -724,16 +648,17 @@ export default function Reservations() {
 
   const sheetRows = useMemo(() => {
     const query = search.trim().toLowerCase()
-    return reservations.filter((reservation) => {
-      if (!showAllDates && reservation.reservation_date !== selectedDate) return false
+    const source = sheetScope === 'upcoming' ? upcoming : reservations
+    return source.filter((reservation) => {
+      if (sheetScope === 'day' && reservation.reservation_date !== selectedDate) return false
       if (statusFilter !== 'all' && reservation.status !== statusFilter) return false
       if (!query) return true
       return [reservation.customer_name, reservation.phone, reservation.table_name, reservation.notes]
         .join(' ')
         .toLowerCase()
         .includes(query)
-    })
-  }, [reservations, selectedDate, showAllDates, statusFilter, search])
+    }).sort(bySchedule)
+  }, [reservations, upcoming, sheetScope, selectedDate, statusFilter, search])
 
   const sheetPageCount = Math.max(1, Math.ceil(sheetRows.length / SHEET_PAGE_SIZE))
   const activeSheetPage = Math.min(sheetPage, sheetPageCount - 1)
@@ -762,9 +687,28 @@ export default function Reservations() {
       : ''
 
   const activeRowsForSummary = useMemo(
-    () => reservations.filter((row) => row.reservation_date === selectedDate),
+    () => reservations.filter((row) => row.reservation_date === selectedDate).sort(bySchedule),
     [reservations, selectedDate],
   )
+
+  const dayCardRows = activeRowsForSummary.length > 0 ? activeRowsForSummary : upcoming.slice(0, 6)
+  const dayCardIsUpcoming = activeRowsForSummary.length === 0 && dayCardRows.length > 0
+
+  const scopeOptions = [
+    { value: 'day', label: t('reservations.scopeDay'), icon: CalendarDays },
+    { value: 'month', label: t('reservations.scopeMonth'), icon: CalendarRange },
+    { value: 'upcoming', label: t('reservations.scopeUpcoming'), icon: CalendarClock },
+  ]
+
+  const jumpToDate = (iso) => {
+    const target = parseISODate(iso)
+    if (target.getMonth() !== monthDate.getMonth() || target.getFullYear() !== monthDate.getFullYear()) {
+      setMonthDate(new Date(target.getFullYear(), target.getMonth(), 1))
+    }
+    setSelectedDate(iso)
+    setSheetScope('day')
+    setSheetPage(0)
+  }
 
   const openCreate = () => {
     setEditing(null)
@@ -776,13 +720,14 @@ export default function Reservations() {
 
   const openEdit = (reservation) => {
     const date = reservation.reservation_date
+    const slots = getTimeSlotsForDate(date)
     const currentSlot = String(reservation.time_slot).slice(0, 5)
     setEditing(reservation)
     setForm({
       customer_name: reservation.customer_name,
       phone: reservation.phone,
       reservation_date: date,
-      time_slot: currentSlot,
+      time_slot: slots.some((slot) => slot.value === currentSlot) ? currentSlot : slots[0]?.value || currentSlot,
       table_id: String(reservation.table_id),
       guest_count: reservation.guest_count,
       status: reservation.status,
@@ -797,9 +742,9 @@ export default function Reservations() {
     setForm((prev) => {
       if (field !== 'reservation_date') return { ...prev, [field]: value }
       const slots = getTimeSlotsForDate(value)
-      const nextSlot = isValidReservationSlot(value, prev.time_slot)
+      const nextSlot = slots.some((slot) => slot.value === prev.time_slot)
         ? prev.time_slot
-        : slots[0]?.value || prev.time_slot || ''
+        : slots[0]?.value || ''
       return { ...prev, reservation_date: value, time_slot: nextSlot }
     })
   }, [])
@@ -989,6 +934,57 @@ export default function Reservations() {
               t('reservations.bookingCount', { count: selectedDayCount })
             )}
           </p>
+          {dayCardRows.length > 0 ? (
+            <div className="mt-3 flex min-h-0 flex-1 flex-col">
+              {dayCardIsUpcoming ? (
+                <p className="text-muted mb-2 text-2xs font-semibold uppercase tracking-wide">
+                  {t('reservations.upcomingBookings')}
+                </p>
+              ) : null}
+              <ul className="max-h-72 min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1">
+                {dayCardRows.map((reservation) => {
+                  const meta = RESERVATION_STATUS_META[reservation.status] || RESERVATION_STATUS_META.Pending
+                  return (
+                    <li key={reservation.id}>
+                      <button
+                        type="button"
+                        onClick={() => jumpToDate(reservation.reservation_date)}
+                        className="flex w-full min-w-0 items-center gap-3 rounded-xl border border-border px-3 py-2 text-left text-sm transition hover:bg-slate-50 dark:hover:bg-zinc-800/60"
+                      >
+                        <span className="w-24 shrink-0 text-xs tabular-nums">
+                          {dayCardIsUpcoming ? (
+                            <span className="text-muted block">{localizeDigits(reservation.reservation_date)}</span>
+                          ) : null}
+                          <span className="font-semibold">
+                            {localizeDigits(formatTime12Hour(reservation.time_slot))}
+                          </span>
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate font-medium">{reservation.customer_name}</span>
+                          <span className="text-muted block truncate text-2xs">
+                            {reservationTableLabel(reservation, t)} · {t('reservations.guestsShort', { count: reservation.guest_count })}
+                          </span>
+                        </span>
+                        <StatusBadge className={`shrink-0 ring-1 ${meta.badge}`}>{t(meta.labelKey)}</StatusBadge>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+              {dayCardIsUpcoming && upcoming.length > dayCardRows.length ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSheetScope('upcoming')
+                    setSheetPage(0)
+                  }}
+                  className="mt-2 self-start text-xs font-semibold text-forest-700 hover:underline dark:text-forest-300"
+                >
+                  {t('reservations.viewAllUpcoming', { count: upcoming.length })}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
           <div className="mt-auto grid w-full grid-cols-2 gap-2.5 pt-4 sm:grid-cols-4">
             {SUMMARY_STATUSES.map((status) => {
               const count = activeRowsForSummary.filter((row) => row.status === status).length
@@ -1021,22 +1017,17 @@ export default function Reservations() {
               className="input-field w-full min-w-0 py-2 pl-9 pr-3 text-sm"
             />
           </div>
-          <button
-            type="button"
-            aria-pressed={showAllDates}
-            onClick={() => {
-              setShowAllDates((value) => !value)
-              setSheetPage(0)
-            }}
-            className={`inline-flex w-full shrink-0 items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition sm:w-auto ${
-              showAllDates
-                ? 'border-forest-500 bg-forest-50 text-forest-700 dark:bg-forest-950/40 dark:text-forest-300'
-                : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'
-            }`}
-          >
-            <CalendarDays className="h-4 w-4" />
-            {t('reservations.allDates')}
-          </button>
+          <div className="w-full shrink-0 sm:w-44">
+            <IconSelect
+              value={sheetScope}
+              options={scopeOptions}
+              onChange={(value) => {
+                setSheetScope(value)
+                setSheetPage(0)
+              }}
+              className="w-full px-3 py-2 text-sm"
+            />
+          </div>
           <div className="w-full shrink-0 sm:w-52">
             <IconSelect
               value={statusFilter}
@@ -1055,148 +1046,133 @@ export default function Reservations() {
         {emptyMessage ? (
           <p className="px-5 py-10 text-center text-muted-foreground lg:hidden">{emptyMessage}</p>
         ) : null}
-        <>
-          <div className="lg:hidden">
-            {pagedRows.map((reservation) => {
-              const meta = RESERVATION_STATUS_META[reservation.status] || RESERVATION_STATUS_META.Pending
-              return (
-                <article key={reservation.id} className="min-w-0 border-b border-border/60 px-4 py-4 last:border-b-0">
-                  <div className="flex min-w-0 items-start justify-between gap-3">
-                    <p className="min-w-0 break-words font-medium">{reservation.customer_name}</p>
-                    <StatusBadge className={`shrink-0 ring-1 ${meta.badge}`}>
-                      {t(meta.labelKey)}
-                    </StatusBadge>
-                  </div>
-                  <dl className="mt-3 grid min-w-0 grid-cols-2 gap-x-3 gap-y-2 text-sm">
-                    <div className="min-w-0">
-                      <dt className="text-muted text-2xs">{t('reservations.date')}</dt>
-                      <dd className="break-words tabular-nums">{reservation.reservation_date}</dd>
+          <>
+            <div className="lg:hidden">
+              {pagedRows.map((reservation) => {
+                const meta = RESERVATION_STATUS_META[reservation.status] || RESERVATION_STATUS_META.Pending
+                return (
+                  <article key={reservation.id} className="min-w-0 border-b border-border/60 px-4 py-4 last:border-b-0">
+                    <div className="flex min-w-0 items-start justify-between gap-3">
+                      <p className="min-w-0 break-words font-medium">{reservation.customer_name}</p>
+                      <StatusBadge className={`shrink-0 ring-1 ${meta.badge}`}>
+                        {t(meta.labelKey)}
+                      </StatusBadge>
                     </div>
-<div className="min-w-0">
-                      <dt className="text-muted text-2xs">{t('reservations.timeSlot')}</dt>
-                      <dd className="break-words">
-                        {slotLabel(reservation.time_slot, reservation.time_slot_label, reservation.duration_minutes)}
-                      </dd>
+                    <dl className="mt-3 grid min-w-0 grid-cols-2 gap-x-3 gap-y-2 text-sm">
+                      <div className="min-w-0">
+                        <dt className="text-muted text-2xs">{t('reservations.date')}</dt>
+                        <dd className="break-words tabular-nums">{reservation.reservation_date}</dd>
+                      </div>
+                      <div className="min-w-0">
+                        <dt className="text-muted text-2xs">{t('reservations.timeSlot')}</dt>
+                        <dd className="break-words">
+                          {slotLabel(reservation.time_slot, reservation.time_slot_label, reservation.duration_minutes)}
+                        </dd>
+                      </div>
+                      <div className="min-w-0">
+                        <dt className="text-muted text-2xs">{t('reservations.phoneNumber')}</dt>
+                        <dd className="break-words">{reservation.phone}</dd>
+                      </div>
+                      <div className="min-w-0">
+                        <dt className="text-muted text-2xs">{t('reservations.guestCount')}</dt>
+                        <dd className="tabular-nums">{reservation.guest_count}</dd>
+                      </div>
+                      <div className="min-w-0">
+                        <dt className="text-muted text-2xs">{t('tables.table')}</dt>
+                        <dd className="break-words">{reservationTableLabel(reservation, t)}</dd>
+                      </div>
+                    </dl>
+                    {reservation.status === 'Seated' && reservation.checked_in_at ? (
+                      <p className="text-muted mt-2 text-2xs">
+                        {t('reservations.checkedInAt', { time: formatTime12Hour(reservation.checked_in_at) })}
+                      </p>
+                    ) : null}
+                    <div className="mt-3">
+                      <ReservationActions
+                        reservation={reservation}
+                        checkingInId={checkingInId}
+                        onCheckIn={handleCheckIn}
+                        onLetter={setLetterReservation}
+                        onEdit={openEdit}
+                        onDelete={setDeleteTarget}
+                        onStatus={requestStatus}
+                        touch
+                      />
                     </div>
-                    <div className="min-w-0">
-                      <dt className="text-muted text-2xs">{t('reservations.phoneNumber')}</dt>
-                      <dd className="break-words">{reservation.phone}</dd>
-                    </div>
-                    <div className="min-w-0">
-                      <dt className="text-muted text-2xs">{t('reservations.guestCount')}</dt>
-                      <dd className="tabular-nums">{reservation.guest_count}</dd>
-                    </div>
-                    <div className="min-w-0">
-                      <dt className="text-muted text-2xs">{t('tables.table')}</dt>
-                      <dd className="break-words">{reservationTableLabel(reservation, t)}</dd>
-                    </div>
-                  </dl>
-                  {reservation.status === 'Seated' && reservation.checked_in_at ? (
-                    <p className="text-muted mt-2 text-2xs">
-                      {t('reservations.checkedInAt', { time: formatTime12Hour(reservation.checked_in_at) })}
-                    </p>
-                  ) : null}
-                  <div className="mt-3">
-                    <ReservationActions
-                      reservation={reservation}
-                      checkingInId={checkingInId}
-                      onCheckIn={handleCheckIn}
-                      onLetter={setLetterReservation}
-                      onEdit={openEdit}
-                      onDelete={setDeleteTarget}
-                      onStatus={requestStatus}
-                      touch
-                    />
-                  </div>
-                  {reservation.status === 'Seated' && reservation.checked_in_at ? (
-                    <p className="text-muted mt-2 text-2xs">
-                      {t('reservations.checkedInAt', { time: formatTime12Hour(reservation.checked_in_at) })}
-                    </p>
-                  ) : null}
-                  <div className="mt-3">
-                    <ReservationActions
-                      reservation={reservation}
-                      checkingInId={checkingInId}
-                      onCheckIn={handleCheckIn}
-                      onLetter={setLetterReservation}
-                      onEdit={openEdit}
-                      onDelete={setDeleteTarget}
-                      touch
-                    />
-                  </div>
-                </article>
-              )
-            })}
-          </div>
+                  </article>
+                )
+              })}
+            </div>
 
-          <div className="hidden min-h-[37.5rem] overflow-x-auto lg:block">
-            <table className="w-full min-w-[56rem] border-collapse text-left text-sm">
-              <thead className="bg-olive-50/70 text-xs uppercase tracking-wide text-muted-foreground dark:bg-zinc-900/60">
-                <tr>
-                  <th className="whitespace-nowrap px-4 py-3 font-semibold">{t('reservations.date')}</th>
-                  <th className="whitespace-nowrap px-4 py-3 font-semibold">{t('reservations.timeSlot')}</th>
-                  <th className="whitespace-nowrap px-4 py-3 font-semibold">{t('reservations.customerName')}</th>
-                  <th className="whitespace-nowrap px-4 py-3 font-semibold">{t('reservations.phoneNumber')}</th>
-                  <th className="whitespace-nowrap px-4 py-3 font-semibold">{t('reservations.guestCount')}</th>
-                  <th className="whitespace-nowrap px-4 py-3 font-semibold">{t('tables.table')}</th>
-                  <th className="whitespace-nowrap px-4 py-3 font-semibold">{t('common.status')}</th>
-                  <th className="whitespace-nowrap px-4 py-3 font-semibold">{t('common.actions')}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {emptyMessage ? (
+            <div className="hidden min-h-[37.5rem] overflow-x-auto lg:block">
+              <table className="w-full min-w-[56rem] border-collapse text-left text-sm">
+                <thead className="bg-olive-50/70 text-xs uppercase tracking-wide text-muted-foreground dark:bg-zinc-900/60">
                   <tr>
-                    <td colSpan={8} className="h-[34rem] px-5 text-center text-muted-foreground">
-                      {emptyMessage}
-                    </td>
+                    <th className="whitespace-nowrap px-4 py-3 font-semibold">{t('reservations.date')}</th>
+                    <th className="whitespace-nowrap px-4 py-3 font-semibold">{t('reservations.timeSlot')}</th>
+                    <th className="whitespace-nowrap px-4 py-3 font-semibold">{t('reservations.customerName')}</th>
+                    <th className="whitespace-nowrap px-4 py-3 font-semibold">{t('reservations.phoneNumber')}</th>
+                    <th className="whitespace-nowrap px-4 py-3 font-semibold">{t('reservations.guestCount')}</th>
+                    <th className="whitespace-nowrap px-4 py-3 font-semibold">{t('tables.table')}</th>
+                    <th className="whitespace-nowrap px-4 py-3 font-semibold">{t('common.status')}</th>
+                    <th className="whitespace-nowrap px-4 py-3 font-semibold">{t('common.actions')}</th>
                   </tr>
-                ) : null}
-                {pagedRows.map((reservation) => {
-                  const meta = RESERVATION_STATUS_META[reservation.status] || RESERVATION_STATUS_META.Pending
-                  return (
-                    <tr
-                      key={reservation.id}
-                      className="align-middle transition-colors even:bg-slate-50 hover:bg-slate-100/80 dark:even:bg-zinc-900/30 dark:hover:bg-zinc-800/60"
-                    >
-                      <td className="whitespace-nowrap px-4 py-4 tabular-nums">{reservation.reservation_date}</td>
-                      <td className="whitespace-nowrap px-4 py-4">
-                        {slotLabel(
-                          reservation.time_slot,
-                          reservation.time_slot_label,
-                          reservation.duration_minutes,
-                        )}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-4 font-medium">{reservation.customer_name}</td>
-                      <td className="whitespace-nowrap px-4 py-4">{reservation.phone}</td>
-                      <td className="whitespace-nowrap px-4 py-4 tabular-nums">{reservation.guest_count}</td>
-                      <td className="whitespace-nowrap px-4 py-4">{reservationTableLabel(reservation, t)}</td>
-                      <td className="whitespace-nowrap px-4 py-4">
-                        <StatusBadge className={`ring-1 ${meta.badge}`}>
-                          {t(meta.labelKey)}
-                        </StatusBadge>
-                        {reservation.status === 'Seated' && reservation.checked_in_at ? (
-                          <span className="text-muted mt-1 block text-2xs">
-                            {t('reservations.checkedInAt', { time: formatTime12Hour(reservation.checked_in_at) })}
-                          </span>
-                        ) : null}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-4">
-                        <ReservationActions
-                          reservation={reservation}
-                          checkingInId={checkingInId}
-                          onCheckIn={handleCheckIn}
-                          onLetter={setLetterReservation}
-                          onEdit={openEdit}
-                          onDelete={setDeleteTarget}
-                        />
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {emptyMessage ? (
+                    <tr>
+                      <td colSpan={8} className="h-[34rem] px-5 text-center text-muted-foreground">
+                        {emptyMessage}
                       </td>
                     </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        </>
+                  ) : null}
+                  {pagedRows.map((reservation) => {
+                    const meta = RESERVATION_STATUS_META[reservation.status] || RESERVATION_STATUS_META.Pending
+                    return (
+                      <tr
+                        key={reservation.id}
+                        className="align-middle transition-colors even:bg-slate-50 hover:bg-slate-100/80 dark:even:bg-zinc-900/30 dark:hover:bg-zinc-800/60"
+                      >
+                        <td className="whitespace-nowrap px-4 py-4 tabular-nums">{reservation.reservation_date}</td>
+                        <td className="whitespace-nowrap px-4 py-4">
+                          {slotLabel(
+                            reservation.time_slot,
+                            reservation.time_slot_label,
+                            reservation.duration_minutes,
+                          )}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-4 font-medium">{reservation.customer_name}</td>
+                        <td className="whitespace-nowrap px-4 py-4">{reservation.phone}</td>
+                        <td className="whitespace-nowrap px-4 py-4 tabular-nums">{reservation.guest_count}</td>
+                        <td className="whitespace-nowrap px-4 py-4">{reservationTableLabel(reservation, t)}</td>
+                        <td className="whitespace-nowrap px-4 py-4">
+                          <StatusBadge className={`ring-1 ${meta.badge}`}>
+                            {t(meta.labelKey)}
+                          </StatusBadge>
+                          {reservation.status === 'Seated' && reservation.checked_in_at ? (
+                            <span className="text-muted mt-1 block text-2xs">
+                              {t('reservations.checkedInAt', { time: formatTime12Hour(reservation.checked_in_at) })}
+                            </span>
+                          ) : null}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-4">
+                          <ReservationActions
+                            reservation={reservation}
+                            checkingInId={checkingInId}
+                            onCheckIn={handleCheckIn}
+                            onLetter={setLetterReservation}
+                            onEdit={openEdit}
+                            onDelete={setDeleteTarget}
+                        onStatus={requestStatus}
+                          />
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
 
         <div className="flex flex-col gap-3 border-t border-border/60 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-muted shrink-0 text-xs tabular-nums">

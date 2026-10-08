@@ -65,7 +65,8 @@ export function calculateCashChange({
   const remainingDueUsd = isSufficient ? 0 : dueUsd - totalReceivedUsd
   const remainingDueKhr = roundKhrCash(remainingDueUsd * rate)
 
-  const changeUsd = isSufficient ? Math.max(0, totalReceivedUsd - dueUsd) : 0
+  const rawChangeUsd = isSufficient ? totalReceivedUsd - dueUsd : 0
+  const changeUsd = rawChangeUsd * rate > 50 + 1e-6 ? rawChangeUsd : 0
   const changeKhr = roundKhrCash(changeUsd * rate)
 
   return {

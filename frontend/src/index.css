@@ -786,8 +786,11 @@
     animation-delay: 300ms;
   }
 
+  /* backwards, not both: once the page has faded in, the animation must stop applying opacity and
+     transform, or the page stays its own layer and its pop-up windows (fixed, z-80) end up
+     under the sidebar and header instead of covering the whole screen. */
   .page-enter {
-    animation: fade-in-up 0.18s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: fade-in-up 0.18s cubic-bezier(0.22, 1, 0.36, 1) backwards;
   }
 
   /* A light that runs around an element's edge. A large rotating conic gradient is
