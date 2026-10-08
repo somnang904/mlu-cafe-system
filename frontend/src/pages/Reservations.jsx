@@ -648,6 +648,7 @@ export default function Reservations() {
   const [selectedDate, setSelectedDate] = useState(today)
   const [reservations, setReservations] = useState([])
   const [statusFilter, setStatusFilter] = useState('all')
+  const [showAllDates, setShowAllDates] = useState(false)
   const [search, setSearch] = useState('')
   const [sheetPage, setSheetPage] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
@@ -724,7 +725,7 @@ export default function Reservations() {
   const sheetRows = useMemo(() => {
     const query = search.trim().toLowerCase()
     return reservations.filter((reservation) => {
-      if (reservation.reservation_date !== selectedDate) return false
+      if (!showAllDates && reservation.reservation_date !== selectedDate) return false
       if (statusFilter !== 'all' && reservation.status !== statusFilter) return false
       if (!query) return true
       return [reservation.customer_name, reservation.phone, reservation.table_name, reservation.notes]
@@ -732,7 +733,7 @@ export default function Reservations() {
         .toLowerCase()
         .includes(query)
     })
-  }, [reservations, selectedDate, statusFilter, search])
+  }, [reservations, selectedDate, showAllDates, statusFilter, search])
 
   const sheetPageCount = Math.max(1, Math.ceil(sheetRows.length / SHEET_PAGE_SIZE))
   const activeSheetPage = Math.min(sheetPage, sheetPageCount - 1)
@@ -1020,6 +1021,22 @@ export default function Reservations() {
               className="input-field w-full min-w-0 py-2 pl-9 pr-3 text-sm"
             />
           </div>
+          <button
+            type="button"
+            aria-pressed={showAllDates}
+            onClick={() => {
+              setShowAllDates((value) => !value)
+              setSheetPage(0)
+            }}
+            className={`inline-flex w-full shrink-0 items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition sm:w-auto ${
+              showAllDates
+                ? 'border-forest-500 bg-forest-50 text-forest-700 dark:bg-forest-950/40 dark:text-forest-300'
+                : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'
+            }`}
+          >
+            <CalendarDays className="h-4 w-4" />
+            {t('reservations.allDates')}
+          </button>
           <div className="w-full shrink-0 sm:w-52">
             <IconSelect
               value={statusFilter}

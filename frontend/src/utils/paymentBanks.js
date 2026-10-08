@@ -23,14 +23,8 @@ export function bankLabel(bankId, t) {
   return bank.labelKey ? t(bank.labelKey) : bank.label
 }
 
-/** "Bank Scan · ABA" for a scanned sale, plain method name otherwise. */
+/** Just the bank name ("ABA") for a scanned sale; "Bank Scan" only if no bank was recorded. */
 export function paymentLabel(method, bankId, t) {
-  const base =
-    method === 'Bank Scan'
-      ? t('payment.methods.bankScan')
-      : method === 'Cash'
-        ? t('payment.methods.cash')
-        : method
-  const bank = method === 'Bank Scan' ? bankLabel(bankId, t) : ''
-  return bank ? `${base} · ${bank}` : base
+  if (method === 'Bank Scan') return bankLabel(bankId, t) || t('payment.methods.bankScan')
+  return method === 'Cash' ? t('payment.methods.cash') : method
 }

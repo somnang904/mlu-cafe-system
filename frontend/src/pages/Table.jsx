@@ -12,11 +12,13 @@ import {
   Clock,
   LayoutGrid,
   NotebookPen,
+  Pencil,
   Phone,
   Plus,
   ReceiptText,
   Sparkles,
   Tag,
+  Trash2,
   User,
   UserCheck,
   Users,
@@ -880,6 +882,7 @@ function TableCard({
   onChangeTable,
   onClearTable,
   onOpenOrder,
+  onEditTable,
   mergedNames = [],
 }) {
   const { t } = useTranslation()
@@ -1014,20 +1017,6 @@ function TableCard({
                 <UtensilsCrossed className="h-3.5 w-3.5" />
                 {t('tables.openOrderTicket')}
               </button>
-              {canManageTables && onEditTable && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onEditTable(bill)
-                  }}
-                  className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-forest-500 hover:text-forest-700 hover:bg-slate-50 active:scale-95 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:border-forest-400 dark:hover:text-forest-300"
-                  title={t('tables.editTable')}
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                  <span>{t('tables.editTable')}</span>
-                </button>
-              )}
             </div>
           </div>
         )}

@@ -288,12 +288,11 @@ export default function SalesHistory() {
                           type="button"
                           onClick={() => handlePrintReceipt(order)}
                           disabled={isPrinting}
-                          className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-border/50 bg-card/50 px-2.5 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-background disabled:cursor-not-allowed disabled:opacity-60 dark:bg-card/30"
+                          title={t('sales.printReceipt', { defaultValue: 'Print Receipt' })}
+                          aria-label={t('sales.printReceipt', { defaultValue: 'Print Receipt' })}
+                          className="inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-lg border border-border/50 bg-card/50 px-2.5 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-background disabled:cursor-not-allowed disabled:opacity-60 dark:bg-card/30"
                         >
-                          <Printer className="h-3.5 w-3.5 shrink-0" />
-                          {isPrinting
-                            ? t('common.loading', { defaultValue: 'Loading...' })
-                            : t('sales.printReceipt', { defaultValue: 'Print Receipt' })}
+                          <Printer className={`h-3.5 w-3.5 shrink-0 ${isPrinting ? 'animate-pulse' : ''}`} />
                         </button>
                       </div>
                     </div>
@@ -323,7 +322,7 @@ export default function SalesHistory() {
                   <th className="px-2 py-3">{t('common.payment', { defaultValue: 'Payment' })}</th>
                   <th className="px-2 py-3">{t('common.total', { defaultValue: 'Total' })}</th>
                   <th className="px-2 py-3">{t('common.status', { defaultValue: 'Status' })}</th>
-                  <th className="px-2 py-3 text-right">{t('common.actions', { defaultValue: 'Actions' })}</th>
+                  <th className="px-2 py-3 text-center">{t('common.actions', { defaultValue: 'Actions' })}</th>
                 </tr>
               </thead>
               <tbody className="table-divider">
@@ -373,8 +372,8 @@ export default function SalesHistory() {
                             </span>
                           )}
                         </td>
-                        <td className="px-2 py-3 text-right">
-                          <div className="flex items-center justify-end gap-1.5">
+                        <td className="px-2 py-3 text-center">
+                          <div className="flex items-center justify-center gap-1.5">
                             {order.status?.toLowerCase() !== 'refunded' && (
                               <button
                                 type="button"
@@ -390,12 +389,11 @@ export default function SalesHistory() {
                               type="button"
                               onClick={() => handlePrintReceipt(order)}
                               disabled={isPrinting}
-                              className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-border/50 bg-card/50 px-2.5 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-background disabled:cursor-not-allowed disabled:opacity-60 dark:bg-card/30"
+                              title={t('sales.printReceipt', { defaultValue: 'Print Receipt' })}
+                              aria-label={t('sales.printReceipt', { defaultValue: 'Print Receipt' })}
+                              className="inline-flex items-center justify-center whitespace-nowrap rounded-lg border border-border/50 bg-card/50 px-2.5 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-background disabled:cursor-not-allowed disabled:opacity-60 dark:bg-card/30"
                             >
-                              <Printer className="h-3.5 w-3.5 shrink-0" />
-                              {isPrinting
-                                ? t('common.loading', { defaultValue: 'Loading...' })
-                                : t('sales.printReceipt', { defaultValue: 'Print Receipt' })}
+                              <Printer className={`h-3.5 w-3.5 shrink-0 ${isPrinting ? 'animate-pulse' : ''}`} />
                             </button>
                           </div>
                         </td>
