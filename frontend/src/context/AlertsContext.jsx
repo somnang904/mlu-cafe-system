@@ -110,6 +110,17 @@ export function AlertsProvider({ children }) {
     }
   }, [fetchAlerts])
 
+  const markAllNotificationsRead = useCallback(async () => {
+    try {
+      const response = await apiFetch('/notifications/read-all', { method: 'POST' })
+      if (!response.ok) return false
+      await fetchAlerts({ refresh: true })
+      return true
+    } catch {
+      return false
+    }
+  }, [fetchAlerts])
+
   useEffect(() => {
     if (!getAuthToken()) {
       setIsLoading(false)
@@ -198,6 +209,7 @@ export function AlertsProvider({ children }) {
       refresh,
       refetch: fetchAlerts,
       markNotificationRead,
+      markAllNotificationsRead,
       lowStockAlertsEnabled,
       loginAlertsEnabled,
     }),
@@ -212,6 +224,7 @@ export function AlertsProvider({ children }) {
       refresh,
       fetchAlerts,
       markNotificationRead,
+      markAllNotificationsRead,
       lowStockAlertsEnabled,
       loginAlertsEnabled,
     ],

@@ -337,6 +337,14 @@ const resources = {
         confirmationLetter: 'Confirmation letter',
         confirmationUnavailableCanceled: 'Canceled bookings cannot receive a confirmation letter',
         deleteTitle: 'Delete reservation',
+        actionComplete: 'Mark completed',
+        actionNoShow: 'Mark no-show',
+        actionCancel: 'Cancel booking',
+        cancelTitle: 'Cancel this booking?',
+        cancelMessage: 'The table becomes free again. The booking stays in the history as Canceled.',
+        noShowTitle: 'Mark as no-show?',
+        noShowMessage: 'The guest did not come. The table becomes free and the booking stays in the history as No-show.',
+        statusUpdated: 'Booking updated',
         deleteMessage:
           'This booking will be removed from the reservation sheet. This cannot be undone.',
         errors: {
@@ -371,6 +379,7 @@ const resources = {
         reserved: 'Reserved',
         seated: 'Seated',
         completed: 'Completed',
+        noShow: 'No-show',
         canceled: 'Canceled',
         refunded: 'Refunded',
         empty: 'Empty',
@@ -1039,6 +1048,11 @@ const resources = {
         restoreDescription:
           'Upload a full .sql backup from this system. This replaces all current data. A safety backup is saved on the server first.',
         safeOverwrite: 'Safe overwrite',
+        autoOn: 'Automatic backup is on: every day after {{hour}}:00, keeping the last {{keep}}.',
+        autoOff: 'Automatic backup is off (AUTO_BACKUP=off on the server).',
+        autoLast: 'Last automatic backup: {{when}} ({{size}} MB).',
+        autoNone: 'No automatic backup yet. The first one is made about a minute after the server starts.',
+        autoFolder: 'Saved on the server in: {{folder}}',
         restoreConfirm:
           'This replaces ALL current data. Orders and payments pause until it finishes. Type RESTORE to continue.',
         restoreTypeLabel: 'Type RESTORE to confirm',
@@ -1056,6 +1070,7 @@ const resources = {
         restoreAdminRequired: 'Administrator access is required to restore the database.',
       },
       alerts: {
+        markAllRead: 'Mark all as read',
         category: {
           security: 'Security',
           reservation: 'Reservation',
@@ -1549,6 +1564,8 @@ const resources = {
         },
       },
       dashboard: {
+        noSalesAccess: 'Sales figures are hidden: this account does not have the Sales history permission.',
+        loadFailed: 'Could not load the sales for today. The numbers below may be out of date.',
         todaySales: "Today's Sales",
         todaySpending: "Today's Spending",
         netProfit: 'Net Profit',
@@ -2081,6 +2098,14 @@ const resources = {
         confirmationLetter: 'លិខិតបញ្ជាក់',
         confirmationUnavailableCanceled: 'ការកក់ដែលបានបោះបង់មិនអាចទទួលលិខិតបញ្ជាក់បានទេ',
         deleteTitle: 'លុបការកក់',
+        actionComplete: 'សម្គាល់ថាបានបញ្ចប់',
+        actionNoShow: 'សម្គាល់ថាមិនបានមក',
+        actionCancel: 'បោះបង់ការកក់',
+        cancelTitle: 'បោះបង់ការកក់នេះ?',
+        cancelMessage: 'តុនឹងទំនេរវិញ។ ការកក់នៅតែមានក្នុងប្រវត្តិ ជា "បានបោះបង់"។',
+        noShowTitle: 'សម្គាល់ថាមិនបានមក?',
+        noShowMessage: 'ភ្ញៀវមិនបានមក។ តុនឹងទំនេរវិញ ហើយការកក់នៅតែមានក្នុងប្រវត្តិ ជា "មិនបានមក"។',
+        statusUpdated: 'បានធ្វើបច្ចុប្បន្នភាពការកក់',
         deleteMessage: 'ការកក់នេះនឹងត្រូវដកចេញពីសន្លឹកការកក់។ មិនអាចត្រឡប់វិញបានទេ។',
         errors: {
           load: 'មិនអាចផ្ទុកការកក់បានទេ',
@@ -2114,6 +2139,7 @@ const resources = {
         reserved: 'បានកក់',
         seated: 'បានអង្គុយ',
         completed: 'បានបញ្ចប់',
+        noShow: 'មិនបានមក',
         canceled: 'បានបោះបង់',
         refunded: 'បានសងប្រាក់វិញ',
         empty: 'ទំនេរ',
@@ -2777,6 +2803,11 @@ const resources = {
         restoreDescription:
           'ផ្ទុកឡើងឯកសារ .sql ពេញពីប្រព័ន្ធនេះ។ នេះជំនួសទិន្នន័យបច្ចុប្បន្នទាំងអស់។ ការបម្រុងទុកសុវត្ថិភាពត្រូវបានរក្សាទុកលើម៉ាស៊ីនមេជាមុន។',
         safeOverwrite: 'សរសេរជំនួសដោយសុវត្ថិភាព',
+        autoOn: 'Backup ស្វ័យប្រវត្តិកំពុងបើក៖ រៀងរាល់ថ្ងៃក្រោយម៉ោង {{hour}}:00 ហើយទុក {{keep}} ចុងក្រោយ។',
+        autoOff: 'Backup ស្វ័យប្រវត្តិត្រូវបានបិទ (AUTO_BACKUP=off នៅលើ server)។',
+        autoLast: 'Backup ស្វ័យប្រវត្តិចុងក្រោយ៖ {{when}} ({{size}} MB)។',
+        autoNone: 'មិនទាន់មាន backup ស្វ័យប្រវត្តិនៅឡើយ។ លើកដំបូងនឹងធ្វើប្រហែល ១ នាទី បន្ទាប់ពី server ចាប់ផ្ដើម។',
+        autoFolder: 'រក្សាទុកនៅលើ server ក្នុង៖ {{folder}}',
         restoreConfirm:
           'នេះជំនួសទិន្នន័យបច្ចុប្បន្នទាំងអស់។ ការកុម្មង់ និងការទូទាត់ផ្អាករហូតដល់បញ្ចប់។ វាយ RESTORE ដើម្បីបន្ត។',
         restoreTypeLabel: 'វាយ RESTORE ដើម្បីបញ្ជាក់',
@@ -2794,6 +2825,7 @@ const resources = {
         restoreAdminRequired: 'ត្រូវការសិទ្ធិអ្នកគ្រប់គ្រងដើម្បីស្តារមូលដ្ឋានទិន្នន័យ។',
       },
       alerts: {
+        markAllRead: 'សម្គាល់ថាបានអានទាំងអស់',
         category: {
           security: 'សុវត្ថិភាព',
           reservation: 'ការកក់',
@@ -3286,6 +3318,8 @@ const resources = {
         },
       },
       dashboard: {
+        noSalesAccess: 'តួលេខលក់ត្រូវបានលាក់៖ គណនីនេះមិនមានសិទ្ធិមើលប្រវត្តិលក់ទេ។',
+        loadFailed: 'មិនអាចផ្ទុកការលក់ថ្ងៃនេះបានទេ។ លេខខាងក្រោមប្រហែលមិនទាន់ទាន់សម័យ។',
         todaySales: 'ការលក់ថ្ងៃនេះ',
         todaySpending: 'ចំណាយថ្ងៃនេះ',
         netProfit: 'ប្រាក់ចំណេញសុទ្ធ',
