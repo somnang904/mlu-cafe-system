@@ -350,7 +350,6 @@ export default function Sidebar({ activePage, onNavigate, mobileOpen = false, on
         title={t('nav.signOutConfirmTitle')}
         message={t('nav.signOutConfirmMessage')}
         confirmLabel={t('nav.signOut')}
-        icon={LogOut}
         onCancel={() => setConfirmSignOut(false)}
         onConfirm={() => {
           setConfirmSignOut(false)
