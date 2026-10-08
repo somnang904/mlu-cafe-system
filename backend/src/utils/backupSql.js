@@ -17,10 +17,9 @@ const REQUIRED_TABLES = ['orders', 'inventory', 'menu_item_stock_links', 'stock_
 const INSERT_BATCH = 200
 
 function backupDirectory() {
-  // Prefer BACKUP_DIR. Else LARAGON_ROOT/backup (default C:\laragon\backup on Windows Laragon).
   const configured = String(process.env.BACKUP_DIR || '').trim()
-  const root = String(process.env.LARAGON_ROOT || 'C:\\laragon').trim() || 'C:\\laragon'
-  const directory = configured || path.join(root, 'backup')
+  const laragon = String(process.env.LARAGON_ROOT || '').trim()
+  const directory = configured || (laragon ? path.join(laragon, 'backup') : path.join(__dirname, '..', '..', 'backups'))
   fs.mkdirSync(directory, { recursive: true })
   return directory
 }
@@ -327,4 +326,5 @@ module.exports = {
   restoreDatabaseFromFile,
   writeFullDump,
   backupDirectory,
+  uniqueSqlName,
 }

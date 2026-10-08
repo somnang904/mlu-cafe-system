@@ -1039,6 +1039,11 @@ const resources = {
         restoreDescription:
           'Upload a full .sql backup from this system. This replaces all current data. A safety backup is saved on the server first.',
         safeOverwrite: 'Safe overwrite',
+        autoOn: 'Automatic backup is on: every day after {{hour}}:00, keeping the last {{keep}}.',
+        autoOff: 'Automatic backup is off (AUTO_BACKUP=off on the server).',
+        autoLast: 'Last automatic backup: {{when}} ({{size}} MB).',
+        autoNone: 'No automatic backup yet. The first one is made about a minute after the server starts.',
+        autoFolder: 'Saved on the server in: {{folder}}',
         restoreConfirm:
           'This replaces ALL current data. Orders and payments pause until it finishes. Type RESTORE to continue.',
         restoreTypeLabel: 'Type RESTORE to confirm',
@@ -2777,6 +2782,11 @@ const resources = {
         restoreDescription:
           'ផ្ទុកឡើងឯកសារ .sql ពេញពីប្រព័ន្ធនេះ។ នេះជំនួសទិន្នន័យបច្ចុប្បន្នទាំងអស់។ ការបម្រុងទុកសុវត្ថិភាពត្រូវបានរក្សាទុកលើម៉ាស៊ីនមេជាមុន។',
         safeOverwrite: 'សរសេរជំនួសដោយសុវត្ថិភាព',
+        autoOn: 'Backup ស្វ័យប្រវត្តិកំពុងបើក៖ រៀងរាល់ថ្ងៃក្រោយម៉ោង {{hour}}:00 ហើយទុក {{keep}} ចុងក្រោយ។',
+        autoOff: 'Backup ស្វ័យប្រវត្តិត្រូវបានបិទ (AUTO_BACKUP=off នៅលើ server)។',
+        autoLast: 'Backup ស្វ័យប្រវត្តិចុងក្រោយ៖ {{when}} ({{size}} MB)។',
+        autoNone: 'មិនទាន់មាន backup ស្វ័យប្រវត្តិនៅឡើយ។ លើកដំបូងនឹងធ្វើប្រហែល ១ នាទី បន្ទាប់ពី server ចាប់ផ្ដើម។',
+        autoFolder: 'រក្សាទុកនៅលើ server ក្នុង៖ {{folder}}',
         restoreConfirm:
           'នេះជំនួសទិន្នន័យបច្ចុប្បន្នទាំងអស់។ ការកុម្មង់ និងការទូទាត់ផ្អាករហូតដល់បញ្ចប់។ វាយ RESTORE ដើម្បីបន្ត។',
         restoreTypeLabel: 'វាយ RESTORE ដើម្បីបញ្ជាក់',

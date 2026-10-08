@@ -62,7 +62,8 @@ const { exportBusinessDataFile } = require('./src/utils/backupExport');
 const { createSalesPdf } = require('./src/utils/salesPdf');
 const { createReportExport } = require('./src/utils/reportExport');
 const { refundDateSql, refundedStatusSql, saleStatusSql } = require('./src/utils/salesTotals');
-const { createDownloadDump, pipeDownload, restoreDatabaseFromFile } = require('./src/utils/backupSql');
+const { createDownloadDump, pipeDownload, restoreDatabaseFromFile, backupDirectory, writeFullDump, uniqueSqlName } = require('./src/utils/backupSql');
+const { startAutoBackup, autoBackupStatus } = require('./src/utils/autoBackup');
 const { ensureApplicationSchema, refreshApplicationSchemaAfterRestore } = require('./src/utils/ensureAppSchema');
 const { applyStocktake, stocktakeNote, buildStocktakeWorkbook } = require('./src/utils/stocktake');
 const { isUnderMaintenance, maintenanceMessage } = require('./src/utils/maintenance');
@@ -2911,6 +2912,14 @@ app.get('/api/system/backup/sales-pdf', requireBackupDownloadAccess, sensitiveOp
     }
 });
 
+app.get('/api/system/backup/auto-status', requireAdmin, async (_req, res) => {
+    try {
+        res.status(200).json(autoBackupStatus(backupDirectory()));
+    } catch (error) {
+        res.status(500).json({ message: 'Failed to read the automatic backup status' });
+    }
+});
+
 app.get('/api/system/backup/sql', requireBackupDownloadAccess, sensitiveOperationLimiter, async (req, res) => {
     try {
         const businessOnly = !isAdminRole(req.user?.role);
@@ -3916,6 +3925,7 @@ process.on('uncaughtException', (error) => {
 });
 
 app.listen(PORT, async () => {
+    startAutoBackup({ db, backupDirectory, writeFullDump, uniqueSqlName });
     console.log(`🚀 ${STORE.officialName} Backend running smoothly on port ${PORT}`);
     console.log(`   CORS allowed origins: ${env.security.allowedOrigins.join(', ')}`);
     console.log('   Security: helmet on, rate limiting on, sliding JWT sessions');
