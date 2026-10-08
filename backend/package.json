@@ -12,6 +12,7 @@
     "seed:sales": "node src/scripts/seed12MonthsSales.js",
     "seed:desserts": "node src/scripts/setupDessertRecipes.js",
     "seed:expenses": "node src/scripts/seedExpenses.js",
+    "wipe:sales": "node scripts/wipe-sales-history.js",
     "check:prod": "node scripts/check-production.js",
 "test": "node --test test/loginSecurity.test.js test/stockLedger.test.js test/stockPrecision.test.js test/inventoryItems.test.js test/stocktake.test.js test/sessionLifetime.test.js test/permissionsPolicy.test.js test/userAccountsUsername.test.js test/splitCheckout.test.js test/orderTableFlows.test.js test/refund.test.js test/cashDrawer.test.js test/expensePaidFrom.test.js test/salesTotals.test.js test/exportDocuments.test.js test/menuStock.test.js test/customLineIds.test.js test/orderLinePrices.test.js test/menuCategories.test.js test/menuAvailability.test.js test/menuStockSimple.test.js test/ingredients.test.js test/paymentBanks.test.js test/exchangeRate.test.js test/expensesPage.test.js test/mustChangePassword.test.js test/orderAudit.test.js test/reservations.test.js test/phnomPenhTime.test.js test/passwordChangeReplay.test.js test/autoBackup.test.js",
     "test:tables": "node --test test/floorTables.test.js",
