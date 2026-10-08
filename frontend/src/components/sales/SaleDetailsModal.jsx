@@ -5,6 +5,8 @@ import ModalHeader from '../ui/ModalHeader'
 import PaymentMethodBadge from '../common/PaymentMethodBadge'
 import { useModalKeyboard } from '../../hooks/useModalKeyboard'
 import { formatOrderDate, formatTime12Hour } from '../../utils/dateTimeFormat'
+import { formatKhr, usdToKhr } from '../../utils/currency'
+import { cashPaidIn } from '../../utils/salesHistoryAnalytics'
 
 function money(value) {
   return `$${(Number(value) || 0).toFixed(2)}`
@@ -19,6 +21,11 @@ export default function SaleDetailsModal({ order, onClose }) {
   const items = Array.isArray(order.items) ? order.items : []
   const itemCount = items.reduce((sum, item) => sum + (Number(item.qty) || 0), 0)
   const isRefunded = String(order.status || '').toLowerCase() === 'refunded'
+  const paidIn = cashPaidIn(order)
+  const received = [
+    Number(order.received_usd) > 0 ? money(order.received_usd) : null,
+    Number(order.received_khr) > 0 ? formatKhr(order.received_khr) : null,
+  ].filter(Boolean).join(' + ')
 
   return createPortal(
     <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
@@ -86,8 +93,22 @@ export default function SaleDetailsModal({ order, onClose }) {
           ) : null}
           <div className="text-heading flex justify-between text-base font-bold">
             <span>{t('common.total')}</span>
-            <span className="tabular-nums">{money(order.total)}</span>
+            <span className="tabular-nums">
+              {paidIn === 'khr' ? `${formatKhr(usdToKhr(order.total, order.exchange_rate || undefined))} (${money(order.total)})` : money(order.total)}
+            </span>
           </div>
+          {order.payment === 'Cash' && received ? (
+            <>
+              <div className="text-muted flex justify-between">
+                <span>{t('sales.received')}</span>
+                <span className="tabular-nums">{received}</span>
+              </div>
+              <div className="text-muted flex justify-between">
+                <span>{t('sales.change')}</span>
+                <span className="tabular-nums">{Number(order.change_usd) > 0 ? `${money(order.change_usd)} (${formatKhr(order.change_khr)})` : money(0)}</span>
+              </div>
+            </>
+          ) : null}
           {isRefunded ? (
             <p className="pt-1 text-xs text-red-600 dark:text-red-400">
               {t('statuses.refunded')}

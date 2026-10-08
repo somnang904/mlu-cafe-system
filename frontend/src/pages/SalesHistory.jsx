@@ -11,7 +11,8 @@ import PaginationBar from '../components/ui/PaginationBar'
 import { apiFetch } from '../services/apiClient'
 import { usePOS } from '../context/POSContext'
 import { fetchReceiptTransaction } from '../utils/receiptHelpers'
-import { formatMonthLabel, mapHistoryRow } from '../utils/salesHistoryAnalytics'
+import { cashPaidIn, formatMonthLabel, mapHistoryRow } from '../utils/salesHistoryAnalytics'
+import { formatKhr, formatUsd, usdToKhr } from '../utils/currency'
 import { addDays, toDayKey } from '../utils/reportRange'
 import { weekdayOfDayKey } from '../utils/phnomPenhTime'
 import { formatOrderDate, formatTime12Hour } from '../utils/dateTimeFormat'
@@ -53,6 +54,23 @@ function periodLabel(period, range, t) {
   if (period === 'month') return formatMonthLabel(range.from.slice(0, 7), t)
   if (period === 'year') return range.from.slice(0, 4)
   return range.from === range.to ? range.from : `${range.from} – ${range.to}`
+}
+
+function OrderTotal({ order, align = 'left' }) {
+  const paidIn = cashPaidIn(order)
+  const dollars = formatUsd(order.total)
+  if (paidIn === 'usd') return <span>{dollars}</span>
+  const riel = formatKhr(usdToKhr(order.total, order.exchange_rate || undefined))
+  return (
+    <span className={`inline-flex flex-col leading-tight ${align === 'right' ? 'items-end' : ''}`}>
+      <span>{paidIn === 'khr' ? riel : dollars}</span>
+      <span className="text-muted text-2xs font-medium">
+        {paidIn === 'khr'
+          ? dollars
+          : `${formatUsd(order.received_usd)} + ${formatKhr(order.received_khr)}`}
+      </span>
+    </span>
+  )
 }
 
 const statusStyles = {
@@ -379,7 +397,7 @@ export default function SalesHistory() {
                         <span className="block">{formatOrderDate(order.date)}</span>
                         <span className="block">{formatTime12Hour(order.time)}</span>
                       </p>
-                      <p className="font-semibold tabular-nums text-heading">${(order.total || 0).toFixed(2)}</p>
+                      <p className="font-semibold tabular-nums text-heading"><OrderTotal order={order} align="right" /></p>
                     </div>
                     <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                       <div>
@@ -487,7 +505,7 @@ export default function SalesHistory() {
                           <PaymentMethodBadge method={order.payment} bank={order.payment_bank} bankOnly />
                         </td>
                         <td className="whitespace-nowrap px-2 py-3 font-semibold tabular-nums text-heading">
-                          ${(order.total || 0).toFixed(2)}
+                          <OrderTotal order={order} />
                         </td>
                         <td className="px-2 py-3">
                           <StatusBadge className={sStyle}>

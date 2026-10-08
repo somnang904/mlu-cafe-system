@@ -38,6 +38,11 @@ export function mapHistoryRow(row) {
     monthKey: row.month_key || (row.date ? String(row.date).slice(0, 7) : null),
     payment: row.payment_method || 'Cash',
     payment_bank: row.payment_bank || null,
+    received_usd: row.received_usd != null ? Number(row.received_usd) : null,
+    received_khr: row.received_khr != null ? Number(row.received_khr) : null,
+    change_usd: row.change_usd != null ? Number(row.change_usd) : null,
+    change_khr: row.change_khr != null ? Number(row.change_khr) : null,
+    exchange_rate: row.exchange_rate != null ? Number(row.exchange_rate) : null,
     subtotal: parseFloat(row.subtotal || 0),
     tax: parseFloat(row.tax || 0),
     total: parseFloat(row.total || 0),
@@ -49,6 +54,15 @@ export function mapHistoryRow(row) {
     summary: row.summary || '',
     items: row.items || [],
   }
+}
+
+export function cashPaidIn(order) {
+  if (order?.payment !== 'Cash') return 'usd'
+  const usd = Number(order.received_usd) || 0
+  const khr = Number(order.received_khr) || 0
+  if (khr > 0 && usd > 0) return 'mixed'
+  if (khr > 0) return 'khr'
+  return 'usd'
 }
 
 export function formatMonthLabel(monthKey, t) {
