@@ -2184,9 +2184,9 @@ app.get('/api/orders/history/page', requireSalesHistoryAccess, async (req, res) 
         searchSql = ` AND (invoice_id LIKE ? OR payment_method LIKE ? OR payment_bank LIKE ? OR status LIKE ?
             OR target_id IN (SELECT id FROM tables WHERE table_name LIKE ?)
             OR ((target_id IS NULL OR CAST(target_id AS CHAR) = 'takeout') AND 'Take Out' LIKE ?)
-            OR staff_name LIKE ?
+            OR CONVERT(staff_name USING utf8mb4) LIKE ?
             OR id IN (SELECT oi.order_id FROM order_items oi LEFT JOIN menu_items m ON m.id = oi.menu_item_id
-                WHERE COALESCE(m.name, oi.item_name) LIKE ?))`;
+                WHERE CONVERT(COALESCE(m.name, oi.item_name) USING utf8mb4) LIKE ?))`;
         whereParams.push(like, like, like, like, like, like, like, like);
     }
 

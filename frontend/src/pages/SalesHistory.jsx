@@ -472,13 +472,13 @@ export default function SalesHistory() {
               <colgroup>
                 <col className="w-[9%]" />
                 <col className="w-[10%]" />
-                <col className="w-[9%]" />
-                <col className="w-[24%]" />
+                <col className="w-[8%]" />
+                <col className="w-[21%]" />
                 <col className="w-[11%]" />
-                <col className="w-[9%]" />
+                <col className="w-[8%]" />
                 <col className="w-[10%]" />
-                <col className="w-[9%]" />
-                <col className="w-[9%]" />
+                <col className="w-[10%]" />
+                <col className="w-[13%]" />
               </colgroup>
               <thead>
                 <tr className="table-head">
