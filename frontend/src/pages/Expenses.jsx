@@ -15,7 +15,7 @@ import {
   Trash2,
   Wallet,
 } from 'lucide-react'
-import ExpenseFormModal, { METHOD_ICONS } from '../components/expenses/ExpenseFormModal'
+import ExpenseFormModal from '../components/expenses/ExpenseFormModal'
 import ReceiptViewer from '../components/expenses/ReceiptViewer'
 import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal'
 import Tooltip from '../components/ui/Tooltip'
@@ -243,9 +243,8 @@ export default function Expenses() {
     }
   }
 
-  // The row's main line is the title (else vendor, note or category); the second line adds what's left.
+  // The row shows the title (older expenses without one fall back to vendor, note or category).
   const describe = (expense) => expense.title || expense.vendor || expense.note || categoryName(expense.category)
-  const details = (expense) => [expense.vendor, expense.note].filter((part) => part && part !== describe(expense)).join(' · ')
   const ready = data.key === dataKey
   const todayKey = toDayKey(new Date())
   const filtered = Boolean(search.trim())
@@ -387,17 +386,28 @@ export default function Expenses() {
 
           <section className="surface-card overflow-hidden" aria-label={t('expenses.listTitle')}>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[56rem] text-left text-sm">
+              {/* Fixed column widths so the table lines up the same on every page of results. */}
+              <table className="w-full min-w-[60rem] table-fixed text-left text-sm">
+                <colgroup>
+                  <col className="w-14" />
+                  <col className="w-[19%]" />
+                  <col className="w-[15%]" />
+                  <col className="w-[15%]" />
+                  <col className="w-[11%]" />
+                  <col className="w-[13%]" />
+                  <col />
+                  <col className="w-28" />
+                </colgroup>
                 <thead>
                   <tr className="table-head">
-                    <th scope="col" className="px-3 py-2.5">{t('expenses.columns.date')}</th>
-                    <th scope="col" className="px-3 py-2.5">{t('expenses.columns.description')}</th>
-                    <th scope="col" className="px-3 py-2.5">{t('expenses.columns.category')}</th>
-                    <th scope="col" className="px-3 py-2.5">{t('expenses.columns.method')}</th>
-                    <th scope="col" className="px-3 py-2.5">{t('expenses.columns.status')}</th>
-                    <th scope="col" className="px-3 py-2.5 text-right">{t('expenses.columns.amount')}</th>
-                    <th scope="col" className="w-16 px-2 py-2.5"><span className="sr-only">{t('expenses.columns.details')}</span></th>
-                    <th scope="col" className="w-20 px-2 py-2.5 text-right"><span className="sr-only">{t('expenses.columns.actions')}</span></th>
+                    <th scope="col" className="px-4 py-3">#</th>
+                    <th scope="col" className="px-4 py-3">{t('expenses.columns.title')}</th>
+                    <th scope="col" className="px-4 py-3">{t('expenses.columns.vendor')}</th>
+                    <th scope="col" className="px-4 py-3">{t('expenses.columns.category')}</th>
+                    <th scope="col" className="px-4 py-3">{t('expenses.columns.amount')}</th>
+                    <th scope="col" className="px-4 py-3">{t('expenses.columns.date')}</th>
+                    <th scope="col" className="px-4 py-3">{t('expenses.columns.recordedBy')}</th>
+                    <th scope="col" className="px-4 py-3 text-right">{t('expenses.columns.actions')}</th>
                   </tr>
                 </thead>
                 <tbody className="table-divider">
@@ -407,62 +417,51 @@ export default function Expenses() {
                         {filtered ? t('expenses.noMatches') : t('expenses.emptyPeriod')}
                       </td>
                     </tr>
-                  ) : pageRows.map((expense) => {
-                    const MethodIcon = METHOD_ICONS[expense.method] || Wallet
+                  ) : pageRows.map((expense, index) => {
                     const title = describe(expense)
                     return (
                       <tr key={expense.id} className="table-row">
-                        <td className="whitespace-nowrap px-3 py-2.5 tabular-nums">{expense.expense_date}</td>
-                        <td className="max-w-[18rem] px-3 py-2.5">
-                          <span className="block truncate font-medium">{title}</span>
-                          {details(expense) ? (
-                            <span className="text-muted block truncate text-xs">{details(expense)}</span>
-                          ) : null}
-                        </td>
-                        <td className="px-3 py-2.5">
-                          <span className="inline-flex items-center gap-1.5">
-                            <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${categoryColorClass(expense.category_color)}`} aria-hidden />
-                            {categoryName(expense.category)}
-                          </span>
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-2.5">
-                          <span className="inline-flex items-center gap-1.5 text-stone-700 dark:text-zinc-300">
-                            <MethodIcon className="h-4 w-4 shrink-0 text-slate-500 dark:text-zinc-400" aria-hidden />
-                            {t(`expenses.methods.${expense.method}`)}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2.5">
-                          <span className={expense.status === 'paid' ? 'badge-forest' : 'inline-flex items-center rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-semibold text-red-700 dark:bg-red-950/50 dark:text-red-300'}>
-                            {t(`expenses.status.${expense.status}`)}
-                          </span>
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold tabular-nums text-heading">{formatMoney(expense.amount)}</td>
-                        <td className="px-2 py-2.5">
-                          <span className="flex items-center gap-1">
+                        <td className="text-muted px-4 py-3 tabular-nums">{(currentPage - 1) * PAGE_SIZE + index + 1}</td>
+                        <td className="px-4 py-3">
+                          <span className="flex min-w-0 items-center gap-1.5">
+                            <span className="truncate font-medium">{title}</span>
+                            {/* Older expenses may carry a receipt photo or repeat monthly. */}
                             {expense.has_receipt ? (
                               <Tooltip label={t('expenses.viewReceipt')}>
                                 <button
                                   type="button"
                                   onClick={() => setReceiptExpense(expense)}
                                   aria-label={t('expenses.viewReceipt')}
-                                  className="flex h-7 w-7 items-center justify-center rounded-full text-slate-500 hover:bg-forest-50 hover:text-forest-700 dark:text-zinc-400 dark:hover:bg-forest-950/50 dark:hover:text-forest-300"
+                                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-slate-500 hover:bg-forest-50 hover:text-forest-700 dark:text-zinc-400 dark:hover:bg-forest-950/50 dark:hover:text-forest-300"
                                 >
-                                  <Paperclip className="h-4 w-4" aria-hidden />
+                                  <Paperclip className="h-3.5 w-3.5" aria-hidden />
                                 </button>
                               </Tooltip>
                             ) : null}
                             {expense.is_recurring ? (
                               <Tooltip label={t('expenses.repeatsMonthly')}>
-                                <span tabIndex={0} className="flex h-7 w-7 items-center justify-center rounded-full text-sky-600 dark:text-sky-400" aria-label={t('expenses.repeatsMonthly')}>
-                                  <Repeat className="h-4 w-4" aria-hidden />
+                                <span tabIndex={0} className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-sky-600 dark:text-sky-400" aria-label={t('expenses.repeatsMonthly')}>
+                                  <Repeat className="h-3.5 w-3.5" aria-hidden />
                                 </span>
                               </Tooltip>
                             ) : null}
                           </span>
                         </td>
-                        <td className="px-2 py-2.5">
+                        <td className="truncate px-4 py-3">
+                          {expense.vendor}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="flex min-w-0 items-center gap-1.5">
+                            <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${categoryColorClass(expense.category_color)}`} aria-hidden />
+                            <span className="truncate">{categoryName(expense.category)}</span>
+                          </span>
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 font-semibold tabular-nums text-heading">{formatMoney(expense.amount)}</td>
+                        <td className="whitespace-nowrap px-4 py-3 tabular-nums">{expense.expense_date}</td>
+                        <td className="truncate px-4 py-3">{expense.created_by_name || '—'}</td>
+                        <td className="px-4 py-3">
                           <span className="flex items-center justify-end gap-0.5">
-                            <Tooltip label={t('common.edit')}>
+                            <Tooltip label={t('common.edit')} side="left">
                               <button
                                 type="button"
                                 onClick={() => setFormExpense(expense)}
