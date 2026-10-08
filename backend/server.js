@@ -118,6 +118,9 @@ const {
     updateIngredient,
     adjustIngredient,
     removeIngredient,
+    loadRecipe,
+    saveRecipe,
+    convertIngredient,
 } = require('./src/utils/ingredients');
 const {
     assertRefundable,
@@ -1296,7 +1299,7 @@ app.post('/api/orders', requireOrderWriteAccess, async (req, res) => {
             }
             await combineDuplicateLines(conn, id);
             const [lines] = await conn.execute(
-                'SELECT menu_item_id, quantity FROM order_items WHERE order_id = ?',
+                'SELECT menu_item_id, quantity, notes FROM order_items WHERE order_id = ?',
                 [id],
             );
             await reconcileOrderStock(conn, id, lines, req.user?.id ?? null, { blockShortage: true });
@@ -1405,7 +1408,7 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
             }
 
             const [lines] = await conn.execute(
-                'SELECT menu_item_id, quantity, price FROM order_items WHERE order_id = ?',
+                'SELECT menu_item_id, quantity, price, notes FROM order_items WHERE order_id = ?',
                 [orderId],
             );
             if (!lines.length) {
@@ -1925,7 +1928,7 @@ app.put('/api/orders/items', requireOrderWriteAccess, async (req, res) => {
             }
             await combineDuplicateLines(conn, id);
             const [stockLines] = await conn.execute(
-                'SELECT menu_item_id, quantity FROM order_items WHERE order_id = ?',
+                'SELECT menu_item_id, quantity, notes FROM order_items WHERE order_id = ?',
                 [id],
             );
             await reconcileOrderStock(conn, id, stockLines, req.user?.id ?? null, { blockShortage: true });
@@ -2402,6 +2405,34 @@ function parseIngredientParam(req, res) {
     return id;
 }
 
+app.get('/api/menu-recipes/:menuItemId', requirePermission('inventory_stock'), async (req, res) => {
+    const menuItemId = parseMenuItemParam(req, res);
+    if (menuItemId == null) return;
+    try {
+        res.status(200).json(await loadRecipe(db, menuItemId));
+    } catch (error) {
+        sendInventoryError(res, error, 'Failed to load the recipe');
+    }
+});
+
+app.put('/api/menu-recipes/:menuItemId', requireStockAccess, async (req, res) => {
+    const menuItemId = parseMenuItemParam(req, res);
+    if (menuItemId == null) return;
+    try {
+        const recipe = await withTransaction(db, (conn) => saveRecipe(conn, menuItemId, req.body));
+        await auditFromRequest(db, req, {
+            action: 'menu_recipe_update',
+            module: 'Inventory',
+            description: `Set recipe for menu item #${menuItemId} "${recipe.name}": ${recipe.lines.length
+                ? recipe.lines.map((line) => `${line.quantity} ${line.unit_label || ''} ${line.item_name}`.replace(/\s+/g, ' ')).join(', ')
+                : 'no ingredients'}.`,
+        });
+        res.status(200).json(recipe);
+    } catch (error) {
+        sendInventoryError(res, error, 'Failed to save the recipe');
+    }
+});
+
 app.get('/api/ingredients', requirePermission('inventory_stock'), async (_req, res) => {
     try {
         res.status(200).json(await listIngredients(db));
@@ -2456,6 +2487,25 @@ app.post('/api/ingredients/:id/adjust', requireStockAccess, async (req, res) => 
         res.status(200).json({ item });
     } catch (error) {
         sendInventoryError(res, error, 'Failed to update the ingredient amount');
+    }
+});
+
+app.post('/api/ingredients/:id/convert', requireStockAccess, async (req, res) => {
+    const id = Number.parseInt(req.params.id, 10);
+    if (!Number.isInteger(id) || id <= 0) {
+        return res.status(400).json({ message: 'Invalid ingredient id' });
+    }
+    try {
+        const result = await withTransaction(db, (conn) => convertIngredient(conn, id, req.body));
+        const row = await loadIngredient(db, id);
+        await auditFromRequest(db, req, {
+            action: 'ingredient_convert_unit',
+            module: 'Inventory',
+            description: `Converted ingredient "${result.itemName}" from ${result.from || '-'} to ${result.to} (1 = ${result.factor}); stock, low level and recipes converted.`,
+        });
+        res.status(200).json({ item: serializeIngredient(row) });
+    } catch (error) {
+        sendInventoryError(res, error, 'Failed to convert the unit');
     }
 });
 
@@ -3477,7 +3527,7 @@ app.post('/api/tables/merge', requirePosFloorAccess, async (req, res) => {
                 );
                 await combineDuplicateLines(conn, destOrderId);
                 const [mergedLines] = await conn.execute(
-                    'SELECT menu_item_id, quantity FROM order_items WHERE order_id = ?',
+                    'SELECT menu_item_id, quantity, notes FROM order_items WHERE order_id = ?',
                     [destOrderId],
                 );
                 await reconcileOrderStock(conn, destOrderId, mergedLines, req.user?.id ?? null);

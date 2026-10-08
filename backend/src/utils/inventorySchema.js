@@ -46,6 +46,13 @@ async function ensureInventorySchema(db) {
         await db.execute('ALTER TABLE inventory ADD COLUMN pack_size INT NULL');
       }
 
+      if (!(await columnExists(db, 'inventory', 'purchase_unit'))) {
+        await db.execute('ALTER TABLE inventory ADD COLUMN purchase_unit VARCHAR(20) NULL');
+      }
+      if (!(await columnExists(db, 'inventory', 'purchase_size'))) {
+        await db.execute('ALTER TABLE inventory ADD COLUMN purchase_size DECIMAL(14,6) NULL');
+      }
+
       const hasIsIngredient = await columnExists(db, 'inventory', 'is_ingredient');
       if (!hasIsIngredient) {
         await db.execute('ALTER TABLE inventory ADD COLUMN is_ingredient TINYINT(1) NOT NULL DEFAULT 0');

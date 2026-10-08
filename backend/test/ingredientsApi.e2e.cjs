@@ -370,8 +370,73 @@ async function run() {
       const paid = await call('POST', '/orders/checkout', { token, body: { target_id: 'takeout', payment_method: 'Cash' } });
       return { placed, paid };
     };
+    const badRecipe = await call('PUT', `/menu-recipes/${newMenuId}`, { token, body: { lines: [{ ingredient_id: id, quantity: 0 }] } });
+    check('recipe with a zero amount is 400', badRecipe.status === 400, badRecipe);
+    const dupRecipe = await call('PUT', `/menu-recipes/${newMenuId}`, { token, body: { lines: [{ ingredient_id: id, quantity: 1 }, { ingredient_id: id, quantity: 2 }] } });
+    check('recipe listing the same ingredient twice is 400', dupRecipe.status === 400, dupRecipe);
+    const unknownRecipe = await call('PUT', `/menu-recipes/${newMenuId}`, { token, body: { lines: [{ ingredient_id: 99999999, quantity: 1 }] } });
+    check('recipe with an unknown ingredient is 400', unknownRecipe.status === 400, unknownRecipe);
+    const setRecipe = await call('PUT', `/menu-recipes/${newMenuId}`, { token, body: { lines: [{ ingredient_id: id, quantity: 1.5 }] } });
+    check('saving a recipe returns 200 with the line', setRecipe.status === 200 && setRecipe.body?.lines?.length === 1 && Number(setRecipe.body.lines[0].quantity) === 1.5, setRecipe);
+    const getRecipe = await call('GET', `/menu-recipes/${newMenuId}`, { token });
+    check('GET recipe returns the saved line', getRecipe.status === 200 && getRecipe.body?.lines?.[0]?.ingredient_id === id, getRecipe);
+    const listWithUse = await call('GET', '/ingredients', { token });
+    const usedRow = listWithUse.body?.items?.find((row) => row.id === id);
+    check('GET /ingredients shows where the ingredient is used', usedRow?.used_in?.some((use) => use.menu_item_id === newMenuId), usedRow);
+    const beforeRecipeSale = Number(await dbQty(id));
     const s1 = await sellOne(newMenuId, menuName);
     check('sale of a new menu item succeeds (201 then 200)', s1.placed.status === 201 && s1.paid.status === 200, s1);
+    check('selling 2 servings takes 2 x 1.5 = 3 from the ingredient', Number(await dbQty(id)) === beforeRecipeSale - 3, { before: beforeRecipeSale, after: await dbQty(id) });
+    const refundOrderId = s1.placed.body?.orderId;
+    const refund = await call('POST', `/orders/${refundOrderId}/refund`, { token, body: { reason: 'E2E recipe refund' } });
+    if (refund.status === 200) {
+      check('refunding the sale puts the ingredient back', Number(await dbQty(id)) === beforeRecipeSale, { after: await dbQty(id) });
+    } else {
+      console.log(`INFO  refund route returned ${refund.status}; refund restore check skipped`);
+    }
+    const mkIng = async (nm, unit, qty) => (await call('POST', '/ingredients', { token, body: { name: `${nm} ${RUN}`, unit_label: unit, quantity: qty } })).body?.item?.id;
+    const vCoffee = await mkIng('E2E V Coffee', 'g', 1000);
+    const vIce = await mkIng('E2E V Ice', 'g', 1000);
+    const vCup = await mkIng('E2E V Cup', 'pcs', 100);
+    const vSugar = await mkIng('E2E V Sugar', 'g', 1000);
+    const badVariant = await call('PUT', `/menu-recipes/${newMenuId}`, { token, body: { lines: [{ ingredient_id: vCoffee, quantity: 1, variant: 'warm' }] } });
+    check('recipe with an unknown serving is 400', badVariant.status === 400, badVariant);
+    const vRecipe = await call('PUT', `/menu-recipes/${newMenuId}`, { token, body: { lines: [
+      { ingredient_id: vCoffee, quantity: 18 },
+      { ingredient_id: vSugar, quantity: 20, sugar: true },
+      { ingredient_id: vCup, quantity: 1, variant: 'hot' },
+      { ingredient_id: vIce, quantity: 100, variant: 'iced' },
+      { ingredient_id: vCup, quantity: 1, variant: 'iced' },
+    ] } });
+    check('recipe with base, hot, iced and sugar lines saves', vRecipe.status === 200 && vRecipe.body?.lines?.length === 5 && vRecipe.body.lines.some((l) => l.sugar === true) && vRecipe.body.lines.some((l) => l.variant === 'iced'), vRecipe);
+    const sellNotes = async (qty, notes) => {
+      const placed = await call('POST', '/orders', { token, body: { target_id: 'takeout', items: [{ menu_item_id: newMenuId, name: menuName, quantity: qty, notes }] } });
+      if (placed.body?.orderId) orderIds.push(placed.body.orderId);
+      const paid = await call('POST', '/orders/checkout', { token, body: { target_id: 'takeout', payment_method: 'Cash' } });
+      return { placed, paid };
+    };
+    const iced = await sellNotes(2, 'Iced · Sugar: 50%');
+    check('iced sale with sugar 50% succeeds', iced.placed.status === 201 && iced.paid.status === 200, iced.placed);
+    check('iced x2 takes 36 g coffee', Number(await dbQty(vCoffee)) === 964, await dbQty(vCoffee));
+    check('iced x2 takes 200 g ice', Number(await dbQty(vIce)) === 800, await dbQty(vIce));
+    check('iced x2 at 50% sugar takes 20 g sugar', Number(await dbQty(vSugar)) === 980, await dbQty(vSugar));
+    check('iced x2 takes 2 cups (iced extra only)', Number(await dbQty(vCup)) === 98, await dbQty(vCup));
+    const hot = await sellNotes(1, 'Hot');
+    check('hot sale succeeds', hot.placed.status === 201 && hot.paid.status === 200, hot.placed);
+    check('hot takes no ice', Number(await dbQty(vIce)) === 800, await dbQty(vIce));
+    check('hot without a sugar level takes the full 20 g sugar', Number(await dbQty(vSugar)) === 960, await dbQty(vSugar));
+    check('hot takes its own cup', Number(await dbQty(vCup)) === 97, await dbQty(vCup));
+    const noSugar = await sellNotes(1, 'Iced · Sugar: 0%');
+    check('iced at 0% sugar takes no sugar', noSugar.paid.status === 200 && Number(await dbQty(vSugar)) === 960, await dbQty(vSugar));
+    const extra = await sellNotes(1, 'Iced · Sugar: 120%');
+    check('iced at 120% sugar takes 24 g sugar', extra.paid.status === 200 && Number(await dbQty(vSugar)) === 936, await dbQty(vSugar));
+    const refundIced = await call('POST', `/orders/${iced.placed.body?.orderId}/refund`, { token, body: { reason: 'E2E variant refund' } });
+    check('refunding the iced sale puts back exactly its ice, cups and sugar', refundIced.status === 200 && Number(await dbQty(vIce)) === 800 && Number(await dbQty(vSugar)) === 956 && Number(await dbQty(vCup)) === 97, { status: refundIced.status, ice: await dbQty(vIce), sugar: await dbQty(vSugar), cup: await dbQty(vCup) });
+    for (const extraId of [vCoffee, vIce, vCup, vSugar]) if (extraId) await call('DELETE', `/ingredients/${extraId}`, { token });
+
+    const clearRecipe = await call('PUT', `/menu-recipes/${newMenuId}`, { token, body: { lines: [] } });
+    check('clearing a recipe returns 200 with no lines', clearRecipe.status === 200 && clearRecipe.body?.lines?.length === 0, clearRecipe);
+    await call('POST', `/ingredients/${id}/adjust`, { token, body: { mode: 'count', quantity: 20 } });
     if (sellMenuId) {
       const [mn] = await conn.query('SELECT name FROM menu_items WHERE id = ?', [sellMenuId]);
       const s2 = await sellOne(sellMenuId, mn[0].name);
@@ -380,12 +445,40 @@ async function run() {
       console.log('INFO  no available menu item is linked to an ingredient in this dump; linked-sale check skipped');
     }
     const [snapAfter] = await conn.query('SELECT id, stock_quantity FROM inventory WHERE is_ingredient = 1 ORDER BY id');
-    const same = snapAfter.length === snapRows.length && snapAfter.every((r, i) => r.id === snapRows[i].id && Number(r.stock_quantity) === Number(snapRows[i].stock_quantity));
-    check('selling menu items changes no ingredient quantity', same);
-    check('the created ingredient quantity is still 20 after sales', Number(await dbQty(id)) === 20, await dbQty(id));
+    check('ingredient rows are still present after sales', snapAfter.length === snapRows.length);
+    check('the created ingredient is back to 20 after the recipe was cleared and recounted', Number(await dbQty(id)) === 20, await dbQty(id));
     const [ingrMoves] = await conn.query("SELECT COUNT(*) AS n FROM stock_movements WHERE reason = 'sale' AND inventory_id IN (SELECT id FROM inventory WHERE is_ingredient = 1)");
-    check('no new sale movement was written for any ingredient', Number(ingrMoves[0].n) === Number(saleMovesBefore[0].n), { before: saleMovesBefore, after: ingrMoves });
+    check('recipe sales write sale movements for ingredients', Number(ingrMoves[0].n) > Number(saleMovesBefore[0].n), { before: saleMovesBefore, after: ingrMoves });
     check('Whole Milk row still exists as an ingredient', milkRow.length === 1);
+
+    const beans = await call('POST', '/ingredients', { token, body: { name: `E2E Beans ${RUN}`, category: 'Coffee', unit_label: 'g', quantity: 500, purchase_unit: 'bag', purchase_size: 1000 } });
+    check('create with a purchase unit returns 201 with purchase fields', beans.status === 201 && beans.body?.item?.purchase_unit === 'bag' && Number(beans.body?.item?.purchase_size) === 1000, beans);
+    const beansId = beans.body?.item?.id;
+    const packAdd = await call('POST', `/ingredients/${beansId}/adjust`, { token, body: { mode: 'add', packs: 2, quantity: 50 } });
+    check('adding 2 bags + 50 g gives 2550 g', packAdd.status === 200 && Number(packAdd.body?.item?.stock_quantity) === 2550, packAdd);
+    const halfSize = await call('POST', '/ingredients', { token, body: { name: `E2E Bad Size ${RUN}`, unit_label: 'g', purchase_unit: 'bag', purchase_size: 0 } });
+    check('purchase size 0 is 400', halfSize.status === 400, halfSize);
+    const noSize = await call('POST', '/ingredients', { token, body: { name: `E2E No Size ${RUN}`, unit_label: 'ml', quantity: 10 } });
+    const noSizeId = noSize.body?.item?.id;
+    const noSizePacks = await call('POST', `/ingredients/${noSizeId}/adjust`, { token, body: { mode: 'add', packs: 1 } });
+    check('adding packs without a purchase size is 400 no_purchase_size', noSizePacks.status === 400 && noSizePacks.body?.code === 'no_purchase_size', noSizePacks);
+    const clearPurchase = await call('PATCH', `/ingredients/${beansId}`, { token, body: { purchase_unit: null, purchase_size: null } });
+    check('purchase unit can be cleared', clearPurchase.status === 200 && clearPurchase.body?.item?.purchase_unit === null, clearPurchase);
+
+    const bags = await call('POST', '/ingredients', { token, body: { name: `E2E Bag Coffee ${RUN}`, category: 'Coffee', unit_label: 'bags', quantity: 3, low_threshold: 1 } });
+    const bagsId = bags.body?.item?.id;
+    const recipeMenu = await call('POST', '/menu', { token, body: { name: `E2E Convert Drink ${RUN}`, category: 'Coffee', hot_price: 2 } });
+    const recipeMenuId = recipeMenu.body?.item?.id;
+    if (recipeMenuId) itemIds.push(recipeMenuId);
+    await call('PUT', `/menu-recipes/${recipeMenuId}`, { token, body: { lines: [{ ingredient_id: bagsId, quantity: 0.018 }] } });
+    const badConvert = await call('POST', `/ingredients/${bagsId}/convert`, { token, body: { unit_label: 'g', factor: 0 } });
+    check('convert with factor 0 is 400', badConvert.status === 400, badConvert);
+    const convert = await call('POST', `/ingredients/${bagsId}/convert`, { token, body: { unit_label: 'g', factor: 1000 } });
+    check('convert 3 bags at 1000 g each gives 3000 g', convert.status === 200 && Number(convert.body?.item?.stock_quantity) === 3000 && convert.body?.item?.unit_label === 'g', convert);
+    check('convert keeps the old unit as the purchase unit', convert.body?.item?.purchase_unit === 'bags' && Number(convert.body?.item?.purchase_size) === 1000 && Number(convert.body?.item?.low_threshold) === 1000, convert.body?.item);
+    const convertedRecipe = await call('GET', `/menu-recipes/${recipeMenuId}`, { token });
+    check('convert turns the recipe amount 0.018 bags into 18 g', Math.abs(Number(convertedRecipe.body?.lines?.[0]?.quantity) - 18) < 1e-9, convertedRecipe.body);
+    for (const extra of [beansId, noSizeId, bagsId]) if (extra) await call('DELETE', `/ingredients/${extra}`, { token });
 
     const movesBeforeDelete = (await moves(id)).length;
     const del = await call('DELETE', `/ingredients/${id}`, { token });

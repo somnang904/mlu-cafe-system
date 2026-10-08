@@ -214,9 +214,9 @@ async function run() {
     const milkSale = await sell(milkMenuId, milkMenuName, 1);
     check('selling a menu item linked to archived Test Milk succeeds', milkSale.placed.status === 201 && milkSale.paid?.status === 200, { placed: milkSale.placed, paid: milkSale.paid });
     const [milkAfter] = await conn.query('SELECT stock_quantity FROM inventory WHERE id = ?', [milkId]);
-    check('sale deducts nothing from archived Test Milk', Number(milkBefore[0].stock_quantity) === Number(milkAfter[0].stock_quantity), { before: milkBefore, after: milkAfter });
+    check('a sale now deducts the Test Milk ingredient by its recipe amount (0.2)', Math.abs(Number(milkBefore[0].stock_quantity) - Number(milkAfter[0].stock_quantity) - 0.2) < 1e-9, { before: milkBefore, after: milkAfter });
     const [milkMoves] = await conn.query('SELECT COUNT(*) AS n FROM stock_movements WHERE inventory_id = ?', [milkId]);
-    check('no stock movement recorded for archived Test Milk', Number(milkMoves[0].n) === 0, milkMoves);
+    check('one sale movement recorded for the Test Milk ingredient', Number(milkMoves[0].n) === 1, milkMoves);
     const menuAll = await call('GET', '/menu', { token });
     const milkMenuApi = Array.isArray(menuAll.body) ? menuAll.body.find((i) => i.id === milkMenuId) : undefined;
     check('GET /menu stock fields ignore archived Test Milk', !!milkMenuApi && (milkMenuApi.stock_left === null || milkMenuApi.stock_left === undefined || Number(milkMenuApi.stock_left) !== Number(milkAfter[0].stock_quantity)), milkMenuApi);

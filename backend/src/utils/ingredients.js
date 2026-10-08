@@ -50,6 +50,21 @@ function findDuplicateName(name, existing, ignoreId = null) {
   })
 }
 
+const MAX_PURCHASE_SIZE = 1000000
+
+function parsePurchase(input) {
+  if (input.purchase_unit === undefined && input.purchase_size === undefined) return undefined
+  const rawUnit = input.purchase_unit == null ? '' : String(input.purchase_unit).trim()
+  const rawSize = input.purchase_size
+  if (!rawUnit && (rawSize == null || rawSize === '')) return { purchase_unit: null, purchase_size: null }
+  const unit = parseText(rawUnit, 'Purchase unit', MAX_UNIT_LABEL)
+  const size = Number(rawSize)
+  if (typeof rawSize === 'boolean' || !Number.isFinite(size) || size <= 0 || size > MAX_PURCHASE_SIZE) {
+    throw httpError(400, 'Purchase size must be more than 0', 'invalid_purchase_size')
+  }
+  return { purchase_unit: unit, purchase_size: Math.round(size * 1e6) / 1e6 }
+}
+
 function parseCreateBody(body) {
   const input = body || {}
   const name = parseText(input.name, 'Name', MAX_NAME)
@@ -65,6 +80,7 @@ function parseCreateBody(body) {
     quantity,
     low_threshold: low,
     max_stock: Math.max(quantity, MIN_MAX_STOCK),
+    ...(parsePurchase(input) || { purchase_unit: null, purchase_size: null }),
   }
 }
 
@@ -79,6 +95,8 @@ function parseUpdateBody(body) {
     changes.unit_singular = deriveSingular(label)
   }
   if (input.low_threshold !== undefined) changes.low_threshold = parseAmount(input.low_threshold, 'Low stock level')
+  const purchase = parsePurchase(input)
+  if (purchase) Object.assign(changes, purchase)
   if (!Object.keys(changes).length) throw httpError(400, 'Nothing to change')
   return changes
 }
@@ -87,10 +105,18 @@ function resolveAdjust(body, row) {
   const input = body || {}
   const mode = input.mode
   if (mode !== 'add' && mode !== 'remove' && mode !== 'count') throw httpError(400, 'Choose add, remove or count')
+  if (mode === 'add') {
+    const base = input.quantity == null || input.quantity === '' ? 0 : parseAmount(input.quantity, 'Quantity')
+    const packs = input.packs == null || input.packs === '' ? 0 : parseAmount(input.packs, 'Number of packs')
+    const size = Number(row?.purchase_size)
+    if (packs > 0 && !(size > 0)) throw httpError(400, 'Set a purchase unit size for this ingredient first', 'no_purchase_size')
+    const total = roundStock(base + packs * (size > 0 ? size : 0))
+    if (!(total > 0)) throw httpError(400, 'Quantity to add must be greater than zero')
+    return { mode, quantity: total }
+  }
   const quantity = parseAmount(input.quantity, 'Quantity')
   if (mode === 'count') return { mode, quantity }
   if (quantity <= 0) throw httpError(400, `Quantity to ${mode} must be greater than zero`)
-  if (mode === 'add') return { mode, quantity }
   const reason = input.reason
   if (reason !== 'used' && reason !== 'waste' && reason !== 'mistake') {
     throw httpError(400, 'Choose a reason: used, spoiled or wasted, or entered by mistake', 'invalid_reason')
@@ -121,6 +147,8 @@ function serializeIngredient(row) {
     stock_quantity: quantity,
     low_threshold: low,
     stock_status: resolveStockStatus(quantity, low, critical),
+    purchase_unit: row.purchase_unit || null,
+    purchase_size: row.purchase_size != null ? Number(row.purchase_size) : null,
     updated_at: row.updated_at ?? null,
   }
 }
@@ -137,8 +165,104 @@ async function listIngredients(db) {
   const [rows] = await db.execute(
     'SELECT * FROM inventory WHERE is_ingredient = 1 ORDER BY category, item_name',
   )
-  const items = rows.map(serializeIngredient)
+  const [uses] = await db.execute(
+    `SELECT l.inventory_id, l.quantity_per_unit, m.id AS menu_item_id, m.name
+     FROM menu_item_stock_links l
+     JOIN inventory i ON i.id = l.inventory_id AND i.is_ingredient = 1
+     JOIN menu_items m ON m.id = l.menu_item_id
+     ORDER BY m.name`,
+  )
+  const usedIn = new Map()
+  for (const use of uses) {
+    const list = usedIn.get(Number(use.inventory_id)) || []
+    if (!list.some((entry) => entry.menu_item_id === Number(use.menu_item_id))) {
+      list.push({ menu_item_id: Number(use.menu_item_id), name: use.name, quantity: Number(use.quantity_per_unit) })
+    }
+    usedIn.set(Number(use.inventory_id), list)
+  }
+  const items = rows.map((row) => ({ ...serializeIngredient(row), used_in: usedIn.get(Number(row.id)) || [] }))
   return { items, summary: summarizeIngredients(items) }
+}
+
+const MAX_RECIPE_LINES = 30
+const MAX_RECIPE_QUANTITY = 1000
+
+function parseRecipeLines(body) {
+  const lines = body?.lines
+  if (!Array.isArray(lines)) throw httpError(400, 'lines must be a list')
+  if (lines.length > MAX_RECIPE_LINES) throw httpError(400, `A recipe can have at most ${MAX_RECIPE_LINES} ingredients`)
+  const seen = new Set()
+  return lines.map((line) => {
+    const ingredientId = Number(line?.ingredient_id)
+    const quantity = Number(line?.quantity)
+    const variant = line?.variant == null || line.variant === '' ? '' : String(line.variant)
+    if (variant !== '' && variant !== 'hot' && variant !== 'iced') throw httpError(400, 'Serving must be all, hot or iced', 'invalid_variant')
+    const sugar = line?.sugar === true
+    if (!Number.isInteger(ingredientId) || ingredientId <= 0) throw httpError(400, 'Choose an ingredient for every line')
+    if (typeof line?.quantity === 'boolean' || !Number.isFinite(quantity) || quantity <= 0 || quantity > MAX_RECIPE_QUANTITY) {
+      throw httpError(400, `Amount per serving must be more than 0 and at most ${MAX_RECIPE_QUANTITY}`)
+    }
+    const key = `${ingredientId}:${variant}`
+    if (seen.has(key)) throw httpError(400, 'Each ingredient can appear only once per serving', 'duplicate_ingredient')
+    seen.add(key)
+    return { ingredient_id: ingredientId, quantity: Math.round(quantity * 1e6) / 1e6, variant, sugar }
+  })
+}
+
+async function loadRecipe(conn, menuItemId) {
+  const [menus] = await conn.execute('SELECT id, name, hot_price, iced_price FROM menu_items WHERE id = ? LIMIT 1', [menuItemId])
+  if (!menus.length) throw httpError(404, 'Menu item not found')
+  const [rows] = await conn.execute(
+    `SELECT l.inventory_id, l.quantity_per_unit, l.variant, l.option_key, i.item_name, i.unit_label, i.unit_singular, i.stock_quantity
+     FROM menu_item_stock_links l
+     JOIN inventory i ON i.id = l.inventory_id AND i.is_ingredient = 1
+     WHERE l.menu_item_id = ?
+     ORDER BY FIELD(l.variant, '', 'hot', 'iced'), i.item_name`,
+    [menuItemId],
+  )
+  return {
+    menu_item_id: Number(menus[0].id),
+    name: menus[0].name,
+    servings: { hot: menus[0].hot_price != null, iced: menus[0].iced_price != null },
+    lines: rows.map((row) => ({
+      ingredient_id: Number(row.inventory_id),
+      item_name: row.item_name,
+      unit_label: row.unit_label,
+      unit_singular: row.unit_singular,
+      stock_quantity: Number(row.stock_quantity),
+      quantity: Number(row.quantity_per_unit),
+      variant: row.variant || '',
+      sugar: row.option_key === 'sugar',
+    })),
+  }
+}
+
+async function saveRecipe(conn, menuItemId, body) {
+  const lines = parseRecipeLines(body)
+  const [menus] = await conn.execute('SELECT id FROM menu_items WHERE id = ? LIMIT 1 FOR UPDATE', [menuItemId])
+  if (!menus.length) throw httpError(404, 'Menu item not found')
+  if (lines.length) {
+    const ids = [...new Set(lines.map((line) => line.ingredient_id))]
+    const [found] = await conn.execute(
+      `SELECT id FROM inventory WHERE is_ingredient = 1 AND id IN (${ids.map(() => '?').join(', ')})`,
+      ids,
+    )
+    if (found.length !== ids.length) throw httpError(400, 'One of the ingredients no longer exists', 'unknown_ingredient')
+  }
+  await conn.execute(
+    `DELETE l FROM menu_item_stock_links l
+     JOIN inventory i ON i.id = l.inventory_id AND i.is_ingredient = 1
+     WHERE l.menu_item_id = ?`,
+    [menuItemId],
+  )
+  for (const line of lines) {
+    await conn.execute(
+      `INSERT INTO menu_item_stock_links (menu_item_id, variant, option_key, option_value, inventory_id, quantity_per_unit)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [menuItemId, line.variant, line.sugar ? 'sugar' : '', line.sugar ? 'scaled' : '', line.ingredient_id, line.quantity],
+    )
+  }
+  return loadRecipe(conn, menuItemId)
 }
 
 async function loadIngredient(conn, id, { lock = false } = {}) {
@@ -170,6 +294,9 @@ async function createIngredient(conn, body, userId) {
      ) VALUES (?, ?, 'countable', 0, ?, ?, ?, ?, NULL, 0, ?, 0, NOW(), 1)`,
     [value.name, value.category, value.max_stock, value.unit_label, value.unit_singular, value.low_threshold, status],
   )
+  if (value.purchase_unit) {
+    await conn.execute('UPDATE inventory SET purchase_unit = ?, purchase_size = ? WHERE id = ?', [value.purchase_unit, value.purchase_size, result.insertId])
+  }
   if (value.quantity > 0) {
     await applyStockChange(conn, {
       inventoryId: result.insertId,
@@ -197,14 +324,16 @@ async function updateIngredient(conn, id, body) {
     unit_label: changes.unit_label ?? row.unit_label,
     unit_singular: changes.unit_singular ?? row.unit_singular,
     low_threshold: changes.low_threshold ?? Number(row.low_threshold),
+    purchase_unit: changes.purchase_unit !== undefined ? changes.purchase_unit : row.purchase_unit ?? null,
+    purchase_size: changes.purchase_size !== undefined ? changes.purchase_size : row.purchase_size ?? null,
   }
   const status = resolveStockStatus(Number(row.stock_quantity), Number(next.low_threshold), null)
   await conn.execute(
     `UPDATE inventory
      SET item_name = ?, category = ?, unit_label = ?, unit_singular = ?, low_threshold = ?,
-         critical_threshold = NULL, stock_status = ?
+         critical_threshold = NULL, stock_status = ?, purchase_unit = ?, purchase_size = ?
      WHERE id = ?`,
-    [next.item_name, next.category, next.unit_label, next.unit_singular, next.low_threshold, status, id],
+    [next.item_name, next.category, next.unit_label, next.unit_singular, next.low_threshold, status, next.purchase_unit, next.purchase_size, id],
   )
   return { inventoryId: Number(id), itemName: next.item_name }
 }
@@ -243,7 +372,35 @@ async function removeIngredient(conn, id) {
   return { inventoryId: Number(row.id), itemName: row.item_name }
 }
 
+async function convertIngredient(conn, id, body) {
+  const row = await requireIngredient(conn, id, { lock: true })
+  const unit = parseText(body?.unit_label, 'New unit', MAX_UNIT_LABEL)
+  const factor = Number(body?.factor)
+  if (typeof body?.factor === 'boolean' || !Number.isFinite(factor) || factor <= 0 || factor > MAX_PURCHASE_SIZE) {
+    throw httpError(400, 'Enter how many new units make one old unit', 'invalid_factor')
+  }
+  const next = roundStock(Number(row.stock_quantity) * factor)
+  if (Math.abs(next) > MAX_PURCHASE_SIZE * 100) throw httpError(400, 'The converted amount is too large')
+  const low = roundStock(Number(row.low_threshold || 0) * factor)
+  await conn.execute(
+    `UPDATE inventory
+     SET stock_quantity = ?, low_threshold = ?, critical_threshold = NULL, max_stock = LEAST(max_stock * ?, 99999999),
+         unit_label = ?, unit_singular = ?, purchase_unit = ?, purchase_size = ?, stock_status = ?
+     WHERE id = ?`,
+    [next, low, factor, unit, deriveSingular(unit), row.unit_label || null, factor, resolveStockStatus(next, low, null), id],
+  )
+  await conn.execute(
+    'UPDATE menu_item_stock_links SET quantity_per_unit = ROUND(quantity_per_unit * ?, 6) WHERE inventory_id = ?',
+    [factor, id],
+  )
+  return { inventoryId: Number(id), itemName: row.item_name, from: row.unit_label, to: unit, factor }
+}
+
 module.exports = {
+  convertIngredient,
+  parseRecipeLines,
+  loadRecipe,
+  saveRecipe,
   DEFAULT_CATEGORY,
   DEFAULT_LOW_THRESHOLD,
   findDuplicateName,
