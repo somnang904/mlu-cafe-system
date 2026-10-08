@@ -133,19 +133,14 @@ async function run() {
 
     const c1Login = await login('wrongname_tmp', CASHIER_PASS);
     check(
-      'new account login reports must_change_password true',
-      c1Login.status === 200 && c1Login.body?.user?.must_change_password === true,
+      'new account login does not force a password change',
+      c1Login.status === 200 && c1Login.body?.user?.must_change_password === false,
       c1Login,
     );
     let c1Token = c1Login.body?.token;
 
-    const mustChange = (r) => r.status === 403 && r.body?.code === 'PASSWORD_CHANGE_REQUIRED';
-    const blockedUsers = await call('GET', '/users', { token: c1Token });
-    check('must-change account: GET /users is 403 PASSWORD_CHANGE_REQUIRED', mustChange(blockedUsers), blockedUsers);
-    const blockedMenu = await call('GET', '/menu', { token: c1Token });
-    check('must-change account: GET /menu is 403 PASSWORD_CHANGE_REQUIRED', mustChange(blockedMenu), blockedMenu);
-    const blockedOrders = await call('GET', '/orders', { token: c1Token });
-    check('must-change account: GET /orders is 403 PASSWORD_CHANGE_REQUIRED', mustChange(blockedOrders), blockedOrders);
+    const ownMenu = await call('GET', '/menu', { token: c1Token });
+    check('new account can use the app straight away', ownMenu.status === 200, ownMenu);
 
     const changed = await call('POST', '/auth/change-password', {
       token: c1Token,

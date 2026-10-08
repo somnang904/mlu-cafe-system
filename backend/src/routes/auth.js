@@ -123,6 +123,10 @@ async function handleLogin(req, res) {
       description: `User ${user.username} signed in (${formatDeviceAudit(sessionMeta)})`,
     })
 
+    if (Number(user.must_change_password) === 1) {
+      await db.execute('UPDATE users SET must_change_password = 0 WHERE id = ?', [user.id])
+    }
+
     logSecurity('login_success', { ip: req.ip, username: user.username, userId: user.id })
 
     res.status(200).json({
@@ -134,7 +138,7 @@ async function handleLogin(req, res) {
         username: user.username,
         role: user.role,
         permissions: userPermissions,
-        must_change_password: Number(user.must_change_password) === 1,
+        must_change_password: false,
       },
     })
   } catch (error) {

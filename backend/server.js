@@ -444,7 +444,7 @@ app.post('/api/users', requireAdmin, async (req, res) => {
         const passwordHash = await hashPassword(trimmedPassword);
 
         const [created] = await db.execute(
-            'INSERT INTO users (display_name, username, password_hash, role, permissions, must_change_password) VALUES (?, ?, ?, ?, ?, 1)',
+            'INSERT INTO users (display_name, username, password_hash, role, permissions, must_change_password) VALUES (?, ?, ?, ?, ?, 0)',
             [display_name, normalizedUsername, passwordHash, allowedRole, savedPermissions.json]
         );
 
@@ -590,7 +590,7 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
                  SET display_name = ?, username = ?, role = ?, permissions = ?, is_active = ?,
                      password_hash = ?, must_change_password = ?
                  WHERE id = ?`,
-                [display_name, nextUsername, allowedRole, savedPermissions.json, nextActive ? 1 : 0, passwordHash, Number(req.user?.id) === userId ? 0 : 1, userId],
+                [display_name, nextUsername, allowedRole, savedPermissions.json, nextActive ? 1 : 0, passwordHash, 0, userId],
             );
         } else {
             await db.execute(
