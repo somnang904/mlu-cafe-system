@@ -1,11 +1,15 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
+const MAX_DOTS = 9
+
 export default function PaginationBar({ currentPage, totalPages, onPageChange, className = '', alwaysShow = false }) {
   const { t } = useTranslation()
   if (totalPages <= 1 && !alwaysShow) return null
 
   const label = (page) => t('order.pageOf', { page: page + 1, total: totalPages })
+  const windowSize = Math.min(totalPages, MAX_DOTS)
+  const firstDot = Math.min(Math.max(0, currentPage - Math.floor(windowSize / 2)), totalPages - windowSize)
 
   return (
     <div className={`flex items-center justify-between gap-3 ${className}`.trim()}>
@@ -20,7 +24,7 @@ export default function PaginationBar({ currentPage, totalPages, onPageChange, c
       </button>
 
       <div className="flex items-center gap-1.5" role="group" aria-label={label(currentPage)}>
-        {Array.from({ length: totalPages }, (_, page) => (
+        {Array.from({ length: windowSize }, (_, index) => firstDot + index).map((page) => (
           <button
             key={page}
             type="button"

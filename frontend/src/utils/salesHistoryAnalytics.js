@@ -1,5 +1,7 @@
 import { formatMonthYearFromKey } from './dateTimeFormat'
 import { phnomPenhMonthKey, recentMonthKeys } from './phnomPenhTime'
+import { formatOrderDate, formatTime12Hour } from './dateTimeFormat'
+import { getFloorTableLabel } from '../data/tables'
 
 export const DEFAULT_HISTORY_DAYS = 730
 
@@ -13,10 +15,6 @@ export function buildSalesHistoryQuery(options) {
     return `days=${options}`
   }
 
-  if (options?.from && options?.to) {
-    return `from=${encodeURIComponent(options.from)}&to=${encodeURIComponent(options.to)}`
-  }
-
   if (options?.month && options.month !== 'all') {
     return `month=${encodeURIComponent(options.month)}`
   }
@@ -26,6 +24,31 @@ export function buildSalesHistoryQuery(options) {
   }
 
   return `month=${encodeURIComponent(getCurrentMonthKey())}`
+}
+
+export function mapHistoryRow(row) {
+  return {
+    id: row.invoice_id || row.id,
+    order_id: row.order_id,
+    void_reason: row.void_reason || null,
+    voided_at: row.voided_at || null,
+    refundDate: row.refund_date || null,
+    date: formatOrderDate(row.date || row.created_at),
+    time: formatTime12Hour(row.time || row.created_at),
+    monthKey: row.month_key || (row.date ? String(row.date).slice(0, 7) : null),
+    payment: row.payment_method || 'Cash',
+    payment_bank: row.payment_bank || null,
+    subtotal: parseFloat(row.subtotal || 0),
+    tax: parseFloat(row.tax || 0),
+    total: parseFloat(row.total || 0),
+    status: row.status || 'Completed',
+    source:
+      row.target_id === 'takeout' || row.source_type === 'Take Out'
+        ? 'Take Out'
+        : getFloorTableLabel(row.target_id),
+    summary: row.summary || '',
+    items: row.items || [],
+  }
 }
 
 export function formatMonthLabel(monthKey, t) {
@@ -153,7 +176,7 @@ function roundMoney(value) {
   return Math.round((Number(value) || 0) * 100) / 100
 }
 
-function summarizeMatching(orders, matches) {
+export function summarizeSalesAndRefunds(orders, periodKey = 'all') {
   let sales = 0
   let salesOrders = 0
   let refunds = 0
@@ -162,11 +185,11 @@ function summarizeMatching(orders, matches) {
   for (const order of orders || []) {
     if (!isSoldOrder(order)) continue
     const amount = Number.parseFloat(order.total || 0) || 0
-    if (matches(normalizeOrderDate(order))) {
+    if (inPeriod(normalizeOrderDate(order), periodKey)) {
       sales += amount
       salesOrders += 1
     }
-    if (matches(getRefundDateKey(order))) {
+    if (inPeriod(getRefundDateKey(order), periodKey)) {
       refunds += amount
       refundOrders += 1
     }
@@ -179,33 +202,6 @@ function summarizeMatching(orders, matches) {
     refundOrders,
     net: roundMoney(sales - refunds),
   }
-}
-
-export function summarizeSalesAndRefunds(orders, periodKey = 'all') {
-  return summarizeMatching(orders, (dateKey) => inPeriod(dateKey, periodKey))
-}
-
-function inDayRange(dateKey, from, to) {
-  return Boolean(dateKey) && dateKey >= from && dateKey <= to
-}
-
-export function summarizeSalesMetricsInRange(orders, from, to) {
-  const totals = summarizeMatching(orders, (dateKey) => inDayRange(dateKey, from, to))
-  return {
-    grossRevenue: totals.sales,
-    refunds: totals.refunds,
-    netRevenue: totals.net,
-    ordersFulfilled: totals.salesOrders,
-    ordersRefunded: totals.refundOrders,
-  }
-}
-
-export function filterOrdersInRange(orders, from, to) {
-  return orders.filter(
-    (order) =>
-      inDayRange(normalizeOrderDate(order), from, to) ||
-      inDayRange(getRefundDateKey(order), from, to),
-  )
 }
 
 export function filterOrdersForPeriod(orders, periodKey) {

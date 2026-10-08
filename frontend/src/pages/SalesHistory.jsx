@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ChevronLeft, ChevronRight, Eye, Printer, RotateCcw, Search } from 'lucide-react'
 import ReceiptModal from '../components/pos/ReceiptModal'
@@ -6,21 +6,20 @@ import VoidOrderModal from '../components/pos/VoidOrderModal'
 import PeriodSwitch from '../components/ui/PeriodSwitch'
 import Tooltip from '../components/ui/Tooltip'
 import SaleDetailsModal from '../components/sales/SaleDetailsModal'
+import PaginationBar from '../components/ui/PaginationBar'
+import { apiFetch } from '../services/apiClient'
 import { usePOS } from '../context/POSContext'
 import { fetchReceiptTransaction } from '../utils/receiptHelpers'
-import {
-  filterCompletedOrders,
-  filterOrdersInRange,
-  formatMonthLabel,
-  summarizeSalesMetricsInRange,
-} from '../utils/salesHistoryAnalytics'
+import { formatMonthLabel, mapHistoryRow } from '../utils/salesHistoryAnalytics'
 import { addDays, toDayKey } from '../utils/reportRange'
 import { weekdayOfDayKey } from '../utils/phnomPenhTime'
-import { formatOrderDate, formatTime12Hour, sortOrdersByDateTime } from '../utils/dateTimeFormat'
+import { formatOrderDate, formatTime12Hour } from '../utils/dateTimeFormat'
 import PaymentMethodBadge from '../components/common/PaymentMethodBadge'
 import StatusBadge from '../components/common/StatusBadge'
 
 const PERIODS = ['day', 'week', 'month', 'year', 'custom']
+const PAGE_SIZE = 20
+const EMPTY_SUMMARY = { grossRevenue: 0, refunds: 0, netRevenue: 0, ordersFulfilled: 0, ordersRefunded: 0 }
 const ICON_BUTTON =
   'flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition focus-visible:outline-2 focus-visible:outline-forest-500'
 
@@ -71,8 +70,9 @@ function statusLabel(status, t) {
 
 export default function SalesHistory() {
   const { t } = useTranslation()
-  const { salesHistory, loadSalesHistory, releaseSalesHistoryScope, refundOrder } = usePOS()
+  const { refundOrder } = usePOS()
   const [search, setSearch] = useState('')
+  const [query, setQuery] = useState('')
   const todayKey = toDayKey(new Date())
   const [period, setPeriod] = useState('month')
   const [anchor, setAnchor] = useState(todayKey)
@@ -82,73 +82,67 @@ export default function SalesHistory() {
   const [printingOrderId, setPrintingOrderId] = useState(null)
   const [receiptError, setReceiptError] = useState('')
   const [voidTargetOrder, setVoidTargetOrder] = useState(null)
-
-  const completedHistory = useMemo(
-    () => filterCompletedOrders(salesHistory || []),
-    [salesHistory],
-  )
+  const [page, setPage] = useState(0)
+  const [rows, setRows] = useState([])
+  const [matching, setMatching] = useState(0)
+  const [monthMetrics, setMonthMetrics] = useState(EMPTY_SUMMARY)
+  const [isLoading, setIsLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
+  const requestRef = useRef(0)
 
   const range = useMemo(() => periodRange(period, anchor, customRange), [period, anchor, customRange])
   const { from: rangeFrom, to: rangeTo } = range
   const canGoNext = period !== 'custom' && periodRange(period, shiftAnchor(period, anchor, 1), customRange).from <= todayKey
+  const pageCount = Math.max(1, Math.ceil(matching / PAGE_SIZE))
 
   useEffect(() => {
-    async function loadMonthHistory() {
-      try {
-        await loadSalesHistory({ from: rangeFrom, to: rangeTo })
-      } catch {
-        // Silent: the next order event or month change reloads it.
-      }
+    const timer = window.setTimeout(() => setQuery(search.trim()), 300)
+    return () => window.clearTimeout(timer)
+  }, [search])
+
+  useEffect(() => {
+    setPage(0)
+  }, [rangeFrom, rangeTo, query])
+
+  const loadPage = useCallback(async () => {
+    const requestId = ++requestRef.current
+    setIsLoading(true)
+    try {
+      const params = new URLSearchParams({ from: rangeFrom, to: rangeTo, page: String(page), limit: String(PAGE_SIZE) })
+      if (query) params.set('q', query)
+      const response = await apiFetch(`/orders/history/page?${params}`)
+      const data = await response.json().catch(() => ({}))
+      if (requestId !== requestRef.current) return
+      if (!response.ok) throw new Error(data.message || t('sales.loadFailed'))
+      setRows((data.rows || []).map(mapHistoryRow))
+      setMatching(Number(data.total) || 0)
+      setMonthMetrics({ ...EMPTY_SUMMARY, ...(data.summary || {}) })
+      setLoadError('')
+    } catch (error) {
+      if (requestId !== requestRef.current) return
+      setLoadError(error.message || t('sales.loadFailed'))
+    } finally {
+      if (requestId === requestRef.current) setIsLoading(false)
     }
+  }, [rangeFrom, rangeTo, page, query, t])
 
-    loadMonthHistory()
-
+  useEffect(() => {
+    loadPage()
     let channel
     try {
       channel = new BroadcastChannel('mlu-pos-sync')
-      channel.onmessage = () => {
-        loadMonthHistory()
-      }
+      channel.onmessage = () => loadPage()
     } catch {
-      // BroadcastChannel is missing in some browsers; cross-tab sync is optional.
+      channel = null
     }
-
-    window.addEventListener('mlu-order-completed', loadMonthHistory)
-
+    window.addEventListener('mlu-order-completed', loadPage)
     return () => {
-      window.removeEventListener('mlu-order-completed', loadMonthHistory)
+      window.removeEventListener('mlu-order-completed', loadPage)
       if (channel) channel.close()
     }
-  }, [rangeFrom, rangeTo, loadSalesHistory])
+  }, [loadPage])
 
-  useEffect(
-    () => () => {
-      releaseSalesHistoryScope()
-    },
-    [releaseSalesHistoryScope],
-  )
-
-  const monthScopedHistory = useMemo(
-    () => filterOrdersInRange(completedHistory, rangeFrom, rangeTo),
-    [completedHistory, rangeFrom, rangeTo],
-  )
-
-  const monthMetrics = useMemo(
-    () => summarizeSalesMetricsInRange(completedHistory, rangeFrom, rangeTo),
-    [completedHistory, rangeFrom, rangeTo],
-  )
-
-  const filteredLogs = useMemo(() => {
-    const searched = monthScopedHistory.filter(
-      (order) =>
-        (order.id || '').toLowerCase().includes(search.toLowerCase()) ||
-        (order.payment || '').toLowerCase().includes(search.toLowerCase()) ||
-        (order.payment_bank || '').toLowerCase().includes(search.toLowerCase()) ||
-        (order.status || '').toLowerCase().includes(search.toLowerCase()) ||
-        (order.source ?? '').toLowerCase().includes(search.toLowerCase()),
-    )
-    return sortOrdersByDateTime(searched, 'desc')
-  }, [monthScopedHistory, search])
+  const filteredLogs = rows
 
   const handlePrintReceipt = async (order) => {
     setPrintingOrderId(order.id)
@@ -166,7 +160,7 @@ export default function SalesHistory() {
 
   const handleConfirmVoid = async (orderId, reason, managerCredentials) => {
     await refundOrder(orderId, reason, managerCredentials)
-    await loadSalesHistory({ from: rangeFrom, to: rangeTo })
+    await loadPage()
   }
 
   return (
@@ -174,6 +168,12 @@ export default function SalesHistory() {
       <div>
         <h3 className="text-heading text-lg">{t('nav.salesHistory')}</h3>
       </div>
+
+      {loadError ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800/50 dark:bg-red-950/40 dark:text-red-300">
+          {loadError}
+        </div>
+      ) : null}
 
       {receiptError && (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800/50 dark:bg-red-950/40 dark:text-red-300">
@@ -334,7 +334,7 @@ export default function SalesHistory() {
           <div className="lg:hidden">
             {filteredLogs.length === 0 ? (
               <p className="px-4 py-10 text-center text-sm text-stone-500 dark:text-zinc-400">
-                {t('sales.emptyLogs', {
+                {isLoading ? t('common.loading') : t('sales.emptyLogs', {
                   defaultValue: 'No completed orders found for this month and search filter.',
                 })}
               </p>
@@ -440,7 +440,7 @@ export default function SalesHistory() {
                 {filteredLogs.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="px-2 py-10 text-center text-sm text-stone-500 dark:text-zinc-400">
-                      {t('sales.emptyLogs', {
+                      {isLoading ? t('common.loading') : t('sales.emptyLogs', {
                         defaultValue: 'No completed orders found for this month and search filter.',
                       })}
                     </td>
@@ -524,6 +524,12 @@ export default function SalesHistory() {
               </tbody>
             </table>
           </div>
+          <PaginationBar
+            currentPage={Math.min(page, pageCount - 1)}
+            totalPages={pageCount}
+            onPageChange={setPage}
+            className="border-t border-border/60 px-4 py-3"
+          />
         </div>
       </div>
 
