@@ -170,6 +170,7 @@ const {
 const { ensureUsersEmailColumn } = require('./src/utils/userAccounts');
 const {
     ensureReservationsSchema,
+    findBlockingReservation,
     listFloorTables,
     listReservations,
     getReservation,
@@ -184,6 +185,7 @@ const {
     ALL_STATUSES,
 } = require('./src/utils/reservations');
 const { processReservationReminders, startReservationReminderJob, notifyReservationCreated } = require('./src/utils/reservationReminders');
+const { startStaleOrderCleanupJob } = require('./src/utils/staleOrderCleanup');
 const { sendReservationConfirmationLetter } = require('./src/utils/reservationLetter');
 const { getLiveConditions } = require('./src/utils/liveConditions');
 const { createUserSession } = require('./src/utils/userSessions');
@@ -1262,6 +1264,24 @@ async function assertTableNotMerged(conn, target) {
     }
 }
 
+// A table with a booking about to start (or waiting to be checked in) is held for that guest.
+async function assertTableNotReservedSoon(conn, target) {
+    if (target.sourceType !== 'Table') return;
+    let blocking = null;
+    try {
+        blocking = await findBlockingReservation(conn, target.tableId);
+    } catch {
+        return;
+    }
+    if (blocking) {
+        const error = new Error(
+            `This table is reserved for ${blocking.customer_name} (${String(blocking.time_slot).slice(0, 5)}). Check the guest in from the reservation, or pick another table.`,
+        );
+        error.status = 409;
+        throw error;
+    }
+}
+
 // 2. DISPATCH/MERGE ORDER ITEMS INTO TARGET TICKETS
 app.post('/api/orders', requireOrderWriteAccess, async (req, res) => {
     if (rejectIfMaintenance(res)) return;
@@ -1292,6 +1312,7 @@ app.post('/api/orders', requireOrderWriteAccess, async (req, res) => {
             let id = await findPendingOrderId(conn, target);
             if (!id) {
                 await assertTableNotMerged(conn, target);
+                await assertTableNotReservedSoon(conn, target);
                 id = await createPendingOrder(conn, target, table_id, req.user);
             }
             await assertItemsOnSale(conn, items);
@@ -1976,6 +1997,7 @@ app.put('/api/orders/items', requireOrderWriteAccess, async (req, res) => {
             if (!id) {
                 if (items.length === 0) return { orderId: null, savedLines: [] };
                 await assertTableNotMerged(conn, target);
+                await assertTableNotReservedSoon(conn, target);
                 id = await createPendingOrder(conn, target, table_id, req.user);
             }
             await assertItemsOnSale(conn, items, id);
@@ -4161,6 +4183,7 @@ app.listen(PORT, async () => {
         console.log(`   Database connection: OK (${resolveDbHost(env.db.host)}:${env.db.database})`);
         const restoredSaleDates = await ensureApplicationSchema(db);
         startReservationReminderJob(db);
+        startStaleOrderCleanupJob(db);
         startLoginSecurityCleanup(db);
         startRevokedTokenCleanup(db);
         console.log('   Login security schema: OK');

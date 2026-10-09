@@ -889,6 +889,7 @@ function TableCard({
 }) {
   const { t } = useTranslation()
   const { isAdmin } = useAuth()
+  const { updateBillItems } = usePOS()
   const canManageTables = isAdmin
   const floorStatus = getFloorStatus(bill, reservation)
   const meta = TABLE_STATUS_META[floorStatus] || TABLE_STATUS_META.empty

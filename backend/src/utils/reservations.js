@@ -697,16 +697,32 @@ function slotWindow(reservationDate, timeSlot, durationMinutes = 120) {
   return { start, end }
 }
 
+// A booking locks its table for walk-ins from this long before it starts.
+const RESERVATION_LOCK_LEAD_MINUTES = Number.parseInt(process.env.RESERVATION_LOCK_LEAD_MINUTES, 10) || 60
+
 function isWithinReservedWindow(reservation, now = new Date()) {
   if (!HOLD_STATUSES.includes(reservation.status)) return false
   const today = todayIso(now)
   if (reservation.reservation_date !== today) return false
-  const { end } = slotWindow(
+  const { start, end } = slotWindow(
     reservation.reservation_date,
     reservation.time_slot,
     reservation.duration_minutes,
   )
-  return now < end
+  if (now >= end) return false
+  if (reservation.status === SEATED_STATUS) return true
+  return now >= new Date(start.getTime() - RESERVATION_LOCK_LEAD_MINUTES * 60 * 1000)
+}
+
+// Blocks a walk-in from opening a new order on a table whose booking is about to start.
+async function findBlockingReservation(db, tableId, now = new Date()) {
+  const [rows] = await db.execute(
+    `SELECT id, customer_name, reservation_date, time_slot, duration_minutes, status
+     FROM reservations
+     WHERE table_id = ? AND reservation_date = ? AND status IN (${ACTIVE_STATUSES.map(() => '?').join(', ')})`,
+    [tableId, todayIso(now), ...ACTIVE_STATUSES],
+  )
+  return rows.find((row) => isWithinReservedWindow(row, now)) || null
 }
 
 async function getLiveFloorReservations(db, now = new Date()) {
@@ -790,5 +806,7 @@ module.exports = {
   slotWindow,
   slotDuration,
   isWithinReservedWindow,
+  findBlockingReservation,
+  RESERVATION_LOCK_LEAD_MINUTES,
   reservationLockName,
 }
