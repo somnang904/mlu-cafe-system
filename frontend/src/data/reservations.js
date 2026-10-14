@@ -83,6 +83,17 @@ export function canCheckInReservation(reservation, today = toLocalDateISO()) {
   return reservation.reservation_date === today
 }
 
+// A booking is over once its time slot (start + duration) has passed, or it was closed out.
+export function hasReservationEnded(reservation, now = new Date()) {
+  if (!reservation) return false
+  if (['Completed', 'No-show', 'Canceled'].includes(reservation.status)) return true
+  const [year, month, day] = String(reservation.reservation_date || '').slice(0, 10).split('-').map(Number)
+  const [hour, minute] = String(reservation.time_slot || '').slice(0, 5).split(':').map(Number)
+  if (!year || !month || !day || Number.isNaN(hour) || Number.isNaN(minute)) return false
+  const end = new Date(year, month - 1, day, hour, minute + (Number(reservation.duration_minutes) || 120))
+  return now >= end
+}
+
 export function slotLabel(timeSlot, fallbackLabel, durationMinutes = 120) {
   return formatSlotRange12Hour(timeSlot, durationMinutes, fallbackLabel)
 }

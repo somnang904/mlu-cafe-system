@@ -45,6 +45,7 @@ import { useModalKeyboard } from '../hooks/useModalKeyboard'
 import { apiFetch } from '../services/apiClient'
 import {
   canCheckInReservation,
+  hasReservationEnded,
   monthRange,
   parseISODate,
   BOOKING_STATUSES,
@@ -667,8 +668,6 @@ export default function Reservations() {
     [sheetRows, activeSheetPage],
   )
 
-  const selectedDayCount = countsByDate[selectedDate] || 0
-
   const statusFilterOptions = [
     { value: 'all', label: t('reservations.allStatuses'), icon: ListFilter },
     ...RESERVATION_STATUSES.map((status) => {
@@ -691,8 +690,17 @@ export default function Reservations() {
     [reservations, selectedDate],
   )
 
-  const dayCardRows = activeRowsForSummary.length > 0 ? activeRowsForSummary : upcoming.slice(0, 6)
-  const dayCardIsUpcoming = activeRowsForSummary.length === 0 && dayCardRows.length > 0
+  const selectedDayCount = selectedDate === today
+    ? activeRowsForSummary.filter((row) => row.status !== 'Canceled' && !hasReservationEnded(row)).length
+    : countsByDate[selectedDate] || 0
+
+  // Today's card only lists bookings still ahead or in progress; finished ones stay in the sheet below.
+  const dayCardSourceRows = useMemo(
+    () => (selectedDate === today ? activeRowsForSummary.filter((row) => !hasReservationEnded(row)) : activeRowsForSummary),
+    [activeRowsForSummary, selectedDate, today],
+  )
+  const dayCardRows = dayCardSourceRows.length > 0 ? dayCardSourceRows : upcoming.slice(0, 6)
+  const dayCardIsUpcoming = dayCardSourceRows.length === 0 && dayCardRows.length > 0
 
   const scopeOptions = [
     { value: 'day', label: t('reservations.scopeDay'), icon: CalendarDays },
