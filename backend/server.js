@@ -47,6 +47,7 @@ const {
     normalizePermissions,
     assertPermissionsForSave,
     isAdminRole,
+    isCashierRole,
     userHasPermission,
     VALID_PERMISSIONS,
 } = require('./src/constants/permissions');
@@ -3653,17 +3654,32 @@ app.post('/api/tables/transfer', requirePosFloorAccess, async (req, res) => {
                 [fromId, fromId],
             );
 
-            if (sourceOrders.length === 0) {
+            const movingPaidGuests = sourceOrders.length === 0 && String(sourceTable.status).toLowerCase() === 'paid';
+            if (sourceOrders.length === 0 && !movingPaidGuests) {
                 const err = new Error('Source table has no active order');
                 err.status = 400;
                 throw err;
             }
 
-            const orderId = sourceOrders[0].id;
-            await conn.execute(
-                'UPDATE orders SET target_id = ?, table_id = ?, updated_at = NOW() WHERE id = ?',
-                [toId, toId, orderId],
-            );
+            if (movingPaidGuests) {
+                // The bill is already paid: guests just move, so the destination must be free.
+                if (String(destTable.status).toLowerCase() !== 'empty') {
+                    const err = new Error(`${destTable.table_name} is not empty`);
+                    err.status = 400;
+                    throw err;
+                }
+                const blocking = await findBlockingReservation(conn, toId);
+                if (blocking) {
+                    const err = new Error(`${destTable.table_name} is reserved for ${blocking.customer_name} (${String(blocking.time_slot).slice(0, 5)})`);
+                    err.status = 409;
+                    throw err;
+                }
+            } else {
+                await conn.execute(
+                    'UPDATE orders SET target_id = ?, table_id = ?, updated_at = NOW() WHERE id = ?',
+                    [toId, toId, sourceOrders[0].id],
+                );
+            }
 
             await conn.execute(
                 `UPDATE reservations
@@ -3673,7 +3689,7 @@ app.post('/api/tables/transfer', requirePosFloorAccess, async (req, res) => {
             );
 
             await conn.execute('UPDATE tables SET status = "Empty" WHERE id = ?', [fromId]);
-            await conn.execute('UPDATE tables SET status = "Occupied" WHERE id = ?', [toId]);
+            await conn.execute('UPDATE tables SET status = ? WHERE id = ?', [movingPaidGuests ? 'Paid' : 'Occupied', toId]);
             // Tables merged onto the moved table follow it to the new one.
             await conn.execute('UPDATE tables SET merged_into = ? WHERE merged_into = ?', [toId, fromId])
                 .catch((err) => console.warn('⚠️ Could not move merged tables:', err.message));
@@ -3858,13 +3874,13 @@ app.post('/api/tables/:id/clear', requirePosFloorAccess, async (req, res) => {
                 params,
             );
 
-            if (!isAdminRole(req.user?.role) && pendingOrders.length > 0) {
+            if (!isAdminRole(req.user?.role) && !isCashierRole(req.user?.role) && pendingOrders.length > 0) {
                 const [unpaidItems] = await conn.execute(
                     'SELECT id FROM order_items WHERE order_id = ? LIMIT 1',
                     [pendingOrders[0].id],
                 );
                 if (unpaidItems.length > 0) {
-                    const error = new Error('This table has not been paid yet. Only an administrator can cancel an unpaid order.');
+                    const error = new Error('This table has not been paid yet. Only an administrator or cashier can cancel an unpaid order.');
                     error.status = 403;
                     throw error;
                 }

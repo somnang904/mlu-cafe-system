@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { CheckCircle2, CreditCard, Minus, Receipt, Scissors } from 'lucide-react'
+import { CheckCircle2, CreditCard, Minus, Receipt, Scissors, UtensilsCrossed } from 'lucide-react'
 import { usePOS } from '../context/POSContext'
 import { useConnection } from '../context/ConnectionContext'
 import { useAuth } from '../context/AuthContext'
@@ -67,6 +67,7 @@ function BillManager({
   onUpdateItemPrice,
   onPaymentComplete,
   onSplitBill,
+  onAddItems,
   serverReachable,
 }) {
   const { t, i18n } = useTranslation()
@@ -109,6 +110,15 @@ function BillManager({
             </div>
           </div>
 
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={onAddItems}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-white px-3 py-1.5 text-xs font-semibold text-heading hover:bg-slate-50 dark:bg-transparent dark:hover:bg-zinc-800/60"
+            >
+              <UtensilsCrossed className="h-3.5 w-3.5" />
+              {t('payment.addItems')}
+            </button>
           {bill.items.length > 1 && (
             <button
               type="button"
@@ -119,6 +129,7 @@ function BillManager({
               {t('payment.splitBill', { defaultValue: 'Split Bill' })}
             </button>
           )}
+          </div>
         </div>
       </div>
 
@@ -231,6 +242,7 @@ export default function Payment() {
     clearPaymentTarget,
     decrementBillItem,
     updateBillItemPrice,
+    openOrderFor,
     processPayment,
     processSplitPayment,
     loadSalesHistory,
@@ -380,6 +392,7 @@ export default function Payment() {
               }
               onPaymentComplete={handlePaymentComplete}
               onSplitBill={() => setShowSplitModal(true)}
+              onAddItems={() => openOrderFor(selectedBill.id)}
               serverReachable={backendReachable}
             />
           ) : selectedBill ? (

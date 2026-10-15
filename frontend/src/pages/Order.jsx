@@ -19,6 +19,14 @@ import { usePOS } from '../context/POSContext'
 import { useConnection } from '../context/ConnectionContext'
 import { useNotifications } from '../context/NotificationContext'
 import { apiFetch, getAuthToken } from '../services/apiClient'
+import {
+  CHECK_IN_STATUSES,
+  RESERVATION_LOCK_LEAD_MINUTES,
+  hasReservationEnded,
+  reservationStart,
+  toLocalDateISO,
+} from '../data/reservations'
+import { formatTime12Hour, localizeDigits } from '../utils/dateTimeFormat'
 import { cacheMenuItems, getMenuFallback } from '../utils/offlineFallbacks'
 import { TABLE_STATUS_META } from '../data/tables'
 
@@ -91,14 +99,39 @@ function statusLabel(status, t) {
   return labelKey ? t(labelKey) : status.replace('_', ' ')
 }
 
-function buildDestinationOptions(targets, t) {
+// Next booking still ahead (or in progress) per table, so the table list can say "Reserved".
+function nextBookingByTable(bookings, now) {
+  const byTable = {}
+  for (const booking of bookings) {
+    if (!CHECK_IN_STATUSES.includes(booking.status)) continue
+    if (hasReservationEnded(booking, now)) continue
+    const start = reservationStart(booking)
+    const current = byTable[booking.table_id]
+    if (!current || (start && start < reservationStart(current))) byTable[booking.table_id] = booking
+  }
+  return byTable
+}
+
+function buildDestinationOptions(targets, t, bookingByTable = {}, now = new Date()) {
   const isVip = (table) => table.section === 'vip' || String(table.name).startsWith('VIP')
-  const toOption = (icon) => (table) => ({
-    value: String(table.id),
-    label: table.name,
-    hint: statusLabel(table.status, t),
-    icon,
-  })
+  const toOption = (icon) => (table) => {
+    const booking = bookingByTable[table.id]
+    const start = booking ? reservationStart(booking) : null
+    const locked = Boolean(start) && now >= new Date(start.getTime() - RESERVATION_LOCK_LEAD_MINUTES * 60 * 1000)
+    // A table with a bill already open can still take more items; a new bill on a held table is refused.
+    const blocked = locked && (table.status === 'empty' || table.status === 'paid')
+    const reservedHint = booking
+      ? `${t('statuses.reserved')} · ${localizeDigits(formatTime12Hour(booking.time_slot))}`
+      : ''
+    const base = statusLabel(table.status, t)
+    return {
+      value: String(table.id),
+      label: table.name,
+      hint: reservedHint ? (base ? `${base} · ${reservedHint}` : reservedHint) : base,
+      icon,
+      disabled: blocked,
+    }
+  }
   const standard = targets.filter((table) => !table.isTakeOut && !isVip(table)).map(toOption(Armchair))
   const vip = targets.filter((table) => !table.isTakeOut && isVip(table)).map(toOption(Crown))
   const takeOutActive = targets.find((entry) => entry.isTakeOut)?.status !== 'empty'
@@ -118,7 +151,7 @@ function buildDestinationOptions(targets, t) {
 
 export default function Order() {
   const { t, i18n } = useTranslation()
-  const { assignmentTargets, assignOrder, orderTargetId, clearOrderTarget, openPaymentFor } = usePOS()
+  const { assignmentTargets, assignOrder, getBillById, orderTargetId, clearOrderTarget, openPaymentFor } = usePOS()
   const { backendReachable } = useConnection()
   const { pushBanner } = useNotifications()
   const [menuItems, setMenuItems] = useState([])
@@ -126,6 +159,24 @@ export default function Order() {
   const [usingFallbackMenu, setUsingFallbackMenu] = useState(false)
   const [cart, setCart] = useState([])
   const [selectedDestination, setSelectedDestination] = useState('')
+  const [todayBookings, setTodayBookings] = useState([])
+  const [clockTick, setClockTick] = useState(0)
+  useEffect(() => {
+    let cancelled = false
+    const load = () => {
+      apiFetch(`/reservations?date=${toLocalDateISO()}`)
+        .then(async (res) => (res.ok ? res.json() : []))
+        .then((rows) => { if (!cancelled) setTodayBookings(Array.isArray(rows) ? rows : []) })
+        .catch(() => { if (!cancelled) setTodayBookings([]) })
+      setClockTick((tick) => tick + 1)
+    }
+    load()
+    const timer = window.setInterval(load, 60_000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [])
   const [sentConfirmation, setSentConfirmation] = useState(null)
   const [sendPaused, setSendPaused] = useState(false)
   const [sendRejection, setSendRejection] = useState('')
@@ -623,7 +674,19 @@ export default function Order() {
   const subtotal = cart.reduce((sum, item) => sum + Number(item.price) * item.quantity, 0)
   const total = subtotal
 
-  const destinationOptions = useMemo(() => buildDestinationOptions(assignmentTargets, t), [assignmentTargets, t])
+  const destinationOptions = useMemo(
+    () => buildDestinationOptions(assignmentTargets, t, nextBookingByTable(todayBookings, new Date()), new Date()),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [assignmentTargets, t, todayBookings, clockTick],
+  )
+
+  // Items already ordered for the chosen table; the cart below only holds what is being added now.
+  const existingBillItems = useMemo(() => {
+    if (!selectedDestination) return []
+    const target = assignmentTargets.find((entry) => String(entry.id) === selectedDestination)
+    const bill = getBillById(target?.isTakeOut ? 'takeout' : Number(selectedDestination))
+    return bill && bill.status !== 'paid' && Array.isArray(bill.items) ? bill.items : []
+  }, [selectedDestination, assignmentTargets, getBillById])
 
   const destinationLabel =
     assignmentTargets.find((entry) => String(entry.id) === selectedDestination)?.name ?? null
@@ -884,6 +947,25 @@ export default function Order() {
             style={cartScroll.style}
             className="order-menu-scroll min-h-0 flex-1 space-y-3 overflow-y-auto p-4"
           >
+            {!sentConfirmation && existingBillItems.length > 0 ? (
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-3 dark:border-emerald-900/50 dark:bg-emerald-950/20">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-emerald-800 dark:text-emerald-300">
+                  {t('order.alreadyOnBill')}
+                </p>
+                <ul className="space-y-1 text-sm">
+                  {existingBillItems.map((bill, index) => (
+                    <li key={`${bill.id ?? 'line'}-${index}`} className="flex items-center justify-between gap-2">
+                      <span className="min-w-0 truncate">
+                        {Number(bill.qty ?? bill.quantity ?? 1)}× {translateMenuName(bill.originalName || bill.name, i18n.language, t)}
+                      </span>
+                      <span className="shrink-0 tabular-nums text-muted">
+                        ${(Number(bill.unitPrice ?? bill.price ?? 0) * Number(bill.qty ?? bill.quantity ?? 1)).toFixed(2)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             {sentConfirmation ? (
               <div className="flex h-full flex-col items-center justify-center text-center">
                 <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">

@@ -83,6 +83,16 @@ export function canCheckInReservation(reservation, today = toLocalDateISO()) {
   return reservation.reservation_date === today
 }
 
+// Mirrors the backend: a booking holds its table for walk-ins from this long before it starts.
+export const RESERVATION_LOCK_LEAD_MINUTES = 60
+
+export function reservationStart(reservation) {
+  const [year, month, day] = String(reservation?.reservation_date || '').slice(0, 10).split('-').map(Number)
+  const [hour, minute] = String(reservation?.time_slot || '').slice(0, 5).split(':').map(Number)
+  if (!year || !month || !day || Number.isNaN(hour) || Number.isNaN(minute)) return null
+  return new Date(year, month - 1, day, hour, minute)
+}
+
 // A booking is over once its time slot (start + duration) has passed, or it was closed out.
 export function hasReservationEnded(reservation, now = new Date()) {
   if (!reservation) return false

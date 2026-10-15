@@ -11,6 +11,7 @@ import { apiFetch, SESSION_EXPIRED_EVENT } from '../services/apiClient'
 import {
   canAccessView,
   isAdminRole,
+  isCashierRole,
   normalizePermissions,
   VALID_PERMISSIONS,
 } from '../utils/permissions'
@@ -198,6 +199,7 @@ export function AuthProvider({ children }) {
       token: session?.token ?? null,
       user,
       isAdmin: isAdminRole(user?.role),
+      canCancelOrders: isAdminRole(user?.role) || isCashierRole(user?.role),
       activePage: session?.activePage ?? 'dashboard',
       login,
       logout,
