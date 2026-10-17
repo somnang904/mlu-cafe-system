@@ -1,16 +1,20 @@
 /**
  * Live weather and USD→KHR rate for the dashboard.
- * Weather refreshes often; exchange is daily (rates don't move like weather).
+ * Weather is re-read every minute. The market rate is the NBC official reference rate (published once a day),
+ * so it is re-checked hourly to pick up each new publication soon after it appears.
  * Fixed public URLs only (no API keys, no user-controlled hosts).
  */
 const { env } = require('../config/env')
 
-const WEATHER_CACHE_TTL_MS = 2 * 60 * 1000
-const EXCHANGE_CACHE_TTL_MS = 24 * 60 * 60 * 1000
+const WEATHER_CACHE_TTL_MS = 60 * 1000
+const EXCHANGE_CACHE_TTL_MS = 60 * 60 * 1000
 const FETCH_TIMEOUT_MS = 8000
 
 const WEATHER_URL = 'https://api.open-meteo.com/v1/forecast'
-const EXCHANGE_URL = 'https://open.er-api.com/v6/latest/USD'
+// Primary: the National Bank of Cambodia's official daily reference rate (via Frankfurter, no key).
+// Fallback: a general market feed, used only when the NBC feed is unreachable or returns nonsense.
+const NBC_RATE_URL = 'https://api.frankfurter.dev/v2/rate/USD/KHR?providers=NBC'
+const FALLBACK_EXCHANGE_URL = 'https://open.er-api.com/v6/latest/USD'
 
 const DEFAULT_LAT = 13.3644
 const DEFAULT_LON = 103.8603
@@ -125,24 +129,34 @@ async function loadWeather() {
   }
 }
 
-async function loadExchange() {
-  try {
-    const data = await fetchJson(EXCHANGE_URL)
-    const khrPerUsd = Number(data?.rates?.KHR)
-    if (!Number.isFinite(khrPerUsd) || khrPerUsd <= 0) {
-      return unavailable('invalid_rate')
-    }
-
-    return {
-      ok: true,
-      base: 'USD',
-      quote: 'KHR',
-      khrPerUsd: Math.round(khrPerUsd),
-      updatedAt: data.time_last_update_utc || null,
-    }
-  } catch {
-    return unavailable('exchange_unreachable')
+async function loadNbcRate(fetcher) {
+  const data = await fetcher(NBC_RATE_URL)
+  const khrPerUsd = Number(data?.rate)
+  if (data?.quote !== 'KHR' || !Number.isFinite(khrPerUsd) || khrPerUsd <= 0) {
+    throw new Error('invalid_nbc_rate')
   }
+  return { khrPerUsd: Math.round(khrPerUsd), updatedAt: data.date || null, source: 'NBC' }
+}
+
+async function loadFallbackRate(fetcher) {
+  const data = await fetcher(FALLBACK_EXCHANGE_URL)
+  const khrPerUsd = Number(data?.rates?.KHR)
+  if (!Number.isFinite(khrPerUsd) || khrPerUsd <= 0) {
+    throw new Error('invalid_rate')
+  }
+  return { khrPerUsd: Math.round(khrPerUsd), updatedAt: data.time_last_update_utc || null, source: 'market' }
+}
+
+async function loadExchange(fetcher = fetchJson) {
+  for (const load of [loadNbcRate, loadFallbackRate]) {
+    try {
+      const rate = await load(fetcher)
+      return { ok: true, base: 'USD', quote: 'KHR', ...rate }
+    } catch {
+      // try the next source
+    }
+  }
+  return unavailable('exchange_unreachable')
 }
 
 function keepBest(previous, next) {
@@ -182,6 +196,7 @@ async function getLiveConditions({ force = false } = {}) {
 module.exports = {
   getLiveConditions,
   conditionFromCode,
+  loadExchange,
   WEATHER_CACHE_TTL_MS,
   EXCHANGE_CACHE_TTL_MS,
 }

@@ -199,16 +199,21 @@ export default function Dashboard({ onNavigate }) {
         })
     }
 
-    // Weather is live (~2 min server cache); exchange is daily — polling keeps weather fresh.
+    // Weather is re-read every minute (server cache 1 min); the market rate is rechecked hourly by the server.
     fetchLive({ showLoading: !readLiveConditions() })
     const liveInterval = setInterval(() => {
-      if (!getAuthToken()) return
+      if (!getAuthToken() || document.visibilityState === 'hidden') return
       fetchLive()
-    }, 2 * 60 * 1000)
+    }, 60 * 1000)
+    const refreshOnFocus = () => {
+      if (document.visibilityState === 'visible' && getAuthToken()) fetchLive()
+    }
+    document.addEventListener('visibilitychange', refreshOnFocus)
 
     return () => {
       cancelled = true
       clearInterval(liveInterval)
+      document.removeEventListener('visibilitychange', refreshOnFocus)
     }
   }, [canSeeReports, reloadTick, t])
 
