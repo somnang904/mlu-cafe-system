@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AlertCircle, Armchair, ArrowRightFromLine, ArrowRightToLine, Crown, GitMerge, Info } from 'lucide-react'
+import { AlertCircle, Armchair, ArrowRightFromLine, ArrowRightToLine, Crown, GitMerge } from 'lucide-react'
 import { useModalKeyboard } from '../../hooks/useModalKeyboard'
 import IconSelect from '../ui/IconSelect'
 import ModalHeader from '../ui/ModalHeader'
@@ -19,24 +19,21 @@ export default function MergeTableModal({ isOpen, onClose, tables = [], onMerge 
 
   if (!isOpen) return null
 
-  // Active / occupied tables that have orders to merge from
-  const occupiedTables = tables.filter((t) => t.status === 'occupied' || (t.items && t.items.length > 0))
-  // All other tables that can receive the merged items
+  // Any table can be merged, with or without a bill (empty tables just get grouped together).
+  const hasItems = (table) => Array.isArray(table.items) && table.items.length > 0
+  const hintFor = (table) => (hasItems(table) ? t('tables.orderItemCount', { count: table.items.length }) : t('statuses.empty'))
   const destinationTables = tables.filter((t) => String(t.id) !== String(fromTableId))
 
-  const sourceOptions = occupiedTables.map((table) => ({
+  const sourceOptions = tables.map((table) => ({
     value: String(table.id),
     label: table.name,
-    hint: t('tables.orderItemCount', { count: table.items?.length || 0 }),
+    hint: hintFor(table),
     icon: isVipTable(table) ? Crown : Armchair,
   }))
   const targetOptions = destinationTables.map((table) => ({
     value: String(table.id),
     label: table.name,
-    hint:
-      table.status === 'occupied'
-        ? t('tables.orderItemCount', { count: table.items?.length || 0 })
-        : t('statuses.empty'),
+    hint: hintFor(table),
     icon: isVipTable(table) ? Crown : Armchair,
   }))
 
@@ -63,8 +60,6 @@ export default function MergeTableModal({ isOpen, onClose, tables = [], onMerge 
     }
   }
 
-  const hasNoOccupied = occupiedTables.length === 0
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="modal-backdrop" aria-hidden="true" />
@@ -81,7 +76,7 @@ export default function MergeTableModal({ isOpen, onClose, tables = [], onMerge 
             icon={GitMerge}
             iconClassName="text-amber-600 dark:text-amber-400"
             title={t('tables.mergeTables', { defaultValue: 'Merge Tables' })}
-            subtitle={t('tables.mergeSubtitle', { defaultValue: 'Combine orders from one table into another' })}
+            subtitle={t('tables.mergeSubtitle')}
             onClose={onClose}
           />
         </div>
@@ -91,20 +86,6 @@ export default function MergeTableModal({ isOpen, onClose, tables = [], onMerge 
             <div className="flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-700 dark:text-red-300">
               <AlertCircle className="h-4 w-4 shrink-0" />
               <span>{error}</span>
-            </div>
-          )}
-
-          {hasNoOccupied && (
-            <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 text-xs text-amber-800 dark:text-amber-200">
-              <Info className="h-4 w-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
-              <div>
-                <p className="font-semibold">
-                  {t('tables.noOccupiedTablesTitle', { defaultValue: 'គ្មានតុដែលមានការកុម្ម៉ង់ (No Occupied Tables)' })}
-                </p>
-                <p className="mt-1 text-2xs leading-relaxed text-amber-700 dark:text-amber-300">
-                  {t('tables.noOccupiedTablesDesc', { defaultValue: 'មុខងារផ្ដុំតុ (Merge) គឺសម្រាប់បញ្ចូលការកុម្ម៉ង់ពីតុមួយទៅតុមួយទៀត។ បច្ចុប្បន្នតុទាំងអស់នៅទំនេរ (គ្មានការកុម្ម៉ង់កំពុងដំណើរការទេ)។ សូមបើកការកុម្ម៉ង់លើតុជាមុនសិន។' })}
-                </p>
-              </div>
             </div>
           )}
 
@@ -120,17 +101,12 @@ export default function MergeTableModal({ isOpen, onClose, tables = [], onMerge 
                 setFromTableId(value)
                 setError('')
               }}
-              placeholder={
-                hasNoOccupied
-                  ? t('tables.noOccupiedPlaceholder', { defaultValue: 'គ្មានតុដែលមានការកុម្ម៉ង់ទេ' })
-                  : t('tables.selectSourceTable', { defaultValue: 'Select an occupied table' })
-              }
+              placeholder={t('tables.selectSourceTable', { defaultValue: 'Select a table' })}
               options={sourceOptions}
-              disabled={hasNoOccupied}
               className="rounded-xl"
             />
             <p className="mt-1.5 text-2xs text-slate-500 dark:text-zinc-400">
-              {t('tables.sourceTableNote', { defaultValue: 'This table will be cleared after its items are moved.' })}
+              {t('tables.sourceTableNote')}
             </p>
           </div>
 
@@ -148,7 +124,6 @@ export default function MergeTableModal({ isOpen, onClose, tables = [], onMerge 
               }}
               placeholder={t('tables.selectDestTable', { defaultValue: 'Select a target table' })}
               options={targetOptions}
-              disabled={hasNoOccupied}
               className="rounded-xl"
             />
           </div>
@@ -163,9 +138,9 @@ export default function MergeTableModal({ isOpen, onClose, tables = [], onMerge 
             </button>
             <button
               type="submit"
-              disabled={submitting || !fromTableId || !toTableId || hasNoOccupied}
+              disabled={submitting || !fromTableId || !toTableId}
               className={`btn-primary flex-1 py-2.5 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${
-                submitting || !fromTableId || !toTableId || hasNoOccupied ? '' : 'beam-border shadow-[0_4px_14px_rgba(16,185,129,0.35)]'
+                submitting || !fromTableId || !toTableId ? '' : 'beam-border shadow-[0_4px_14px_rgba(16,185,129,0.35)]'
               }`}
             >
               {submitting ? t('common.saving', { defaultValue: 'Merging...' }) : t('tables.confirmMerge', { defaultValue: 'Confirm Merge' })}

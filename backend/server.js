@@ -3778,9 +3778,25 @@ app.post('/api/tables/merge', requirePosFloorAccess, async (req, res) => {
                 [fromId, fromId],
             );
             if (!sourceOrders.length) {
-                const err = new Error(`Source table ${sourceTable.table_name} has no active order to merge`);
-                err.status = 400;
-                throw err;
+                // No bill on the source: group the tables anyway (e.g. seating a big party together).
+                // A table held for an upcoming booking cannot be pulled off the floor.
+                for (const table of [sourceTable, destTable]) {
+                    const blocking = await findBlockingReservation(conn, table.id);
+                    if (blocking) {
+                        const err = new Error(`${table.table_name} is reserved for ${blocking.customer_name} (${String(blocking.time_slot).slice(0, 5)}) and cannot be merged`);
+                        err.status = 409;
+                        throw err;
+                    }
+                }
+                await conn.execute(
+                    `UPDATE reservations
+                     SET table_id = ?
+                     WHERE table_id = ? AND reservation_date = CURDATE() AND status = 'Seated'`,
+                    [toId, fromId],
+                );
+                await conn.execute('UPDATE tables SET status = "Empty", merged_into = ? WHERE id = ?', [toId, fromId]);
+                await conn.execute('UPDATE tables SET merged_into = ? WHERE merged_into = ?', [toId, fromId]);
+                return;
             }
             const sourceOrderId = sourceOrders[0].id;
 

@@ -886,6 +886,7 @@ function TableCard({
   onEditTable,
   onDeleteTable,
   mergedNames = [],
+  onUnmerge,
 }) {
   const { t } = useTranslation()
   const { isAdmin, canCancelOrders } = useAuth()
@@ -1036,6 +1037,19 @@ function TableCard({
                 {t('tables.openOrderTicket')}
               </button>
             </div>
+            {mergedNames.length > 0 && onUnmerge ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onUnmerge(bill)
+                }}
+                className="inline-flex w-full cursor-pointer select-none items-center justify-center gap-1.5 rounded-xl border border-amber-300/80 bg-amber-50/70 py-1.5 text-xs font-semibold text-amber-900 transition hover:bg-amber-100 dark:border-amber-700/50 dark:bg-amber-950/40 dark:text-amber-200 dark:hover:bg-amber-900/60"
+              >
+                <GitMerge className="h-3.5 w-3.5" />
+                {t('tables.unmerge')}
+              </button>
+            ) : null}
           </div>
         )}
         {isReserved && (
@@ -1465,6 +1479,13 @@ export default function Table() {
     }
   }
 
+  const handleUnmergeTables = async (host) => {
+    await clearTable(host.id)
+    showToast(t('tables.unmerged'))
+    await refreshFloorTables?.()
+    await loadFloorReservations()
+  }
+
   const handleMergeTables = async (fromId, toId) => {
     await mergeTables(fromId, toId)
     showToast(t('tables.mergedSuccess', { defaultValue: 'Tables merged successfully' }))
@@ -1546,6 +1567,7 @@ export default function Table() {
               onEditTable={setEditTarget}
               onDeleteTable={setDeleteTarget}
               mergedNames={mergedNamesByHost[table.id]}
+              onUnmerge={handleUnmergeTables}
             />
           ))}
         </div>
@@ -1567,6 +1589,7 @@ export default function Table() {
               onEditTable={setEditTarget}
               onDeleteTable={setDeleteTarget}
               mergedNames={mergedNamesByHost[table.id]}
+              onUnmerge={handleUnmergeTables}
             />
           ))}
         </div>
