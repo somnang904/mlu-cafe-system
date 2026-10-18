@@ -1,4 +1,6 @@
 const jwt = require('jsonwebtoken')
+const { hasStrongDeviceId } = require('../utils/deviceFingerprint')
+const { noteTrustedDevice } = require('../utils/trustedDevices')
 const db = require('../../db')
 const { env } = require('../config/env')
 const {
@@ -124,6 +126,9 @@ async function authenticateToken(req, res, next) {
     req.auth = { id: user.id, username: user.username, role: user.role }
 
     touchUserSession(db, decoded.jti).catch(() => {})
+    if (hasStrongDeviceId(req) && req.deviceFingerprint) {
+      noteTrustedDevice(req.deviceFingerprint, user.id).catch(() => {})
+    }
 
     if (shouldRenewToken(decoded.iat)) {
       const renewed = renewSessionToken(user, decoded.jti)

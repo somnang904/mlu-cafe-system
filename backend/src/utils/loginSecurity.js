@@ -86,6 +86,32 @@ async function ensureLoginSecuritySchema(database = db) {
           KEY idx_blocked_devices_fp (device_fingerprint)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
       `)
+      // Group blocks: the phone/computer type of the blocked device, so another browser on the
+      // same phone (new device id) is still caught.
+      const [osColumn] = await database.execute(
+        `SELECT 1 FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'blocked_devices' AND COLUMN_NAME = 'os_name'
+         LIMIT 1`,
+      )
+      if (osColumn.length === 0) {
+        await database.execute(
+          'ALTER TABLE blocked_devices ADD COLUMN os_name VARCHAR(40) NULL, ADD COLUMN device_type VARCHAR(20) NULL',
+        )
+      }
+      await database.execute(`
+        CREATE TABLE IF NOT EXISTS trusted_devices (
+          device_fingerprint CHAR(64) PRIMARY KEY,
+          user_id INT NULL,
+          first_seen_at DATETIME NOT NULL,
+          last_seen_at DATETIME NOT NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `)
+      // Blocks made before this column existed take the type from the alert they came from.
+      await database.execute(
+        `UPDATE blocked_devices b JOIN security_alerts a ON a.id = b.alert_id
+         SET b.os_name = a.os_name, b.device_type = a.device_type
+         WHERE b.os_name IS NULL`,
+      )
     })().catch((error) => {
       schemaReadyPromise = null
       throw error
@@ -289,14 +315,25 @@ function createMysqlSecurityStore(database = db) {
       return this.getAlert(id)
     },
 
-    async blockDevice({ ip, fingerprint, alertId, blockedBy }) {
+    async blockDevice({ ip, fingerprint, alertId, blockedBy, osName = null, deviceType = null }) {
       await ensureLoginSecuritySchema(database)
       await database.execute(
-        `INSERT INTO blocked_devices (ip_address, device_fingerprint, alert_id, blocked_by, created_at)
-         VALUES (?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE alert_id = VALUES(alert_id), blocked_by = VALUES(blocked_by)`,
-        [ip, fingerprint, alertId || null, blockedBy || null, new Date()],
+        `INSERT INTO blocked_devices (ip_address, device_fingerprint, alert_id, blocked_by, created_at, os_name, device_type)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE alert_id = VALUES(alert_id), blocked_by = VALUES(blocked_by),
+                                 os_name = VALUES(os_name), device_type = VALUES(device_type)`,
+        [ip, fingerprint, alertId || null, blockedBy || null, new Date(), osName, deviceType],
       )
+    },
+
+    async isTrustedDevice(fingerprint) {
+      if (!fingerprint) return false
+      await ensureLoginSecuritySchema(database)
+      const [rows] = await database.execute(
+        'SELECT 1 FROM trusted_devices WHERE device_fingerprint = ? LIMIT 1',
+        [fingerprint],
+      )
+      return rows.length > 0
     },
 
     async listBlocked() {
@@ -333,15 +370,24 @@ function createMysqlSecurityStore(database = db) {
       )
     },
 
-    async isBlocked({ ip, fingerprint, strong = false }) {
+    async isBlocked({ ip, fingerprint, strong = false, osName = '', deviceType = '' }) {
       await ensureLoginSecuritySchema(database)
       const [rows] = await database.execute(
-        `SELECT ip_address, device_fingerprint FROM blocked_devices
+        `SELECT ip_address, device_fingerprint, os_name, device_type FROM blocked_devices
          WHERE ip_address = ?
             OR (? <> '' AND device_fingerprint = ?)`,
         [ip, fingerprint || '', fingerprint || ''],
       )
-      return rows.some((row) => matchesBlock(row.ip_address, row.device_fingerprint, { ip, fingerprint, strong }))
+      const request = { ip, fingerprint, strong, osName, deviceType }
+      for (const row of rows) {
+        const verdict = blockVerdict(
+          { ip: row.ip_address, fingerprint: row.device_fingerprint, osName: row.os_name, deviceType: row.device_type },
+          request,
+        )
+        if (verdict === 'block') return true
+        if (verdict === 'group' && !(await this.isTrustedDevice(fingerprint))) return true
+      }
+      return false
     },
 
     async cleanupExpired(nowMs) {
@@ -426,14 +472,26 @@ function createMemorySecurityStore() {
       return row
     },
 
-    async blockDevice({ ip, fingerprint, alertId, blockedBy }) {
+    async blockDevice({ ip, fingerprint, alertId, blockedBy, osName = null, deviceType = null }) {
       const existing = blocks.find((row) => row.ip === ip && row.fingerprint === fingerprint)
       if (existing) {
         existing.alertId = alertId || existing.alertId
         existing.blockedBy = blockedBy || existing.blockedBy
+        existing.osName = osName
+        existing.deviceType = deviceType
         return
       }
-      blocks.push({ ip, fingerprint, alertId: alertId || null, blockedBy: blockedBy || null })
+      blocks.push({ ip, fingerprint, alertId: alertId || null, blockedBy: blockedBy || null, osName, deviceType })
+    },
+
+    trusted: new Set(),
+
+    markTrusted(fingerprint) {
+      this.trusted.add(fingerprint)
+    },
+
+    async isTrustedDevice(fingerprint) {
+      return this.trusted.has(fingerprint)
     },
 
     async unblockDevice({ ip, fingerprint }) {
@@ -467,8 +525,14 @@ function createMemorySecurityStore() {
       return { id: Number(id), alertId: removed.alertId || null }
     },
 
-    async isBlocked({ ip, fingerprint, strong = false }) {
-      return blocks.some((row) => matchesBlock(row.ip, row.fingerprint, { ip, fingerprint, strong }))
+    async isBlocked({ ip, fingerprint, strong = false, osName = '', deviceType = '' }) {
+      const request = { ip, fingerprint, strong, osName, deviceType }
+      for (const row of blocks) {
+        const verdict = blockVerdict(row, request)
+        if (verdict === 'block') return true
+        if (verdict === 'group' && !(await this.isTrustedDevice(fingerprint))) return true
+      }
+      return false
     },
 
     async cleanupExpired(nowMs) {
@@ -662,13 +726,19 @@ async function processLoginAttempt({
   return invalidResult()
 }
 
-// A request carrying the app's own device id is judged by that id alone, so other devices on the
-// same shop Wi-Fi (one public IP) are not caught. Only requests with no real device id (scripts,
-// curl) fall back to the IP, and private/loopback addresses never count.
-function matchesBlock(rowIp, rowFingerprint, { ip, fingerprint, strong }) {
-  if (fingerprint && rowFingerprint === fingerprint) return true
-  if (strong) return false
-  return rowIp === ip && !isPrivateOrLoopbackIp(rowIp)
+// How a block row applies to a request:
+//  'block' - the same device id (or an anonymous request from the blocked IP)
+//  'group' - a different device id on the same network and the same kind of phone/computer
+//            (another browser on the blocked phone); blocked unless the id is a known user device
+//  'none'  - unrelated (including other devices on the shop Wi-Fi). Loopback/private IPs never count.
+function blockVerdict(row, request) {
+  if (request.fingerprint && row.fingerprint === request.fingerprint) return 'block'
+  if (!row.ip || row.ip !== request.ip || isPrivateOrLoopbackIp(row.ip)) return 'none'
+  if (!request.strong) return 'block'
+  const known = (value) => value && value !== 'Unknown'
+  const sameKind = known(row.osName) && row.osName === request.osName
+    && known(row.deviceType) && row.deviceType === request.deviceType
+  return sameKind ? 'group' : 'none'
 }
 
 function createBlockedDeviceMiddleware(store) {
@@ -678,7 +748,14 @@ function createBlockedDeviceMiddleware(store) {
       const fingerprint = resolveRequestFingerprint(req)
       req.clientIp = ip
       req.deviceFingerprint = fingerprint
-      const blocked = await store.isBlocked({ ip, fingerprint, strong: hasStrongDeviceId(req) })
+      const agent = parseUserAgent(req.get?.('user-agent') || req.headers?.['user-agent'])
+      const blocked = await store.isBlocked({
+        ip,
+        fingerprint,
+        strong: hasStrongDeviceId(req),
+        osName: agent.osName,
+        deviceType: agent.deviceType,
+      })
       if (blocked) {
         logSecurity('device_blocked', { ip, fingerprint })
         return res.status(403).json({ message: 'Access denied.' })

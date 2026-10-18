@@ -81,6 +81,8 @@ function createSecurityAlertsRouter({ store, requireAdmin }) {
       fingerprint: existing.deviceFingerprint,
       alertId: existing.id,
       blockedBy: req.user?.id || null,
+      osName: existing.osName,
+      deviceType: existing.deviceType,
     })
     const alert = await store.updateAlertStatus(id, 'BLOCKED')
     logSecurity('device_block_added', {

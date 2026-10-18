@@ -51,3 +51,45 @@ describe('device id helpers', () => {
     assert.equal(isPrivateOrLoopbackIp('203.0.113.10'), false)
   })
 })
+
+describe('blocking a phone, whichever browser it uses', () => {
+  const PHONE = { osName: 'iOS', deviceType: 'Mobile' }
+  const OTHER_BROWSER = 'ee'.repeat(32) // Chrome on the same iPhone: a new device id
+
+  async function phoneBlocked() {
+    const store = createMemorySecurityStore()
+    await store.blockDevice({ ip: SHOP_IP, fingerprint: BLOCKED, alertId: 1, blockedBy: 1, ...PHONE })
+    return store
+  }
+
+  it('blocks another browser on the same phone and network', async () => {
+    const store = await phoneBlocked()
+    assert.equal(await store.isBlocked({ ip: SHOP_IP, fingerprint: OTHER_BROWSER, strong: true, ...PHONE }), true)
+  })
+
+  it('does not block a computer on the same network', async () => {
+    const store = await phoneBlocked()
+    const computer = { osName: 'Windows', deviceType: 'Desktop' }
+    assert.equal(await store.isBlocked({ ip: SHOP_IP, fingerprint: OTHER, strong: true, ...computer }), false)
+  })
+
+  it('does not block the same kind of phone on a different network', async () => {
+    const store = await phoneBlocked()
+    assert.equal(await store.isBlocked({ ip: '198.51.100.9', fingerprint: OTHER_BROWSER, strong: true, ...PHONE }), false)
+  })
+
+  it('spares a phone that is a known user device (it has signed in before)', async () => {
+    const store = await phoneBlocked()
+    store.markTrusted(OTHER_BROWSER)
+    assert.equal(await store.isBlocked({ ip: SHOP_IP, fingerprint: OTHER_BROWSER, strong: true, ...PHONE }), false)
+    // but the blocked device itself stays blocked even if it was once trusted
+    store.markTrusted(BLOCKED)
+    assert.equal(await store.isBlocked({ ip: SHOP_IP, fingerprint: BLOCKED, strong: true, ...PHONE }), true)
+  })
+
+  it('ignores group matching for blocks saved without a phone/computer type', async () => {
+    const store = createMemorySecurityStore()
+    await store.blockDevice({ ip: SHOP_IP, fingerprint: BLOCKED, alertId: 1, blockedBy: 1 })
+    assert.equal(await store.isBlocked({ ip: SHOP_IP, fingerprint: OTHER_BROWSER, strong: true, ...PHONE }), false)
+  })
+})
