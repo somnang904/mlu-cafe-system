@@ -21,6 +21,7 @@ const USER_WIDE_IP = '*'
 const IP_WIDE_USER = '*'
 
 const { registerSchemaReset } = require('./schemaReset')
+const { publish } = require('./realtime')
 let schemaReadyPromise = null
 registerSchemaReset(() => {
   schemaReadyPromise = null
@@ -631,6 +632,10 @@ async function processLoginAttempt({
       stage: 1,
       createdAt: new Date(now).toISOString(),
     })
+
+    // Show the new alert in every admin's bell and Security Alerts list right away.
+    publish('security')
+    publish('alerts')
 
     logSecurity('login_lockout_alert', {
       ip,

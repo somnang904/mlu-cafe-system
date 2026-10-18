@@ -1,5 +1,6 @@
 const { STORE } = require('../config/store');
 const { resolveStockStatus } = require('./inventorySchema');
+const { publish } = require('./realtime');
 
 const CACHE_TTL_MS = Number.parseInt(process.env.ALERTS_CACHE_TTL_MS, 10) || 20_000;
 let alertsCache = { expiresAt: 0, payload: null };
@@ -189,6 +190,8 @@ async function buildActiveAlerts(db, { bypassCache = false } = {}) {
 
 function clearAlertsCache() {
   alertsCache = { expiresAt: 0, payload: null };
+  // Stock changed: tell open screens to re-read their alerts now instead of waiting for the next poll.
+  publish('alerts');
 }
 
 module.exports = {

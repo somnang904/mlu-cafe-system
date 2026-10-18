@@ -187,6 +187,7 @@ const {
 } = require('./src/utils/reservations');
 const { processReservationReminders, startReservationReminderJob, notifyReservationCreated } = require('./src/utils/reservationReminders');
 const { startStaleOrderCleanupJob } = require('./src/utils/staleOrderCleanup');
+const { openStream: openLiveStream } = require('./src/utils/realtime');
 const { sendReservationConfirmationLetter } = require('./src/utils/reservationLetter');
 const { getLiveConditions } = require('./src/utils/liveConditions');
 const { createUserSession } = require('./src/utils/userSessions');
@@ -2371,6 +2372,9 @@ function summarizeAlertCounts(alerts) {
         reservation: alerts.filter((alert) => alert.category === 'reservation').length,
     };
 }
+
+// Live notification stream (Server-Sent Events): it only signals "re-read your alerts".
+app.get('/api/events', (req, res) => openLiveStream(req, res));
 
 // Authenticated users get a permission-filtered feed (stock / expenses / reservations / security).
 // Do not gate the whole route on inventory_stock — admins and floor staff still need notices online.

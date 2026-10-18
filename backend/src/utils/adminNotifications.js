@@ -1,3 +1,4 @@
+const { publish } = require('./realtime')
 const { registerSchemaReset } = require('./schemaReset')
 let schemaReadyPromise = null
 registerSchemaReset(() => {
@@ -47,6 +48,7 @@ async function createAdminNotification(db, {
       meta ? JSON.stringify(meta) : null,
     ],
   )
+  publish('alerts')
   return result.insertId
 }
 

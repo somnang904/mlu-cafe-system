@@ -1,6 +1,7 @@
 const express = require('express')
 const { logSecurity } = require('../utils/logger')
 const { hasStrongDeviceId } = require('../utils/deviceFingerprint')
+const { publish } = require('../utils/realtime')
 
 function createSecurityAlertsRouter({ store, requireAdmin }) {
   const router = express.Router()
@@ -31,6 +32,7 @@ function createSecurityAlertsRouter({ store, requireAdmin }) {
       if (alert?.status === 'BLOCKED') await store.updateAlertStatus(removed.alertId, 'REVIEWED')
     }
     logSecurity('device_block_removed', { blockedId: id, reviewer: req.user?.username })
+    publish('security')
     return res.status(200).json({ ok: true })
   })
 
@@ -51,6 +53,8 @@ function createSecurityAlertsRouter({ store, requireAdmin }) {
       username: existing.username,
       reviewer: req.user?.username,
     })
+    publish('security')
+    publish('alerts')
     return res.status(200).json({ alert })
   })
 
@@ -86,6 +90,8 @@ function createSecurityAlertsRouter({ store, requireAdmin }) {
       username: existing.username,
       blockedBy: req.user?.username,
     })
+    publish('security')
+    publish('alerts')
     return res.status(200).json({ alert })
   })
 
@@ -109,6 +115,8 @@ function createSecurityAlertsRouter({ store, requireAdmin }) {
       username: existing.username,
       reviewer: req.user?.username,
     })
+    publish('security')
+    publish('alerts')
     return res.status(200).json({ alert })
   })
 

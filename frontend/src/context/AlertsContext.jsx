@@ -4,6 +4,7 @@ import { filterAlertsBySettings, countAlerts } from '../utils/alertSettings'
 import { useSettings } from './SettingsContext'
 import { useNotifications } from './NotificationContext'
 import { playAlertSound } from '../utils/soundAlert'
+import { LIVE_EVENT, startLiveEvents } from '../utils/liveEvents'
 
 const AlertsContext = createContext(null)
 /** Visible-tab poll — keep stock / expense / reservation notices fresh online. */
@@ -150,6 +151,14 @@ export function AlertsProvider({ children }) {
     run(true)
     schedule()
 
+    // Push: the server says when something changed, so the bell updates in about a second.
+    // The timed poll above stays as a fallback if the stream is cut.
+    const stopLive = startLiveEvents((event) => {
+      if (cancelled || !getAuthToken()) return
+      fetchAlerts({ refresh: true })
+      window.dispatchEvent(new CustomEvent(LIVE_EVENT, { detail: event }))
+    })
+
     const onVisibleOrFocus = () => {
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
         schedule()
@@ -168,6 +177,7 @@ export function AlertsProvider({ children }) {
 
     return () => {
       cancelled = true
+      stopLive()
       if (timerId != null) window.clearInterval(timerId)
       document.removeEventListener('visibilitychange', onVisibleOrFocus)
       window.removeEventListener('focus', onVisibleOrFocus)

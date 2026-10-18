@@ -10,6 +10,7 @@ import SettingToggle from '../components/ui/SettingToggle'
 import { useSettings } from '../context/SettingsContext'
 import { useAuth } from '../context/AuthContext'
 import { isAdminRole } from '../utils/permissions'
+import { LIVE_EVENT } from '../utils/liveEvents'
 
 function formatWhen(value, language) {
   if (!value) return '—'
@@ -75,6 +76,15 @@ function LoginAlertsTab() {
 
   useEffect(() => {
     loadAlerts(status)
+  }, [status, loadAlerts])
+
+  // A new login alert or a block/unblock elsewhere: refresh this list without a manual reload.
+  useEffect(() => {
+    const onLive = (event) => {
+      if (event.detail?.type === 'security') loadAlerts(status)
+    }
+    window.addEventListener(LIVE_EVENT, onLive)
+    return () => window.removeEventListener(LIVE_EVENT, onLive)
   }, [status, loadAlerts])
 
   const unblockBlocked = async (id) => {
