@@ -318,7 +318,7 @@ async function insertSales(conn, orders) {
 
     // Direct insert only. Do not reconcile stock: simulated history must not deduct or log movements.
     const [result] = await conn.query(
-      `INSERT INTO orders`
+      `INSERT INTO orders
         (target_id, table_id, source_type, total_amount, payment_type, status,
          invoice_id, payment_method, subtotal, tax, total, created_at, updated_at)
        VALUES ?`,
