@@ -13,6 +13,27 @@ function createSecurityAlertsRouter({ store, requireAdmin }) {
     res.status(200).json({ alerts })
   })
 
+  // Devices that are blocked right now (the blocked_devices table), not just alerts marked BLOCKED.
+  router.get('/blocked', async (_req, res) => {
+    const devices = await store.listBlocked()
+    res.status(200).json({ devices })
+  })
+
+  router.post('/blocked/:id/unblock', async (req, res) => {
+    const id = Number.parseInt(req.params.id, 10)
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ message: 'Invalid blocked device id' })
+    }
+    const removed = await store.unblockById(id)
+    if (!removed) return res.status(404).json({ message: 'Blocked device not found' })
+    if (removed.alertId) {
+      const alert = await store.getAlert(removed.alertId)
+      if (alert?.status === 'BLOCKED') await store.updateAlertStatus(removed.alertId, 'REVIEWED')
+    }
+    logSecurity('device_block_removed', { blockedId: id, reviewer: req.user?.username })
+    return res.status(200).json({ ok: true })
+  })
+
   router.post('/:id/review', async (req, res) => {
     const id = Number.parseInt(req.params.id, 10)
     if (!Number.isInteger(id) || id <= 0) {

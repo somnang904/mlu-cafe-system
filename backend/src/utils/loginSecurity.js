@@ -142,6 +142,22 @@ function mapAlertRow(row) {
   }
 }
 
+function mapBlockedRow(row) {
+  return {
+    id: row.id,
+    ipAddress: row.ip_address,
+    deviceFingerprint: row.device_fingerprint,
+    alertId: row.alert_id,
+    username: row.username || '',
+    browser: row.browser || 'Unknown',
+    osName: row.os_name || 'Unknown',
+    deviceType: row.device_type || 'Unknown',
+    location: row.location || 'Unknown',
+    blockedBy: row.blocked_by_name || '',
+    createdAt: row.created_at,
+  }
+}
+
 function createMysqlSecurityStore(database = db) {
   return {
     async getAttempt(username, ip) {
@@ -282,6 +298,32 @@ function createMysqlSecurityStore(database = db) {
       )
     },
 
+    async listBlocked() {
+      await ensureLoginSecuritySchema(database)
+      const [rows] = await database.execute(
+        `SELECT b.id, b.ip_address, b.device_fingerprint, b.alert_id, b.created_at,
+                a.username, a.browser, a.os_name, a.device_type, a.location,
+                u.username AS blocked_by_name
+         FROM blocked_devices b
+         LEFT JOIN security_alerts a ON a.id = b.alert_id
+         LEFT JOIN users u ON u.id = b.blocked_by
+         ORDER BY b.created_at DESC
+         LIMIT 200`,
+      )
+      return rows.map(mapBlockedRow)
+    },
+
+    async unblockById(id) {
+      await ensureLoginSecuritySchema(database)
+      const [rows] = await database.execute(
+        'SELECT id, alert_id FROM blocked_devices WHERE id = ? LIMIT 1',
+        [id],
+      )
+      if (!rows.length) return null
+      await database.execute('DELETE FROM blocked_devices WHERE id = ?', [id])
+      return { id: rows[0].id, alertId: rows[0].alert_id }
+    },
+
     async unblockDevice({ ip, fingerprint }) {
       await ensureLoginSecuritySchema(database)
       await database.execute(
@@ -396,6 +438,32 @@ function createMemorySecurityStore() {
     async unblockDevice({ ip, fingerprint }) {
       const index = blocks.findIndex((row) => row.ip === ip && row.fingerprint === fingerprint)
       if (index >= 0) blocks.splice(index, 1)
+    },
+
+    async listBlocked() {
+      return blocks.map((row, index) => {
+        const alert = alerts.find((item) => item.id === Number(row.alertId)) || {}
+        return {
+          id: row.id ?? index + 1,
+          ipAddress: row.ip,
+          deviceFingerprint: row.fingerprint,
+          alertId: row.alertId || null,
+          username: alert.username || '',
+          browser: alert.browser || 'Unknown',
+          osName: alert.osName || 'Unknown',
+          deviceType: alert.deviceType || 'Unknown',
+          location: alert.location || 'Unknown',
+          blockedBy: '',
+          createdAt: row.createdAt || null,
+        }
+      })
+    },
+
+    async unblockById(id) {
+      const index = blocks.findIndex((row, i) => (row.id ?? i + 1) === Number(id))
+      if (index < 0) return null
+      const [removed] = blocks.splice(index, 1)
+      return { id: Number(id), alertId: removed.alertId || null }
     },
 
     async isBlocked({ ip, fingerprint, strong = false }) {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Bell, ShieldAlert } from 'lucide-react'
 import { apiFetch } from '../services/apiClient'
@@ -38,28 +38,59 @@ function LoginAlertsTab() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
   const [pendingId, setPendingId] = useState(null)
+  const [blockedDevices, setBlockedDevices] = useState([])
+  const errorRef = useRef(null)
 
   const loadAlerts = useCallback(async (nextStatus = status) => {
     setIsLoading(true)
     setError('')
     try {
-      const response = await apiFetch(`/security-alerts?status=${encodeURIComponent(nextStatus)}`)
-      const data = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        throw new Error(data.message || t('securityAlerts.loadFailed'))
+      if (nextStatus === 'BLOCKED') {
+        const response = await apiFetch('/security-alerts/blocked')
+        const data = await response.json().catch(() => ({}))
+        if (!response.ok) throw new Error(data.message || t('securityAlerts.loadFailed'))
+        setBlockedDevices(Array.isArray(data.devices) ? data.devices : [])
+        setAlerts([])
+      } else {
+        const response = await apiFetch(`/security-alerts?status=${encodeURIComponent(nextStatus)}`)
+        const data = await response.json().catch(() => ({}))
+        if (!response.ok) {
+          throw new Error(data.message || t('securityAlerts.loadFailed'))
+        }
+        setAlerts(Array.isArray(data.alerts) ? data.alerts : [])
       }
-      setAlerts(Array.isArray(data.alerts) ? data.alerts : [])
     } catch (err) {
       setAlerts([])
+      setBlockedDevices([])
       setError(err.message || t('securityAlerts.loadFailed'))
     } finally {
       setIsLoading(false)
     }
   }, [status, t])
 
+  // A failed action (for example "You cannot block the device you are using") must be seen.
+  useEffect(() => {
+    if (error) errorRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }, [error])
+
   useEffect(() => {
     loadAlerts(status)
   }, [status, loadAlerts])
+
+  const unblockBlocked = async (id) => {
+    setPendingId(`blocked-${id}`)
+    setError('')
+    try {
+      const response = await apiFetch(`/security-alerts/blocked/${id}/unblock`, { method: 'POST' })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.message || t('securityAlerts.actionFailed'))
+      await loadAlerts('BLOCKED')
+    } catch (err) {
+      setError(err.message || t('securityAlerts.actionFailed'))
+    } finally {
+      setPendingId(null)
+    }
+  }
 
   const runAction = async (id, action) => {
     setPendingId(id)
@@ -98,11 +129,62 @@ function LoginAlertsTab() {
       </div>
 
       {error ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300">
+        <div ref={errorRef} role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300">
           {error}
         </div>
       ) : null}
 
+      {status === 'BLOCKED' ? (
+        <div className="table-shell overflow-x-auto">
+          <table className="min-w-full text-left text-sm">
+            <thead className="text-xs uppercase tracking-wide text-slate-500 dark:text-zinc-400">
+              <tr>
+                <th className="px-4 py-3">{t('securityAlerts.blockedOn')}</th>
+                <th className="px-4 py-3">{t('securityAlerts.username')}</th>
+                <th className="px-4 py-3">{t('securityAlerts.ip')}</th>
+                <th className="px-4 py-3">{t('securityAlerts.device')}</th>
+                <th className="px-4 py-3">{t('securityAlerts.location')}</th>
+                <th className="px-4 py-3">{t('securityAlerts.blockedBy')}</th>
+                <th className="px-4 py-3">{t('common.actions')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {isLoading ? (
+                <tr>
+                  <td colSpan={7} className="px-4 py-8 text-center text-slate-500">{t('common.loading')}</td>
+                </tr>
+              ) : blockedDevices.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-4 py-8 text-center text-slate-500">{t('securityAlerts.noBlocked')}</td>
+                </tr>
+              ) : (
+                blockedDevices.map((device) => (
+                  <tr key={device.id} className="border-t border-slate-200/80 dark:border-zinc-800">
+                    <td className="px-4 py-3 whitespace-nowrap">{formatWhen(device.createdAt, i18n.language)}</td>
+                    <td className="px-4 py-3 font-medium">{device.username || '—'}</td>
+                    <td className="px-4 py-3">{device.ipAddress}</td>
+                    <td className="px-4 py-3 break-words">
+                      {[device.browser, device.osName, device.deviceType].filter(Boolean).join(' · ')}
+                    </td>
+                    <td className="px-4 py-3">{device.location || t('securityAlerts.unknown')}</td>
+                    <td className="px-4 py-3">{device.blockedBy || '—'}</td>
+                    <td className="px-4 py-3">
+                      <button
+                        type="button"
+                        disabled={pendingId === `blocked-${device.id}`}
+                        onClick={() => unblockBlocked(device.id)}
+                        className="rounded-full px-3 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-50 disabled:opacity-50 dark:text-amber-200 dark:hover:bg-amber-950/40"
+                      >
+                        {t('securityAlerts.unblock')}
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      ) : (
       <div className="table-shell overflow-x-auto">
         <table className="min-w-full text-left text-sm">
           <thead className="text-xs uppercase tracking-wide text-slate-500 dark:text-zinc-400">
@@ -181,6 +263,7 @@ function LoginAlertsTab() {
           </tbody>
         </table>
       </div>
+      )}
     </div>
   )
 }
