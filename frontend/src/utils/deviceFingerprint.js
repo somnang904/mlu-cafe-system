@@ -1,47 +1,38 @@
-const STORAGE_KEY = 'mlu_device_client_id'
+// A random 64-hex id kept in this browser and sent as X-Device-Id.
+// It is generated with getRandomValues, which also works over plain http: the site is served
+// without https, where crypto.subtle (and randomUUID) do not exist. The server only trusts a
+// 64-hex id as a real device identity, so it must always be exactly that shape.
+const STORAGE_KEY = 'mlu_device_id'
+const DEVICE_ID_PATTERN = /^[a-f0-9]{64}$/
 
-let fingerprintPromise = null
 // Used only when localStorage is unavailable (private mode): still unique per device, never a shared constant.
-let memoryClientId = null
+let memoryDeviceId = null
 
-function readClientId() {
+function randomDeviceId() {
+  const bytes = new Uint8Array(32)
+  if (globalThis.crypto?.getRandomValues) {
+    globalThis.crypto.getRandomValues(bytes)
+  } else {
+    for (let i = 0; i < bytes.length; i += 1) bytes[i] = Math.floor(Math.random() * 256)
+  }
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('')
+}
+
+function readDeviceId() {
   try {
     const existing = localStorage.getItem(STORAGE_KEY)
-    if (existing) return existing
-    const created = globalThis.crypto?.randomUUID?.()
-      || `${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`
+    if (existing && DEVICE_ID_PATTERN.test(existing)) return existing
+    const created = randomDeviceId()
     localStorage.setItem(STORAGE_KEY, created)
     return created
   } catch {
-    memoryClientId ||= globalThis.crypto?.randomUUID?.()
-      || `${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`
-    return memoryClientId
+    memoryDeviceId ||= randomDeviceId()
+    return memoryDeviceId
   }
 }
 
-async function sha256Hex(value) {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
-}
-
-/**
- * Stable device id for the X-Device-Id header.
- * SHA-256(User-Agent + Accept-Language + a localStorage id).
- */
-export function getDeviceFingerprint() {
-  if (!fingerprintPromise) {
-    fingerprintPromise = (async () => {
-      const clientId = readClientId()
-      const material = `${navigator.userAgent}|${navigator.language || ''}|${clientId}`
-      try {
-        if (globalThis.crypto?.subtle) return await sha256Hex(material)
-      } catch {
-        // The raw id is still hashed on the server when it is not 64 hex chars.
-      }
-      return clientId
-    })()
-  }
-  return fingerprintPromise
+export async function getDeviceFingerprint() {
+  return readDeviceId()
 }
 
 export async function deviceHeaders() {
