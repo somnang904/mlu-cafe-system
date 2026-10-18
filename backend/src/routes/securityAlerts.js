@@ -1,5 +1,6 @@
 const express = require('express')
 const { logSecurity } = require('../utils/logger')
+const { hasStrongDeviceId } = require('../utils/deviceFingerprint')
 
 function createSecurityAlertsRouter({ store, requireAdmin }) {
   const router = express.Router()
@@ -41,6 +42,13 @@ function createSecurityAlertsRouter({ store, requireAdmin }) {
     if (!existing) return res.status(404).json({ message: 'Alert not found' })
     if (!existing.deviceFingerprint) {
       return res.status(400).json({ message: 'This alert has no device fingerprint to block' })
+    }
+
+    // An admin must never lock themselves out: the block check runs before sign-in.
+    const sameDevice = req.deviceFingerprint && existing.deviceFingerprint === req.deviceFingerprint
+    const sameWeakIp = !hasStrongDeviceId(req) && existing.ipAddress === req.clientIp
+    if (sameDevice || sameWeakIp) {
+      return res.status(400).json({ message: 'You cannot block the device you are using.' })
     }
 
     await store.blockDevice({

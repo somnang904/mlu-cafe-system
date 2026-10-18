@@ -1,6 +1,8 @@
 const STORAGE_KEY = 'mlu_device_client_id'
 
 let fingerprintPromise = null
+// Used only when localStorage is unavailable (private mode): still unique per device, never a shared constant.
+let memoryClientId = null
 
 function readClientId() {
   try {
@@ -11,7 +13,9 @@ function readClientId() {
     localStorage.setItem(STORAGE_KEY, created)
     return created
   } catch {
-    return 'unknown-device'
+    memoryClientId ||= globalThis.crypto?.randomUUID?.()
+      || `${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`
+    return memoryClientId
   }
 }
 

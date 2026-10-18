@@ -1,7 +1,7 @@
 const db = require('../../db')
 const { logError, logSecurity } = require('./logger')
 const { getClientIp } = require('./clientIp')
-const { resolveRequestFingerprint, parseUserAgent } = require('./deviceFingerprint')
+const { resolveRequestFingerprint, parseUserAgent, hasStrongDeviceId, isPrivateOrLoopbackIp } = require('./deviceFingerprint')
 const { lookupIpLocation } = require('./ipLocation')
 const {
   INVALID_CREDENTIALS_MESSAGE,
@@ -290,16 +290,15 @@ function createMysqlSecurityStore(database = db) {
       )
     },
 
-    async isBlocked({ ip, fingerprint }) {
+    async isBlocked({ ip, fingerprint, strong = false }) {
       await ensureLoginSecuritySchema(database)
       const [rows] = await database.execute(
-        `SELECT id FROM blocked_devices
+        `SELECT ip_address, device_fingerprint FROM blocked_devices
          WHERE ip_address = ?
-            OR (? <> '' AND device_fingerprint = ?)
-         LIMIT 1`,
+            OR (? <> '' AND device_fingerprint = ?)`,
         [ip, fingerprint || '', fingerprint || ''],
       )
-      return rows.length > 0
+      return rows.some((row) => matchesBlock(row.ip_address, row.device_fingerprint, { ip, fingerprint, strong }))
     },
 
     async cleanupExpired(nowMs) {
@@ -399,10 +398,8 @@ function createMemorySecurityStore() {
       if (index >= 0) blocks.splice(index, 1)
     },
 
-    async isBlocked({ ip, fingerprint }) {
-      return blocks.some(
-        (row) => row.ip === ip || (fingerprint && row.fingerprint === fingerprint),
-      )
+    async isBlocked({ ip, fingerprint, strong = false }) {
+      return blocks.some((row) => matchesBlock(row.ip, row.fingerprint, { ip, fingerprint, strong }))
     },
 
     async cleanupExpired(nowMs) {
@@ -592,6 +589,15 @@ async function processLoginAttempt({
   return invalidResult()
 }
 
+// A request carrying the app's own device id is judged by that id alone, so other devices on the
+// same shop Wi-Fi (one public IP) are not caught. Only requests with no real device id (scripts,
+// curl) fall back to the IP, and private/loopback addresses never count.
+function matchesBlock(rowIp, rowFingerprint, { ip, fingerprint, strong }) {
+  if (fingerprint && rowFingerprint === fingerprint) return true
+  if (strong) return false
+  return rowIp === ip && !isPrivateOrLoopbackIp(rowIp)
+}
+
 function createBlockedDeviceMiddleware(store) {
   return async function blockedDeviceMiddleware(req, res, next) {
     try {
@@ -599,7 +605,7 @@ function createBlockedDeviceMiddleware(store) {
       const fingerprint = resolveRequestFingerprint(req)
       req.clientIp = ip
       req.deviceFingerprint = fingerprint
-      const blocked = await store.isBlocked({ ip, fingerprint })
+      const blocked = await store.isBlocked({ ip, fingerprint, strong: hasStrongDeviceId(req) })
       if (blocked) {
         logSecurity('device_blocked', { ip, fingerprint })
         return res.status(403).json({ message: 'Access denied.' })
