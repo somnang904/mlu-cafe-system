@@ -10,6 +10,7 @@ import SaleDetailsModal from '../components/sales/SaleDetailsModal'
 import PaginationBar from '../components/ui/PaginationBar'
 import { apiFetch } from '../services/apiClient'
 import { usePOS } from '../context/POSContext'
+import { useAuth } from '../context/AuthContext'
 import { fetchReceiptTransaction } from '../utils/receiptHelpers'
 import { cashPaidIn, formatMonthLabel, mapHistoryRow } from '../utils/salesHistoryAnalytics'
 import { formatKhr, formatUsd, usdToKhr } from '../utils/currency'
@@ -90,6 +91,8 @@ function statusLabel(status, t) {
 export default function SalesHistory() {
   const { t } = useTranslation()
   const { refundOrder } = usePOS()
+  const { user, isAdmin } = useAuth()
+  const ownName = String(user?.display_name || user?.displayName || user?.username || '').trim()
   const [search, setSearch] = useState('')
   const [query, setQuery] = useState('')
   const [cashier, setCashier] = useState('all')
@@ -354,6 +357,12 @@ export default function SalesHistory() {
               />
             </div>
             <div className="w-full sm:w-56">
+              {!isAdmin ? (
+                <div className="input-field flex w-full cursor-default items-center gap-2 px-3 py-2 text-sm">
+                  <UserRound className="h-4 w-4 shrink-0 text-forest-600 dark:text-forest-400" aria-hidden />
+                  <span className="truncate font-medium">{ownName || cashiers[0]?.name || '—'}</span>
+                </div>
+              ) : (
               <IconSelect
                 value={cashier}
                 options={[
@@ -366,6 +375,7 @@ export default function SalesHistory() {
                 onChange={setCashier}
                 className="w-full px-3 py-2 text-sm"
               />
+              )}
             </div>
           </div>
           <div className="lg:hidden">
