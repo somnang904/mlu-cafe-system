@@ -67,7 +67,6 @@ function toAlert(row) {
   const type = String(row.type || '')
 
   if (type.startsWith('reservation_')) {
-    const isPending = type === 'reservation_pending'
     return {
       id: `reservation-${row.id}`,
       notificationId: row.id,

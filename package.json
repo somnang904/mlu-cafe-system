@@ -11,8 +11,10 @@
     "start:backend": "npm --prefix backend run start",
     "build": "npm --prefix frontend run build",
     "preview": "npm --prefix frontend run preview",
-    "lint": "npm --prefix frontend run lint",
+    "lint": "npm --prefix backend run lint && npm --prefix frontend run lint",
     "check:prod": "npm --prefix backend run check:prod",
-    "test": "npm --prefix backend test"
+    "test": "npm --prefix backend test",
+    "test:jest": "npm --prefix backend run test:jest && npm --prefix frontend run test:jest",
+    "test:all": "npm --prefix backend run test:all"
   }
 }

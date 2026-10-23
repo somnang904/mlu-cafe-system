@@ -674,7 +674,7 @@ async function processLoginAttempt({
 
   if (alertDue) {
     const agent = parseUserAgent(userAgent)
-    let location = 'Unknown'
+    let location
     try {
       location = (await lookupLocation(ip)) || 'Unknown'
     } catch {

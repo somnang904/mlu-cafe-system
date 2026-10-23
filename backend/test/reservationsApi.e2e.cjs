@@ -36,7 +36,7 @@ async function call(method, path, { token, body } = {}) {
     headers,
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  let json = null;
+  let json;
   try {
     json = await res.json();
   } catch {

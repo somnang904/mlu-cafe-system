@@ -7,8 +7,10 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
+    "test:e2e": "playwright test",
     "preview": "vite preview",
-    "images:thumbs": "node scripts/optimize-menu-thumbs.mjs"
+    "images:thumbs": "node scripts/optimize-menu-thumbs.mjs",
+    "test:jest": "jest --verbose"
   },
   "dependencies": {
     "@fontsource/noto-sans": "^5.3.0",
@@ -22,19 +24,51 @@
     "recharts": "^3.9.2"
   },
   "devDependencies": {
+    "@babel/core": "^7.29.7",
+    "@babel/preset-env": "^7.29.7",
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.64.1",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
     "autoprefixer": "^10.5.0",
+    "babel-jest": "^30.5.2",
     "eslint": "^10.3.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.6.0",
+    "jest": "^30.5.2",
     "postcss": "^8.5.28",
     "sharp": "^0.35.5",
     "tailwindcss": "^4.3.1",
     "vite": "^8.0.12"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testMatch": [
+      "<rootDir>/jest-tests/**/*.test.js"
+    ],
+    "transform": {
+      ".[jt]sx?$": [
+        "babel-jest",
+        {
+          "presets": [
+            [
+              "@babel/preset-env",
+              {
+                "targets": {
+                  "node": "current"
+                }
+              }
+            ]
+          ]
+        }
+      ]
+    },
+    "reporters": [
+      "default",
+      "summary"
+    ]
   }
 }

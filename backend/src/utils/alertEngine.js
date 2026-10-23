@@ -73,8 +73,6 @@ async function fetchInventoryForAlerts(db) {
     low_threshold: row.low_threshold != null ? Number(row.low_threshold) : null,
     criticalThreshold: row.critical_threshold != null ? Number(row.critical_threshold) : null,
     critical_threshold: row.critical_threshold != null ? Number(row.critical_threshold) : null,
-    isIngredient: Boolean(Number(row.is_ingredient ?? 0)),
-    is_ingredient: Boolean(Number(row.is_ingredient ?? 0)),
     unitLabel: row.unit_label || 'units',
     unit_label: row.unit_label || 'units',
     is_ingredient: row.is_ingredient,

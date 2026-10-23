@@ -10,7 +10,7 @@ const bcrypt = require('bcrypt')
 const jwt = require('jsonwebtoken')
 const db = require('../db')
 const { env } = require('../src/config/env')
-const { signSessionToken, ensureSessionSecuritySchema, renewSessionToken, RENEWED_TOKEN_HEADER } = require('../src/utils/sessionSecurity')
+const { signSessionToken, ensureSessionSecuritySchema } = require('../src/utils/sessionSecurity')
 const { createUserSession, ensureUserSessionsSchema } = require('../src/utils/userSessions')
 
 const reports = []

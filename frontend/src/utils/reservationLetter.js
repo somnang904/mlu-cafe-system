@@ -90,21 +90,7 @@ export function canIssueConfirmationLetter(reservation) {
   return reservation.status !== 'Canceled' && reservation.status !== 'No-show'
 }
 
-function buildPrintableLetterHtml(reservation) {
-  const letter = buildLetterFields(reservation)
-  const row = (label, value) => `
-    <div class="detail">
-      <p class="label">${escapeHtml(label)}</p>
-      <p class="value">${escapeHtml(value)}</p>
-    </div>`
-
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>${escapeHtml(letter.heading.replace(/!$/, ''))} —${escapeHtml(letter.businessName)}</title>
-  <style>
+const LETTER_CSS = `
     @page { size: A5 portrait; margin: 0; }
     * { box-sizing: border-box; }
     html, body {
@@ -219,9 +205,20 @@ function buildPrintableLetterHtml(reservation) {
       body { padding: 24px 12px; }
       .card { box-shadow: none; }
     }
-  </style>
-</head>
-<body>
+`
+
+function letterTitle(letter) {
+  return `${escapeHtml(letter.heading.replace(/!$/, ''))} —${escapeHtml(letter.businessName)}`
+}
+
+function letterBodyHtml(letter) {
+  const row = (label, value) => `
+    <div class="detail">
+      <p class="label">${escapeHtml(label)}</p>
+      <p class="value">${escapeHtml(value)}</p>
+    </div>`
+
+  return `
   <p class="hint">Choose Save as PDF in the print dialog, then close this window.</p>
   <article class="card">
     <div class="check" aria-hidden="true">
@@ -239,7 +236,21 @@ function buildPrintableLetterHtml(reservation) {
     <a class="contact" href="${escapeHtml(letter.phoneHref)}">${escapeHtml(letter.contactLabel)}</a>
     <p class="biz">${escapeHtml(letter.businessName)}</p>
   </article>
-  <script>
+`
+}
+
+// Saved file: opened from disk, so it carries its own styles and print trigger.
+function buildPrintableLetterHtml(reservation) {
+  const letter = buildLetterFields(reservation)
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${letterTitle(letter)}</title>
+  <style>${LETTER_CSS}  </style>
+</head>
+<body>${letterBodyHtml(letter)}  <script>
     window.addEventListener('load', function () {
       window.focus();
       window.print();
@@ -262,15 +273,32 @@ export function downloadConfirmationLetter(reservation) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
+// The print window inherits this app's Content-Security-Policy, which blocks inline
+// <style> and <script>. Styles go in through a constructed stylesheet instead and the
+// print dialog is opened from here.
 export function printConfirmationLetter(reservation) {
-  const html = buildPrintableLetterHtml(reservation)
+  const letter = buildLetterFields(reservation)
   const win = window.open('', '_blank', 'width=520,height=780')
   if (!win) {
     downloadConfirmationLetter(reservation)
     return 'download'
   }
-  win.document.open()
-  win.document.write(html)
-  win.document.close()
+  const doc = win.document
+  doc.open()
+  doc.write(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${letterTitle(letter)}</title>
+</head>
+<body>${letterBodyHtml(letter)}</body>
+</html>`)
+  doc.close()
+  const sheet = new win.CSSStyleSheet()
+  sheet.replaceSync(LETTER_CSS)
+  doc.adoptedStyleSheets = [sheet]
+  win.focus()
+  win.print()
   return 'print'
 }

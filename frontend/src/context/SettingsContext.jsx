@@ -80,7 +80,9 @@ export function SettingsProvider({ children }) {
     }
   }, [])
 
+  // Settings belong to a signed-in user; the login screen only reads them.
   useEffect(() => {
+    if (!boundUserId) return
     persistSettings(boundUserId, settings)
   }, [settings, boundUserId])
 

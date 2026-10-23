@@ -33,4 +33,14 @@ export default defineConfig([
       'react-refresh/only-export-components': 'off',
     },
   },
+  {
+    // Playwright specs run in Node (they read E2E_USERNAME / E2E_PASSWORD from process.env).
+    files: ['e2e/**/*.js', 'playwright.config.js'],
+    languageOptions: { globals: globals.node },
+  },
+  {
+    // Jest unit tests provide describe / test / expect as globals.
+    files: ['jest-tests/**/*.js'],
+    languageOptions: { globals: { ...globals.node, ...globals.jest } },
+  },
 ])

@@ -30,7 +30,7 @@ function check(label, condition, detail) {
 
 async function call(path, token) {
   const res = await fetch(`${BASE}${path}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
-  let body = null;
+  let body;
   try {
     body = await res.json();
   } catch {
