@@ -70,9 +70,45 @@ function omitFullsizeMenuPhotos() {
   }
 }
 
+/**
+ * Security headers for the page itself (the API sets its own through helmet).
+ * Dev needs inline scripts (React refresh preamble), inline <style> tags (Vite injects CSS
+ * that way) and a websocket for HMR. The built app loads only its own bundled files.
+ */
+const API_ORIGIN = 'http://localhost:5500'
+
+function securityHeaders({ dev }) {
+  const csp = [
+    "default-src 'self'",
+    dev ? "script-src 'self' 'unsafe-inline'" : "script-src 'self'",
+    dev ? "style-src 'self' 'unsafe-inline'" : "style-src 'self'",
+    `img-src 'self' data: blob: ${API_ORIGIN}`,
+    "font-src 'self' data:",
+    `connect-src 'self' ${API_ORIGIN}${dev ? ' ws://localhost:5173' : ''}`,
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+  ].join('; ')
+
+  return {
+    'Content-Security-Policy': csp,
+    'X-Frame-Options': 'DENY',
+    'X-Content-Type-Options': 'nosniff',
+    'Referrer-Policy': 'no-referrer',
+    'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+  }
+}
+
 export default defineConfig({
   plugins: [react(), menuImageDevMiddleware(), omitFullsizeMenuPhotos()],
+  preview: {
+    headers: securityHeaders({ dev: false }),
+  },
   server: {
+    headers: securityHeaders({ dev: true }),
+    // The dev server only serves this app's own page; no other site needs CORS access to it.
+    cors: false,
     // Fail loudly instead of silently moving to 5174 when a dev server is already running:
     // a second server on another port is the usual cause of a dev login that will not work.
     strictPort: true,

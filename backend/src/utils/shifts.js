@@ -179,7 +179,7 @@ function expectedDrawerUsd(openingFloatUsd, metrics) {
   return Math.round(total * 100) / 100
 }
 
-async function getCurrentShift(db, userId = null) {
+async function getCurrentShift(db) {
   await ensureShiftsSchema(db)
 
   const [rows] = await db.execute(

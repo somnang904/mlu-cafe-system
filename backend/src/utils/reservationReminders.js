@@ -83,17 +83,6 @@ async function notifyRecipients(db, recipients, { type, title, message, meta }) 
   return count
 }
 
-/** Clear legacy 3-day alerts — reminders are only sent 1 day ahead now. */
-async function dismissLegacyThreeDayAlerts(db) {
-  try {
-    await db.execute(
-      `UPDATE admin_notifications SET is_read = 1 WHERE type = 'reservation_3d' AND is_read = 0`,
-    )
-  } catch {
-    // Schema may not exist yet on first boot; ignore.
-  }
-}
-
 async function dismissInactiveReservationAlerts(db, today) {
   try {
     await db.execute(

@@ -23,7 +23,6 @@ const {
     logOrderError,
     pendingOrderWhereClause,
     resolveTableForeignKey,
-    ensureOrderItemsSchema,
     formatOrderLineName,
     pickLinePrices,
     billMatchesBase,
@@ -37,7 +36,6 @@ const { hashPassword, findUserIdsWithHistory, normalizeUsername, displayNameVali
 const { saveMenuImage } = require('./src/utils/menuImage');
 const { downloadRemoteImage } = require('./src/utils/remoteImage');
 const {
-    ensureSessionSecuritySchema,
     invalidateUserTokens,
     startRevokedTokenCleanup,
     signSessionToken,
@@ -73,7 +71,6 @@ const { buildActiveAlerts } = require('./src/utils/alertEngine');
 const {
     createMenuCategory,
     deleteMenuCategory,
-    ensureMenuItemsSchema,
     getMenuCategories,
     menuCategoryFieldSql,
     renameMenuCategory,
@@ -91,9 +88,8 @@ const {
     parseOptionalAvailability,
 } = require('./src/utils/menuLifecycle');
 const { buildSalesReport } = require('./src/utils/reports');
-const { ensureInventorySchema, resolveStockStatus } = require('./src/utils/inventorySchema');
+const { resolveStockStatus } = require('./src/utils/inventorySchema');
 const { createInventoryItem, editInventoryItem } = require('./src/utils/inventoryItems');
-const { ensureStockSchema } = require('./src/utils/stockSchema');
 const {
     reconcileOrderStock,
     addReceivedStock,
@@ -129,7 +125,6 @@ const {
     createApprovalLimiter,
     resolveRefundApprover,
 } = require('./src/utils/refund');
-const { ensureOrdersSchema } = require('./src/utils/ordersSchema');
 const {
     getCurrentShift,
     startShift,
@@ -138,7 +133,6 @@ const {
 } = require('./src/utils/shifts');
 const { normalizeCheckoutPayment } = require('./src/utils/cashDrawer');
 const {
-    ensureExpensesSchema,
     listExpenses,
     listExpenseCategories,
     expenseOverview,
@@ -150,8 +144,6 @@ const {
 } = require('./src/utils/expenses');
 const { createExpenseExport } = require('./src/utils/expenseExport');
 const {
-    ensureAuditSchema,
-    writeAuditLog,
     auditFromRequest,
     listAuditLogs,
 } = require('./src/utils/auditLog');
@@ -165,10 +157,8 @@ const {
     listUnreadUserAlerts,
     markNotificationRead,
     markAllNotificationsRead,
-    ensureAdminNotificationsSchema,
     notifyAdminsOfExpense,
 } = require('./src/utils/adminNotifications');
-const { ensureUsersEmailColumn } = require('./src/utils/userAccounts');
 const {
     ensureReservationsSchema,
     findBlockingReservation,
@@ -192,7 +182,6 @@ const { sendReservationConfirmationLetter } = require('./src/utils/reservationLe
 const { getLiveConditions } = require('./src/utils/liveConditions');
 const { createUserSession } = require('./src/utils/userSessions');
 const {
-    ensureLoginSecuritySchema,
     createMysqlSecurityStore,
     createBlockedDeviceMiddleware,
     listNewSecurityAlertFeed,
@@ -314,6 +303,12 @@ if (!fs.existsSync(receiptsDir)) {
 // Blocked devices are rejected before login or any other API route.
 // ==========================================
 const loginSecurityStore = createMysqlSecurityStore(db);
+// API answers carry tokens and business data; never let a browser or proxy cache them.
+// (Menu photos under /api/uploads are served above and keep their own cache headers.)
+app.use('/api', (_req, res, next) => {
+    res.set('Cache-Control', 'no-store');
+    next();
+});
 app.use('/api', createBlockedDeviceMiddleware(loginSecurityStore));
 app.use('/api/auth', publicAuthRouter);
 app.post('/api/register', rejectPublicSignup);
@@ -1269,7 +1264,7 @@ async function assertTableNotMerged(conn, target) {
 // A table with a booking about to start (or waiting to be checked in) is held for that guest.
 async function assertTableNotReservedSoon(conn, target) {
     if (target.sourceType !== 'Table') return;
-    let blocking = null;
+    let blocking;
     try {
         blocking = await findBlockingReservation(conn, target.tableId);
     } catch {
@@ -1572,7 +1567,6 @@ app.post('/api/orders/split-checkout', requirePermission('payment'), async (req,
         received_usd = null,
         received_khr = null,
         change_usd = null,
-        change_khr = null,
     } = req.body ?? {};
 
     if (!target_id || !Array.isArray(items) || items.length === 0) {
@@ -1599,7 +1593,6 @@ app.post('/api/orders/split-checkout', requirePermission('payment'), async (req,
     }
 
     try {
-        const { sql, params } = pendingOrderWhereClause(target);
         const shopRate = await getExchangeRate(db);
         const outcome = await withTransaction(db, async (conn) => {
             const originalOrderId = await findPendingOrderId(conn, target);
@@ -2261,7 +2254,7 @@ app.get('/api/orders/history/page', requireSalesHistoryAccess, async (req, res) 
     const whereParams = [...scopeParams];
     let searchSql = '';
     if (search) {
-        const like = `%${search.replace(/[\%_]/g, (ch) => `\${ch}`)}%`;
+        const like = `%${search.replace(/[%_\\]/g, (ch) => `\\${ch}`)}%`;
         searchSql = ` AND (invoice_id LIKE ? OR payment_method LIKE ? OR payment_bank LIKE ? OR status LIKE ?
             OR target_id IN (SELECT id FROM tables WHERE table_name LIKE ?)
             OR ((target_id IS NULL OR CAST(target_id AS CHAR) = 'takeout') AND 'Take Out' LIKE ?)
@@ -3106,7 +3099,7 @@ app.get('/api/system/backup/sales-pdf', requireBackupDownloadAccess, sensitiveOp
 app.get('/api/system/backup/auto-status', requireAdmin, async (_req, res) => {
     try {
         res.status(200).json(autoBackupStatus(backupDirectory()));
-    } catch (error) {
+    } catch {
         res.status(500).json({ message: 'Failed to read the automatic backup status' });
     }
 });

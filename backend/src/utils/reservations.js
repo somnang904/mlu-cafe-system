@@ -1,4 +1,4 @@
-const { TIME_SLOTS, getTimeSlotsForDate, isMonday, isHighSeasonMonth, STORE_SCHEDULE, formatTimeRange12Hour } = require('../config/siteData')
+const { TIME_SLOTS, getTimeSlotsForDate, isMonday, formatTimeRange12Hour } = require('../config/siteData')
 const { dismissReservationAlerts } = require('./adminNotifications')
 const { withTransaction } = require('./stockLedger')
 

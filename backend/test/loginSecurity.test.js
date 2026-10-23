@@ -64,7 +64,7 @@ function request(server, { method = 'GET', path = '/', body, headers = {} } = {}
         res.on('data', (chunk) => chunks.push(chunk))
         res.on('end', () => {
           const text = Buffer.concat(chunks).toString('utf8')
-          let parsed = null
+          let parsed
           try {
             parsed = text ? JSON.parse(text) : null
           } catch {
