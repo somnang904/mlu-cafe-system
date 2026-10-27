@@ -34,11 +34,18 @@ function computeMenuDeleteEligibility({ has_sales, is_available, unavailable_sin
   return { can_delete: false, delete_block_reason: 'cooling_down', delete_available_at: availableAt.toISOString() }
 }
 
+// Letters in any script (Khmer included), digits, spaces and the punctuation menus use
+// ("Tea W/ Honey & Lemon", "Kulen Water (1.5L)", "Chef's 100% Juice").
+const MENU_NAME_PATTERN = /^[\p{L}\p{M}\p{N} &'’().,/+%#!?:-]+$/u
+
 function normalizeMenuItemName(raw) {
   if (typeof raw !== 'string') return { error: 'Please fill in all fields (Name, Category, Price)', code: 'required' }
   const name = collapseSpaces(raw)
   if (!name) return { error: 'Please fill in all fields (Name, Category, Price)', code: 'required' }
   if (name.length > MENU_NAME_MAX) return { error: `Use ${MENU_NAME_MAX} characters or fewer`, code: 'too_long' }
+  if (!MENU_NAME_PATTERN.test(name) || name.includes('--')) {
+    return { error: "Use letters, numbers, spaces and & ' ( ) . , / + % # ! ? : - only", code: 'invalid_chars' }
+  }
   return { name }
 }
 

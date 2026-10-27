@@ -133,11 +133,17 @@ function categoryError(status, message, code) {
   return error
 }
 
+// Letters in any script (Khmer included), digits, spaces and everyday punctuation.
+const CATEGORY_NAME_PATTERN = /^[\p{L}\p{M}\p{N} &'().,/+-]+$/u
+
 function validCategoryName(raw) {
   const name = cleanCategoryName(raw)
   if (!name) throw categoryError(400, 'Enter a category name', 'required')
   if (name.length > MENU_CATEGORY_NAME_MAX) {
     throw categoryError(400, `Use ${MENU_CATEGORY_NAME_MAX} characters or fewer`, 'too_long')
+  }
+  if (!CATEGORY_NAME_PATTERN.test(name) || name.includes('--')) {
+    throw categoryError(400, "Use letters, numbers, spaces and & ' ( ) . , / + - only", 'invalid_chars')
   }
   return name
 }

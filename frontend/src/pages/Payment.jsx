@@ -119,7 +119,8 @@ function BillManager({
               <UtensilsCrossed className="h-3.5 w-3.5" />
               {t('payment.addItems')}
             </button>
-          {bill.items.length > 1 && (
+          {/* Splittable once there is more than one serving: 2 lines, or 4 × Espresso on one line. */}
+          {bill.items.reduce((sum, item) => sum + Number(item.qty ?? item.quantity ?? 1), 0) > 1 && (
             <button
               type="button"
               onClick={onSplitBill}

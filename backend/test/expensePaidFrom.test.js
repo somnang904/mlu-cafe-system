@@ -53,6 +53,7 @@ test('createExpense stores the chosen source and refuses bad ones before writing
     if (/SELECT DISTINCT category FROM expenses/.test(sql)) return [[]]
     if (/FROM expense_categories WHERE LOWER\(name\)/.test(sql)) return [[{ id: 4, name: 'Utilities' }]]
     if (/^\s*INSERT INTO expenses/.test(sql)) return [{ insertId: 9 }]
+    if (/FROM expense_stock_lines/.test(sql)) return [[]]
     if (/FROM expenses e\s+LEFT JOIN expense_categories/.test(sql)) {
       const insert = db.calls.find((call) => /INSERT INTO expenses/.test(call.sql))
       return [[{ id: 9, category: 'Utilities', amount: '40.00', paid_from: insert.params[7], method: insert.params[5], expense_date: '2026-10-05' }]]

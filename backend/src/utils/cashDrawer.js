@@ -28,6 +28,16 @@ function parseOptionalAmount(value, label) {
   return number
 }
 
+/**
+ * Rejects non-numeric or negative cash amounts up front, before any order lookup,
+ * so a bad amount always gets the same answer whatever state the order is in.
+ */
+function assertPaymentAmounts({ receivedUsd, receivedKhr, changeUsd }) {
+  parseOptionalAmount(receivedUsd, 'received_usd')
+  parseOptionalAmount(receivedKhr, 'received_khr')
+  parseOptionalAmount(changeUsd, 'change_usd')
+}
+
 function resolveExchangeRate(value) {
   const rate = Number(value)
   if (value === null || value === undefined || value === '' || !Number.isFinite(rate)) {
@@ -154,6 +164,7 @@ module.exports = {
   MIN_EXCHANGE_RATE,
   MAX_EXCHANGE_RATE,
   splitChange,
+  assertPaymentAmounts,
   normalizeCheckoutPayment,
   cashDrawerDelta,
   summarizeCashOrders,

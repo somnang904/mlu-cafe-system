@@ -1,5 +1,6 @@
 import i18n from 'i18next'
 import { initReactI18next } from 'react-i18next'
+import { readSession } from './services/sessionStorage'
 
 const STORAGE_KEY = 'mlu_kitchen_cafe_lang'
 
@@ -424,6 +425,10 @@ const resources = {
         checkInArrived: 'Check in',
         openOrderTicket: 'Open order',
         addItems: 'Add / change items',
+        foodWaiting: 'Waiting for food',
+        foodServed: 'Food served',
+        foodToggle: 'Food brought to {{table}}',
+        foodSaveError: 'Could not save. Try again.',
         keepBooking: 'Keep',
         confirmCancel: 'Confirm cancel',
         cancelBooking: 'Cancel booking',
@@ -1232,7 +1237,33 @@ const resources = {
           date: 'Date',
           category: 'Category',
           chooseCategory: 'Choose a category',
+          items: 'Items bought',
+          itemsHint: "Each item is added to its stock when you save. Add each item's price and the amount becomes their total.",
+          addItem: 'Add item',
+          chooseItem: 'Choose an item',
+          newIngredient: '+ New ingredient',
+          newIngredientName: 'New ingredient name',
+          unit: 'Unit',
+          chooseFromList: 'Choose from the list instead',
+          item: 'Item',
+          searchItem: 'Type to search an item…',
+          createIngredient: 'Create new ingredient "{{name}}"',
+          newIngredientNote: 'New ingredient - it is added to Ingredients when you save',
+          price: 'Price',
+          unitPrice: '{{price}} / {{unit}}',
+          itemsTotal: 'Total: {{amount}}',
+          amountFromItems: 'Total of the items',
+          quantity: 'Quantity',
+          removeItem: 'Remove {{name}}',
+          onHand: 'In stock: {{amount}}',
+          itemGroups: {
+            ingredient: 'Ingredients',
+            stock: 'Stock items',
+          },
+          itemsLoadError: 'Could not load the stock items.',
           errors: {
+            items: 'Choose an item and a quantity above 0 on every line. Once one item has a price, give every item a price.',
+            itemsRequired: 'Add at least one item you bought, with its quantity.',
             date: 'Choose the date.',
             title: 'Enter a title.',
             amount: 'Enter an amount above 0.',
@@ -2238,6 +2269,10 @@ const resources = {
         checkInArrived: 'ចុះឈ្មោះ',
         openOrderTicket: 'បើកការកុម្មង់',
         addItems: 'បន្ថែម / ប្ដូរមុខម្ហូប',
+        foodWaiting: 'កំពុងរង់ចាំម្ហូប',
+        foodServed: 'បានទទួលម្ហូបហើយ',
+        foodToggle: 'បានយកម្ហូបទៅ {{table}}',
+        foodSaveError: 'មិនអាចរក្សាទុកបានទេ។ សូមព្យាយាមម្តងទៀត។',
         keepBooking: 'រក្សា',
         confirmCancel: 'បញ្ជាក់បោះបង់',
         cancelBooking: 'បោះបង់ការកក់',
@@ -3041,7 +3076,33 @@ const resources = {
           date: 'កាលបរិច្ឆេទ',
           category: 'ប្រភេទ',
           chooseCategory: 'ជ្រើសប្រភេទ',
+          items: 'មុខទំនិញដែលបានទិញ',
+          itemsHint: 'មុខទំនិញនីមួយៗនឹងត្រូវបន្ថែមទៅស្តុក ពេលរក្សាទុក។ បញ្ចូលតម្លៃមុខនីមួយៗ ហើយចំនួនទឹកប្រាក់នឹងជាសរុបរបស់វា។',
+          addItem: 'បន្ថែមមុខទំនិញ',
+          chooseItem: 'ជ្រើសមុខទំនិញ',
+          newIngredient: '+ គ្រឿងផ្សំថ្មី',
+          newIngredientName: 'ឈ្មោះគ្រឿងផ្សំថ្មី',
+          unit: 'ឯកតា',
+          chooseFromList: 'ជ្រើសពីបញ្ជីវិញ',
+          item: 'មុខទំនិញ',
+          searchItem: 'វាយដើម្បីស្វែងរកមុខទំនិញ…',
+          createIngredient: 'បង្កើតគ្រឿងផ្សំថ្មី "{{name}}"',
+          newIngredientNote: 'គ្រឿងផ្សំថ្មី - នឹងត្រូវបន្ថែមទៅគ្រឿងផ្សំ ពេលរក្សាទុក',
+          price: 'តម្លៃ',
+          unitPrice: '{{price}} / {{unit}}',
+          itemsTotal: 'សរុប៖ {{amount}}',
+          amountFromItems: 'សរុបពីមុខទំនិញ',
+          quantity: 'បរិមាណ',
+          removeItem: 'ដក {{name}} ចេញ',
+          onHand: 'ក្នុងស្តុក៖ {{amount}}',
+          itemGroups: {
+            ingredient: 'គ្រឿងផ្សំ',
+            stock: 'ទំនិញស្តុក',
+          },
+          itemsLoadError: 'មិនអាចផ្ទុកបញ្ជីមុខទំនិញបានទេ។',
           errors: {
+            items: 'សូមជ្រើសមុខទំនិញ និងបរិមាណធំជាង 0 គ្រប់ជួរ។ បើមុខមួយមានតម្លៃ សូមដាក់តម្លៃគ្រប់មុខ។',
+            itemsRequired: 'សូមបន្ថែមយ៉ាងហោចណាស់មុខទំនិញមួយដែលបានទិញ ព្រមទាំងបរិមាណ។',
             date: 'សូមជ្រើសកាលបរិច្ឆេទ។',
             title: 'សូមបញ្ចូលចំណងជើង។',
             amount: 'សូមបញ្ចូលចំនួនធំជាង 0។',
@@ -3652,11 +3713,19 @@ i18n.use(initReactI18next).init({
 
 applyDocumentLanguage(i18n.language)
 
+// The choice is remembered for signed-in staff; the login screen reuses the last one saved.
+function persistLanguage(lng) {
+  if (typeof window === 'undefined' || !readSession()) return
+  window.localStorage.setItem(STORAGE_KEY, lng)
+}
+
 i18n.on('languageChanged', (lng) => {
-  if (typeof window !== 'undefined') {
-    window.localStorage.setItem(STORAGE_KEY, lng)
-  }
+  persistLanguage(lng)
   applyDocumentLanguage(lng)
 })
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('mlu:session-changed', () => persistLanguage(i18n.language))
+}
 
 export default i18n
