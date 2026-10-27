@@ -327,7 +327,8 @@ async function materializeRecurringExpenses(db, now = new Date()) {
  * Either the last `days` days ('all' for every expense), or `from` (inclusive) to `toExclusive`
  * (YYYY-MM-DD). `status` ('paid' | 'unpaid') narrows it further.
  */
-async function listExpenses(db, { days = 365, from = null, toExclusive = null, status = null } = {}) {
+/** `createdBy`: only that user's expenses (a cashier sees what they logged); null for everyone's. */
+async function listExpenses(db, { days = 365, from = null, toExclusive = null, status = null, createdBy = null } = {}) {
   await ensureExpensesSchema(db)
   await linkExpenseCategories(db)
   await materializeRecurringExpenses(db)
@@ -347,6 +348,10 @@ async function listExpenses(db, { days = 365, from = null, toExclusive = null, s
     where.push('e.status = ?')
     params.push(status)
   }
+  if (createdBy != null) {
+    where.push('e.created_by = ?')
+    params.push(createdBy)
+  }
   const [rows] = await db.execute(
     `${SELECT_EXPENSE} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY e.expense_date DESC, e.id DESC`,
     params,
@@ -355,14 +360,18 @@ async function listExpenses(db, { days = 365, from = null, toExclusive = null, s
 }
 
 /** Totals that don't depend on the page's period: everything still unpaid, and the monthly repeats. */
-async function expenseOverview(db) {
+async function expenseOverview(db, { createdBy = null } = {}) {
   await ensureExpensesSchema(db)
   await materializeRecurringExpenses(db)
+  const mine = createdBy != null ? ' AND created_by = ?' : ''
+  const params = createdBy != null ? [createdBy] : []
   const [[unpaid]] = await db.execute(
-    "SELECT COUNT(*) AS count, COALESCE(SUM(amount), 0) AS amount FROM expenses WHERE status = 'unpaid'",
+    `SELECT COUNT(*) AS count, COALESCE(SUM(amount), 0) AS amount FROM expenses WHERE status = 'unpaid'${mine}`,
+    params,
   )
   const [[recurring]] = await db.execute(
-    'SELECT COUNT(*) AS count, COALESCE(SUM(amount), 0) AS amount FROM expenses WHERE is_recurring = 1 AND recurring_parent_id IS NULL',
+    `SELECT COUNT(*) AS count, COALESCE(SUM(amount), 0) AS amount FROM expenses WHERE is_recurring = 1 AND recurring_parent_id IS NULL${mine}`,
+    params,
   )
   return {
     unpaid: { amount: Number.parseFloat(unpaid.amount) || 0, count: Number(unpaid.count) || 0 },
@@ -610,6 +619,19 @@ async function writeExpenseUpdate(db, id, previous, input) {
   )
 }
 
+/**
+ * Throws 404 when `createdBy` is set and the expense was logged by someone else, so a cashier
+ * can neither see nor change other people's expenses (admins pass null).
+ */
+async function assertExpenseVisible(db, expenseId, createdBy) {
+  if (createdBy == null) return
+  const id = parseExpenseId(expenseId)
+  const [rows] = await db.execute('SELECT created_by FROM expenses WHERE id = ? LIMIT 1', [id])
+  if (!rows[0] || Number(rows[0].created_by) !== Number(createdBy)) {
+    throw Object.assign(new Error('Expense not found'), { status: 404 })
+  }
+}
+
 /** Deletes an expense; returns the receipt file name it used (for the caller to remove), or null. */
 async function deleteExpense(db, expenseId, { user = null } = {}) {
   await ensureExpensesSchema(db)
@@ -668,6 +690,7 @@ module.exports = {
   createExpense,
   updateExpense,
   deleteExpense,
+  assertExpenseVisible,
   expenseReceiptPath,
   summarizeExpensesToday,
   serializeExpense,

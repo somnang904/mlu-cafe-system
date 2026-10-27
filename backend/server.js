@@ -141,8 +141,10 @@ const {
     deleteExpense,
     expenseReceiptPath,
     summarizeExpensesToday,
+    assertExpenseVisible,
 } = require('./src/utils/expenses');
 const { listPurchasableItems } = require('./src/utils/expenseStock');
+const { previewDayClose, closeDay, listDayCloses, getDayClose } = require('./src/utils/dayClose');
 const { createExpenseExport } = require('./src/utils/expenseExport');
 const {
     auditFromRequest,
@@ -3241,6 +3243,11 @@ app.post('/api/system/backup/restore', requireAdmin, sensitiveOperationLimiter, 
 // ==========================================
 // 💰 EXPENSE / SPENDING TRACKING
 // ==========================================
+/** null for admins (every expense); the user's id for anyone else (only what they logged). */
+function expenseOwnerScope(req) {
+    return isAdminRole(req.user?.role) ? null : req.user?.id ?? -1;
+}
+
 app.get('/api/expenses', requireExpenseAccess, async (req, res) => {
     try {
         // from/to (inclusive YYYY-MM-DD) wins over days.
@@ -3249,9 +3256,13 @@ app.get('/api/expenses', requireExpenseAccess, async (req, res) => {
             return res.status(400).json({ message: 'Invalid date range. Use from=YYYY-MM-DD&to=YYYY-MM-DD.' });
         }
         const status = typeof req.query.status === 'string' ? req.query.status : null;
+        // Cashiers see only the expenses they logged; admins see the whole shop's.
+        const createdBy = expenseOwnerScope(req);
         const expenses = await listExpenses(
             db,
-            range ? { from: range.start, toExclusive: range.endExclusive, status } : { days: req.query.days, status },
+            range
+                ? { from: range.start, toExclusive: range.endExclusive, status, createdBy }
+                : { days: req.query.days, status, createdBy },
         );
         res.status(200).json(expenses);
     } catch (error) {
@@ -3283,7 +3294,7 @@ app.get('/api/expenses/stock-items', requireExpenseAccess, async (_req, res) => 
 
 app.get('/api/expenses/overview', requireExpenseAccess, async (req, res) => {
     try {
-        res.status(200).json(await expenseOverview(db));
+        res.status(200).json(await expenseOverview(db, { createdBy: expenseOwnerScope(req) }));
     } catch (error) {
         const errorId = logError(error, { route: `${req.method} ${req.originalUrl}` });
         res.status(500).json({ message: 'Failed to load the expense overview', errorId });
@@ -3337,6 +3348,7 @@ app.post('/api/expenses/receipt', requireExpenseWriteAccess, (req, res) => {
 
 app.get('/api/expenses/:id/receipt', requireExpenseAccess, async (req, res) => {
     try {
+        await assertExpenseVisible(db, req.params.id, expenseOwnerScope(req));
         const filePath = await expenseReceiptPath(db, req.params.id, receiptsDir);
         if (!filePath) return res.status(404).json({ message: 'No receipt for this expense' });
         res.setHeader('Cache-Control', 'private, max-age=300');
@@ -3355,6 +3367,7 @@ function removeReceiptFile(file) {
 
 app.put('/api/expenses/:id', requireExpenseAccess, async (req, res) => {
     try {
+        await assertExpenseVisible(db, req.params.id, expenseOwnerScope(req));
         const { expense, previous, removedReceipt } = await updateExpense(db, req.params.id, req.body ?? {}, { receiptsDir, user: req.user });
         removeReceiptFile(removedReceipt);
         await auditFromRequest(db, req, {
@@ -3501,6 +3514,7 @@ app.post('/api/expenses', requireExpenseWriteAccess, async (req, res) => {
 
 app.delete('/api/expenses/:id', requireExpenseAccess, async (req, res) => {
     try {
+        await assertExpenseVisible(db, req.params.id, expenseOwnerScope(req));
         const expenseId = Number.parseInt(req.params.id, 10);
         const [rows] = await db.execute(
             'SELECT id, category, description, amount, expense_date FROM expenses WHERE id = ? LIMIT 1',
@@ -4080,6 +4094,10 @@ app.delete('/api/tables/:id', requireTableManage, async (req, res) => {
 });
 
 app.get('/api/reports', requireReportsAccess, async (req, res) => {
+    // Whole-shop totals; cashiers get their own figures from /orders/history and /expenses.
+    if (!isAdminRole(req.user?.role)) {
+        return res.status(403).json({ message: 'Only administrators can see the whole-shop report' });
+    }
     try {
         const report = await buildSalesReport(db, { days: req.query.days })
         res.status(200).json(report)
@@ -4088,6 +4106,53 @@ app.get('/api/reports', requireReportsAccess, async (req, res) => {
         res.status(500).json({ message: 'Failed to load sales report', errorId: logError(error, { route: `${req.method} ${req.originalUrl}` }) })
     }
 })
+
+// ==========================================
+// 🌙 END-OF-DAY CLOSE REPORTS (cashier: own sales; admin: whole shop)
+// ==========================================
+function sendDayCloseError(res, req, error, fallback) {
+    if (error?.status && error.status < 500) return res.status(error.status).json({ message: error.message });
+    const errorId = logError(error, { route: `${req.method} ${req.originalUrl}` });
+    return res.status(500).json({ message: fallback, errorId });
+}
+
+app.get('/api/day-close/preview', requireReportsAccess, async (req, res) => {
+    try {
+        res.status(200).json(await previewDayClose(db, req.user, req.query.date));
+    } catch (error) {
+        sendDayCloseError(res, req, error, 'Failed to load the day');
+    }
+});
+
+app.get('/api/day-close', requireReportsAccess, async (req, res) => {
+    try {
+        res.status(200).json(await listDayCloses(db, req.user, req.query.limit));
+    } catch (error) {
+        sendDayCloseError(res, req, error, 'Failed to load close reports');
+    }
+});
+
+app.get('/api/day-close/:id', requireReportsAccess, async (req, res) => {
+    try {
+        res.status(200).json(await getDayClose(db, req.user, req.params.id));
+    } catch (error) {
+        sendDayCloseError(res, req, error, 'Failed to load the close report');
+    }
+});
+
+app.post('/api/day-close', requireReportsAccess, async (req, res) => {
+    try {
+        const close = await closeDay(db, req.user, req.body ?? {});
+        await auditFromRequest(db, req, {
+            action: 'day_close',
+            module: 'Reports',
+            description: `Closed ${close.date} (${close.scope === 'shop' ? 'whole shop' : 'own sales'}): net sales $${close.net_sales.toFixed(2)}, ${close.orders} orders.`,
+        });
+        res.status(200).json(close);
+    } catch (error) {
+        sendDayCloseError(res, req, error, 'Failed to close the day');
+    }
+});
 
 app.get('/api/reports/export/:kind', requireReportsAccess, sensitiveOperationLimiter, async (req, res) => {
     const kind = req.params.kind === 'excel' ? 'xlsx' : req.params.kind
