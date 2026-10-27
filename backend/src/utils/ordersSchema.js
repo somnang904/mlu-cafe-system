@@ -93,6 +93,11 @@ async function ensureOrdersSchema(db) {
         await db.execute('ALTER TABLE orders ADD COLUMN staff_name VARCHAR(120) NULL AFTER staff_id')
       }
 
+      // When the table's food was brought out; NULL while the table is still waiting for it.
+      if (!(await columnExists(db, 'orders', 'food_served_at'))) {
+        await db.execute('ALTER TABLE orders ADD COLUMN food_served_at TIMESTAMP NULL')
+      }
+
       await ensureAppSettingsSchema(db)
       await db.execute(
         "INSERT IGNORE INTO app_settings (setting_key, setting_value) VALUES (?, '1')",

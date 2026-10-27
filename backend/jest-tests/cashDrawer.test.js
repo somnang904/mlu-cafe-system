@@ -1,5 +1,6 @@
 const {
   DEFAULT_EXCHANGE_RATE,
+  assertPaymentAmounts,
   splitChange,
   cashDrawerDelta,
   summarizeCashOrders,
@@ -83,5 +84,19 @@ describe('computeCashDifference (counted vs expected cash)', () => {
   test('matching counts give no difference', () => {
     expect(computeCashDifference({ ...expected, countedUsd: 100, countedKhr: 40000 }))
       .toEqual({ usd: 0, khr: 0, totalUsd: 0 })
+  })
+})
+
+describe('assertPaymentAmounts (checkout input check)', () => {
+  test('accepts numbers, numeric strings and missing amounts', () => {
+    expect(() => assertPaymentAmounts({ receivedUsd: 10, receivedKhr: '40000', changeUsd: null })).not.toThrow()
+  })
+
+  test('rejects SQL-looking text in received_usd', () => {
+    expect(() => assertPaymentAmounts({ receivedUsd: '10 AND 1=1 -- ' })).toThrow('received_usd must be a number')
+  })
+
+  test('rejects negative amounts', () => {
+    expect(() => assertPaymentAmounts({ receivedKhr: -100 })).toThrow('received_khr cannot be negative')
   })
 })

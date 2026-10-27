@@ -1,4 +1,5 @@
 const ExcelJS = require('exceljs')
+const { isAdminRole } = require('../constants/permissions')
 const {
   actorLabel,
   formatMoney,
@@ -81,9 +82,11 @@ function rangeSql(dateSql, period) {
   return { sql: '1 = 1', params: [] }
 }
 
-async function bucketRows(db, statusSql, dateSql, period, grain) {
+// staffId: only that cashier's sales (null for the whole shop).
+async function bucketRows(db, statusSql, dateSql, period, grain, staffId = null) {
   const format = grain === 'day' ? '%Y-%m-%d' : '%Y-%m'
   const range = rangeSql(dateSql, period)
+  const mine = staffId != null ? ' AND staff_id = ?' : ''
   const [rows] = await db.execute(
     `
     SELECT
@@ -91,17 +94,17 @@ async function bucketRows(db, statusSql, dateSql, period, grain) {
       COUNT(*) AS orders,
       COALESCE(SUM(${TOTAL_SQL}), 0) AS amount
     FROM orders
-    WHERE ${statusSql} AND ${range.sql}
+    WHERE ${statusSql} AND ${range.sql}${mine}
     GROUP BY DATE_FORMAT(${dateSql}, '${format}')
     `,
-    range.params,
+    staffId != null ? [...range.params, staffId] : range.params,
   )
   return rows
 }
 
-async function salesBuckets(db, period, grain) {
-  const sales = await bucketRows(db, SOLD, 'updated_at', period, grain)
-  const refunds = await bucketRows(db, REFUNDED, REFUND_DATE, period, grain)
+async function salesBuckets(db, period, grain, staffId = null) {
+  const sales = await bucketRows(db, SOLD, 'updated_at', period, grain, staffId)
+  const refunds = await bucketRows(db, REFUNDED, REFUND_DATE, period, grain, staffId)
   return mergeSalesAndRefunds(sales, refunds)
 }
 
@@ -164,24 +167,25 @@ function categoryTotals(expenses) {
     .sort((a, b) => b.amount - a.amount || a.category.localeCompare(b.category))
 }
 
-async function loadExpensesInScope(db, period) {
+async function loadExpensesInScope(db, period, staffId = null) {
   const { listExpenses } = require('./expenses')
-  if (!period.startDate) return listExpenses(db, { days: 'all' })
-  const expenses = await listExpenses(db, { from: period.startDate, toExclusive: period.endDate })
+  if (!period.startDate) return listExpenses(db, { days: 'all', createdBy: staffId })
+  const expenses = await listExpenses(db, { from: period.startDate, toExclusive: period.endDate, createdBy: staffId })
   return expenses.filter((expense) => {
     const date = String(expense.expense_date || '').slice(0, 10)
     return date >= period.startDate && date < period.endDate
   })
 }
 
-async function loadReportData(db, period) {
+/** `staffId`: a cashier's own sales and expenses only; null for the whole shop. */
+async function loadReportData(db, period, staffId = null) {
   if (period.startDate) {
     // Up to ~2 months: one row per day; longer ranges: one row per month.
     const days = dayKeysOf(period)
     const grain = days.length <= DAILY_MAX_DAYS ? 'day' : 'month'
-    const salesByKey = await salesBuckets(db, period, grain)
+    const salesByKey = await salesBuckets(db, period, grain, staffId)
     const summary = sumBuckets(salesByKey)
-    const expenses = await loadExpensesInScope(db, period)
+    const expenses = await loadExpensesInScope(db, period, staffId)
     const spending = roundMoney(expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0))
     const spendByKey = expenseMap(expenses, grain)
     const keys = grain === 'day' ? days : [...new Set(days.map((key) => key.slice(0, 7)))]
@@ -199,9 +203,9 @@ async function loadReportData(db, period) {
     }
   }
 
-  const salesByMonth = await salesBuckets(db, period, 'month')
+  const salesByMonth = await salesBuckets(db, period, 'month', staffId)
   const summary = sumBuckets(salesByMonth)
-  const expenses = await loadExpensesInScope(db, period)
+  const expenses = await loadExpensesInScope(db, period, staffId)
   const spending = roundMoney(expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0))
   const spendByMonth = expenseMap(expenses, 'month')
   // One row per month, from the first month with a sale or an expense up to this month.
@@ -447,7 +451,9 @@ function buildReportPdfBuffer(data, sections, generatedBy) {
 async function createReportExport(db, query, user, kind) {
   const period = parseReportPeriod(query)
   const sections = parseReportSections(query.sections)
-  const data = await loadReportData(db, period)
+  // Cashiers export their own report, the same figures the Reports page shows them.
+  const staffId = isAdminRole(user?.role) ? null : user?.id ?? -1
+  const data = await loadReportData(db, period, staffId)
   // compare=1: add the previous period's figures and the change (only for a month or a range).
   // compare_from/compare_to name that period (the page sends yesterday, last week, …); else previousPeriod().
   const wantsCompare = ['1', 'true'].includes(String(query.compare))
@@ -457,7 +463,7 @@ async function createReportExport(db, query, user, kind) {
       ? parseReportRange(query.compare_from, query.compare_to)
       : previousPeriod(period)
   if (comparePeriod) {
-    const previous = await loadReportData(db, comparePeriod)
+    const previous = await loadReportData(db, comparePeriod, staffId)
     data.previous = { period: comparePeriod, summary: previous.summary }
   }
   const generatedBy = actorLabel(user)

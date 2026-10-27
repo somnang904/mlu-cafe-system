@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react'
+import { createContext, useContext, useEffect, useState, useCallback } from 'react'
 import { flushSync } from 'react-dom'
 import { readSession } from '../services/sessionStorage'
 
@@ -37,8 +37,6 @@ applyThemeToDocument(initialTheme)
 export function ThemeProvider({ children }) {
   const [theme, setTheme] = useState(initialTheme)
   const [boundUserId, setBoundUserId] = useState(() => currentUserId())
-  // A signed-out visitor who never touched the toggle has nothing worth saving.
-  const userChoseRef = useRef(false)
 
   useEffect(() => {
     const syncUser = () => {
@@ -63,16 +61,12 @@ export function ThemeProvider({ children }) {
 
   useEffect(() => {
     applyThemeToDocument(theme)
-    if (!boundUserId && !userChoseRef.current) return
+    // Saved per signed-in user; on the login screen a toggle lasts until the page reloads.
+    if (!boundUserId) return
     localStorage.setItem(themeStorageKey(boundUserId), theme)
     // Keep the unscoped key as the login-screen fallback (last signed-in look).
     localStorage.setItem(LEGACY_THEME_KEY, theme)
   }, [theme, boundUserId])
-
-  const chooseTheme = useCallback((next) => {
-    userChoseRef.current = true
-    setTheme(next)
-  }, [])
 
   /**
    * Pass the click event to reveal the new theme as a circle growing from the
@@ -82,7 +76,7 @@ export function ThemeProvider({ children }) {
   const toggleTheme = useCallback((event) => {
     const next = document.documentElement.classList.contains('dark') ? 'light' : 'dark'
     const commit = () => {
-      flushSync(() => chooseTheme(next))
+      flushSync(() => setTheme(next))
       applyThemeToDocument(next)
     }
 
@@ -110,10 +104,10 @@ export function ThemeProvider({ children }) {
       })
       .catch(() => { })
     transition.finished.finally(() => root.classList.remove('theme-switching'))
-  }, [chooseTheme])
+  }, [])
 
   return (
-    <ThemeContext.Provider value={{ theme, isDark: theme === 'dark', toggleTheme, setTheme: chooseTheme }}>
+    <ThemeContext.Provider value={{ theme, isDark: theme === 'dark', toggleTheme, setTheme }}>
       {children}
     </ThemeContext.Provider>
   )

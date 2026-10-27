@@ -1,4 +1,4 @@
-import { useId, useState } from 'react'
+import { useCallback, useId, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Calendar, DollarSign, Loader2, Receipt, StickyNote, Store, Tag, Type } from 'lucide-react'
 import Modal from '../common/Modal'
@@ -10,19 +10,36 @@ import { expenseCategoryLabel } from '../../utils/expenseCategories'
 import { toDayKey } from '../../utils/reportRange'
 import { formatKhr, formatUsd, khrToUsd, usdToKhr } from '../../utils/currency'
 import { useExchangeRate } from '../../hooks/useExchangeRate'
+import ExpenseItemsField, { filledItemLines, itemLinesForApi, itemLinesValid, itemsPriceTotal, newItemLine } from './ExpenseItemsField'
 
-function initialForm(expense, categories) {
+// Buying ingredients is where bought items go into stock.
+const STOCK_CATEGORY = 'ingredients'
+
+function isStockCategory(categories, categoryId) {
+  const category = categories.find((entry) => String(entry.id) === String(categoryId))
+  return category?.name?.trim().toLowerCase() === STOCK_CATEGORY
+}
+
+function initialForm(expense, categories, rate) {
   if (expense) {
+    const inKhr = expense.currency === 'KHR' && expense.amount_khr
     return {
       expense_date: expense.expense_date,
       // A riel expense opens in riel, with the riel that was typed.
-      amount: expense.currency === 'KHR' && expense.amount_khr ? String(expense.amount_khr) : String(expense.amount),
-      currency: expense.currency === 'KHR' && expense.amount_khr ? 'khr' : 'usd',
+      amount: inKhr ? String(expense.amount_khr) : String(expense.amount),
+      currency: inKhr ? 'khr' : 'usd',
       category_id: expense.category_id ?? '',
       // Older expenses may have no title; start from what the table shows for them.
       title: expense.title || expense.vendor || expense.note || '',
       vendor: expense.vendor || '',
       note: expense.note || '',
+      items: expense.items?.length
+        ? expense.items.map((item) => newItemLine(
+          item.inventory_id,
+          item.quantity,
+          item.cost == null ? '' : inKhr ? Math.round(item.cost * rate) : item.cost,
+        ))
+        : [newItemLine()],
     }
   }
   return {
@@ -33,6 +50,7 @@ function initialForm(expense, categories) {
     title: '',
     vendor: '',
     note: '',
+    items: [newItemLine()],
   }
 }
 
@@ -48,9 +66,12 @@ function amountInUsd(form, rate) {
 }
 
 /** The client-side checks; the server repeats them and answers with the field that is wrong. */
-function validate(form, t, rate) {
+function validate(form, t, rate, withItems) {
+  // An ingredient purchase is named after its items, so it has no title field.
   const errors = {}
-  if (!form.title.trim()) errors.title = t('expenses.form.errors.title')
+  if (withItems && !filledItemLines(form.items).length) errors.items = t('expenses.form.errors.itemsRequired')
+  else if (withItems && !itemLinesValid(form.items)) errors.items = t('expenses.form.errors.items')
+  if (!withItems && !form.title.trim()) errors.title = t('expenses.form.errors.title')
   if (!/^\d{4}-\d{2}-\d{2}$/.test(form.expense_date)) errors.date = t('expenses.form.errors.date')
   const amount = amountInUsd(form, rate)
   if (amount == null || amount <= 0) {
@@ -70,7 +91,8 @@ function FieldError({ id, message }) {
 }
 
 /**
- * Add or edit one expense: title, category, amount, date, vendor and note.
+ * Add or edit one expense: title, category, amount, date, vendor and note, and for Ingredients
+ * the items bought, which go into stock.
  * `expense` is null to add. `onSaved(expense)` runs after the API saved it. Fields the form leaves
  * out (payment method, status, receipt, repeat) are not sent: a new expense is paid in
  * cash from the drawer, and editing keeps whatever they were (the API keeps fields it isn't sent).
@@ -79,11 +101,22 @@ export default function ExpenseFormModal({ expense = null, categories, onClose, 
   const { t } = useTranslation()
   const rate = useExchangeRate()
   const editing = Boolean(expense)
-  const [form, setForm] = useState(() => initialForm(expense, categories))
+  const [form, setForm] = useState(() => initialForm(expense, categories, rate))
   const [errors, setErrors] = useState({})
   const [formError, setFormError] = useState('')
   const [saving, setSaving] = useState(false)
-  const ids = { title: useId(), date: useId(), amount: useId(), category: useId(), vendor: useId(), note: useId() }
+  const ids = { title: useId(), date: useId(), amount: useId(), category: useId(), vendor: useId(), note: useId(), items: useId() }
+  // Shown for the Ingredients category, and on an expense that already added items to stock
+  // (so changing its category still shows what will be taken back out).
+  const hadItems = Boolean(expense?.items?.length)
+  const showItems = isStockCategory(categories, form.category_id)
+  // Once the items have prices, the amount is their total instead of being typed.
+  const priced = showItems ? itemsPriceTotal(form.items) : { entered: false, total: 0 }
+  const amountValue = priced.entered
+    ? String(form.currency === 'khr' ? Math.round(priced.total) : Math.round(priced.total * 100) / 100)
+    : form.amount
+  const effective = { ...form, amount: amountValue }
+  const toUsd = (value) => (form.currency === 'khr' ? khrToUsd(value, rate) : Math.round(value * 100) / 100)
 
   const update = (key, value) => {
     setForm((current) => ({ ...current, [key]: value }))
@@ -91,9 +124,14 @@ export default function ExpenseFormModal({ expense = null, categories, onClose, 
     if (errors[field]) setErrors((current) => ({ ...current, [field]: '' }))
   }
 
+  const updateItems = useCallback((items) => {
+    setForm((current) => ({ ...current, items }))
+    setErrors((current) => (current.items ? { ...current, items: '' } : current))
+  }, [])
+
   const save = async () => {
     if (saving) return
-    const found = validate(form, t, rate)
+    const found = validate(effective, t, rate, showItems)
     setErrors(found)
     setFormError('')
     if (Object.keys(found).length) return
@@ -101,14 +139,21 @@ export default function ExpenseFormModal({ expense = null, categories, onClose, 
     try {
       const body = {
         expense_date: form.expense_date,
-        amount: amountInUsd(form, rate),
+        amount: amountInUsd(effective, rate),
         // Keep the riel as typed; amount (dollars) is what totals and reports add up.
         currency: form.currency === 'khr' ? 'KHR' : 'USD',
-        ...(form.currency === 'khr' ? { amount_khr: Math.round(Number(form.amount)) } : {}),
+        ...(form.currency === 'khr' ? { amount_khr: Math.round(Number(amountValue)) } : {}),
         category_id: Number(form.category_id),
-        title: form.title.trim(),
+        // Empty for Ingredients: the server names it after the items bought.
+        title: showItems ? '' : form.title.trim(),
         vendor: form.vendor,
         note: form.note,
+      }
+      // Items go to stock with this category; moving an expense out of it takes its items back out.
+      if (showItems) {
+        body.items = itemLinesForApi(form.items, toUsd)
+      } else if (hadItems) {
+        body.items = []
       }
       const response = await apiFetch(editing ? `/expenses/${expense.id}` : '/expenses', {
         method: editing ? 'PUT' : 'POST',
@@ -167,23 +212,26 @@ export default function ExpenseFormModal({ expense = null, categories, onClose, 
         }}
         className="space-y-4"
       >
-        <div>
-          <FieldLabel icon={Type} htmlFor={ids.title}>
-            {t('expenses.form.title')} <span className="text-red-600" aria-hidden>*</span>
-          </FieldLabel>
-          <input
-            id={ids.title}
-            value={form.title}
-            maxLength={160}
-            required
-            onChange={(event) => update('title', event.target.value)}
-            aria-invalid={errors.title ? true : undefined}
-            aria-describedby={describedBy('title')}
-            className="input-field w-full rounded-xl px-3 py-2 text-sm"
-            placeholder={t('expenses.form.titlePlaceholder')}
-          />
-          <FieldError id={`${ids.title}-error`} message={errors.title} />
-        </div>
+        {/* Ingredient purchases are named after the items bought, so they have no title. */}
+        {showItems ? null : (
+          <div>
+            <FieldLabel icon={Type} htmlFor={ids.title}>
+              {t('expenses.form.title')} <span className="text-red-600" aria-hidden>*</span>
+            </FieldLabel>
+            <input
+              id={ids.title}
+              value={form.title}
+              maxLength={160}
+              required
+              onChange={(event) => update('title', event.target.value)}
+              aria-invalid={errors.title ? true : undefined}
+              aria-describedby={describedBy('title')}
+              className="input-field w-full rounded-xl px-3 py-2 text-sm"
+              placeholder={t('expenses.form.titlePlaceholder')}
+            />
+            <FieldError id={`${ids.title}-error`} message={errors.title} />
+          </div>
+        )}
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
@@ -220,14 +268,25 @@ export default function ExpenseFormModal({ expense = null, categories, onClose, 
                     aria-label={t(`expenses.form.currencies.${option.id}`)}
                     onClick={() => {
                       if (form.currency === option.id) return
-                      // Switching converts what is typed, so the amount stays the same.
-                      const value = Number(form.amount)
-                      const converted = form.amount === '' || !Number.isFinite(value)
-                        ? form.amount
-                        : option.id === 'khr'
-                          ? String(usdToKhr(value, rate))
-                          : String(khrToUsd(value, rate))
-                      setForm((current) => ({ ...current, currency: option.id, amount: converted }))
+                      // Switching converts what is typed (amount and item prices), so the money stays the same.
+                      const convert = (text) => {
+                        const value = Number(text)
+                        if (String(text).trim() === '' || !Number.isFinite(value)) return text
+                        return option.id === 'khr' ? String(usdToKhr(value, rate)) : String(khrToUsd(value, rate))
+                      }
+                      // Item prices convert exactly (whole riel, cents), so switching back gives the same price;
+                      // rounding each to 100 riel would turn $4.50 into $4.51.
+                      const convertPrice = (text) => {
+                        const value = Number(text)
+                        if (String(text).trim() === '' || !Number.isFinite(value)) return text
+                        return option.id === 'khr' ? String(Math.round(value * rate)) : String(Math.round((value / rate) * 100) / 100)
+                      }
+                      setForm((current) => ({
+                        ...current,
+                        currency: option.id,
+                        amount: convert(current.amount),
+                        items: current.items.map((line) => ({ ...line, price: convertPrice(line.price) })),
+                      }))
                     }}
                     className={`h-6 min-w-7 rounded-md px-2 text-xs font-bold transition ${
                       form.currency === option.id
@@ -247,11 +306,12 @@ export default function ExpenseFormModal({ expense = null, categories, onClose, 
               min={form.currency === 'khr' ? '100' : '0.01'}
               step={form.currency === 'khr' ? '100' : '0.01'}
               required
-              value={form.amount}
+              value={amountValue}
+              readOnly={priced.entered}
               onChange={(event) => update('amount', event.target.value)}
               aria-invalid={errors.amount ? true : undefined}
               aria-describedby={errors.amount ? `${ids.amount}-error` : `${ids.amount}-hint`}
-              className="input-field w-full rounded-xl px-3 py-2 text-sm tabular-nums"
+              className={`input-field w-full rounded-xl px-3 py-2 text-sm tabular-nums ${priced.entered ? 'cursor-default bg-stone-50 font-semibold dark:bg-zinc-800/60' : ''}`}
               placeholder={form.currency === 'khr' ? '0 ៛' : '0.00'}
             />
             {errors.amount ? (
@@ -259,15 +319,26 @@ export default function ExpenseFormModal({ expense = null, categories, onClose, 
             ) : (
               // What will be saved in the other currency, at the till's rate.
               <p id={`${ids.amount}-hint`} className="text-muted mt-1 text-xs tabular-nums">
-                {amountInUsd(form, rate) > 0
+                {priced.entered ? `${t('expenses.form.amountFromItems')} · ` : ''}
+                {amountInUsd(effective, rate) > 0
                   ? form.currency === 'khr'
-                    ? t('expenses.form.inUsd', { amount: formatUsd(amountInUsd(form, rate)) })
-                    : t('expenses.form.inKhr', { amount: formatKhr(usdToKhr(amountInUsd(form, rate), rate)) })
+                    ? t('expenses.form.inUsd', { amount: formatUsd(amountInUsd(effective, rate)) })
+                    : t('expenses.form.inKhr', { amount: formatKhr(usdToKhr(amountInUsd(effective, rate), rate)) })
                   : t('expenses.form.rateHint', { rate: rate.toLocaleString('en-US') })}
               </p>
             )}
           </div>
         </div>
+
+        {showItems ? (
+          <ExpenseItemsField
+            lines={form.items}
+            onChange={updateItems}
+            error={errors.items}
+            labelId={ids.items}
+            currency={form.currency}
+          />
+        ) : null}
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div>

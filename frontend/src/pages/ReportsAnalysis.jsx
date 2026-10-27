@@ -7,8 +7,10 @@ import OverviewTab from '../components/reports/OverviewTab'
 import SalesTab from '../components/reports/SalesTab'
 import ItemsTab from '../components/reports/ItemsTab'
 import StaffTab from '../components/reports/StaffTab'
+import DayCloseTab from '../components/reports/DayCloseTab'
 import { chartLabels, formatRangeLabel } from '../components/reports/reportFormat'
 import { apiFetch } from '../services/apiClient'
+import { useAuth } from '../context/AuthContext'
 import { menuCategoryLabel } from '../utils/menuCategoryLabel'
 import { translateMenuName } from '../utils/menuNameTranslations'
 import {
@@ -23,7 +25,7 @@ import {
 import { comparisonRange, dayCount, isDayKey, monthRange, presetRange } from '../utils/reportRange'
 import { normalizeOrderDate } from '../utils/salesHistoryAnalytics'
 
-const TABS = ['overview', 'sales', 'items', 'staff']
+const TABS = ['overview', 'sales', 'items', 'staff', 'close']
 const MAX_RANGE_DAYS = 800
 
 async function fetchJson(path, fallbackMessage) {
@@ -42,6 +44,7 @@ function validateRange(range, t) {
 
 export default function ReportsAnalysis({ onNavigate }) {
   const { t, i18n } = useTranslation()
+  const { isAdmin } = useAuth()
   const [tab, setTab] = useState('overview')
   const [preset, setPreset] = useState('month')
   const [customRange, setCustomRange] = useState(() => presetRange('month'))
@@ -169,9 +172,13 @@ export default function ReportsAnalysis({ onNavigate }) {
 
   return (
     <div className="space-y-5 page-enter">
-      <div className="flex items-center gap-3">
-        <FileBarChart className="h-6 w-6 shrink-0 text-forest-600 dark:text-forest-400" aria-hidden />
-        <h3 className="page-title">{t('nav.reports')}</h3>
+      <div>
+        <div className="flex items-center gap-3">
+          <FileBarChart className="h-6 w-6 shrink-0 text-forest-600 dark:text-forest-400" aria-hidden />
+          <h3 className="page-title">{t('nav.reports')}</h3>
+        </div>
+        {/* The server already limits a cashier to their own sales and expenses; say so. */}
+        {isAdmin ? null : <p className="text-muted mt-1 text-sm">{t('reports.ownOnly')}</p>}
       </div>
 
       <div role="tablist" aria-label={t('reports.tabsLabel')} className="flex flex-wrap gap-2">
@@ -191,6 +198,13 @@ export default function ReportsAnalysis({ onNavigate }) {
         ))}
       </div>
 
+      {/* Closing the day works on today, not on the chosen period. */}
+      {tab === 'close' ? (
+        <div id="reports-tab-panel" role="tabpanel" aria-labelledby="reports-tab-close">
+          <DayCloseTab />
+        </div>
+      ) : (
+      <>
       <ReportFilterBar
         preset={preset}
         onPresetChange={changePreset}
@@ -242,6 +256,8 @@ export default function ReportsAnalysis({ onNavigate }) {
           </div>
         )}
       </div>
+      </>
+      )}
 
       {exportKind ? (
         <ReportExportDialog

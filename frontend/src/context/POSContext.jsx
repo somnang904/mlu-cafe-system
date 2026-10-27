@@ -17,6 +17,7 @@ import {
   hydrateFromSnapshot,
   groupActiveRows,
   reconcileActiveOrders,
+  servedTargets,
 } from '../utils/activeOrdersStorage'
 import { TAKEOUT_BILL } from '../data/tables'
 
@@ -221,6 +222,8 @@ export function POSProvider({ children }) {
                 capacity: Number(st.capacity) || existing.capacity || 4,
                 status: preservedStatus,
                 mergedInto: st.mergedInto ?? null,
+                // The server only says this for tables kept as Paid; open orders come from /orders/active.
+                ...(preservedStatus === 'paid' && typeof st.foodServed === 'boolean' ? { foodServed: st.foodServed } : {}),
               }
             }
             return {
@@ -428,6 +431,7 @@ export function POSProvider({ children }) {
         tablesRef.current,
         takeOutRef.current,
         groupedOrders,
+        servedTargets(activeOrderRows),
       )
       setTables(reconciled.tables)
       setTakeOut(reconciled.takeOut)
@@ -441,7 +445,11 @@ export function POSProvider({ children }) {
   }, [refreshActiveOrders])
 
   useEffect(() => {
-    const interval = window.setInterval(refreshActiveOrders, 15_000)
+    const interval = window.setInterval(() => {
+      refreshActiveOrders()
+      // Paid tables (guests still seated) get their "food served" state from the floor list.
+      if (tablesRef.current.some((table) => table.status === 'paid')) refreshFloorTables()
+    }, 15_000)
     const refreshOnFocus = () => {
       if (document.visibilityState === 'visible') refreshActiveOrders()
     }
@@ -452,7 +460,7 @@ export function POSProvider({ children }) {
       window.removeEventListener('focus', refreshOnFocus)
       document.removeEventListener('visibilitychange', refreshOnFocus)
     }
-  }, [refreshActiveOrders])
+  }, [refreshActiveOrders, refreshFloorTables])
 
   useEffect(() => {
     refreshActiveOrders()
@@ -607,6 +615,32 @@ export function POSProvider({ children }) {
 
     return { ok: true, message: null }
   }
+
+  // Marks whether a table's food has been brought out. Shown at once; put back if the server refuses.
+  const setFoodServed = useCallback(async (tableId, served) => {
+    const apply = (value) => setTables((prev) => prev.map((table) => (table.id === tableId ? { ...table, foodServed: value } : table)))
+    apply(served)
+    try {
+      const response = await apiFetch('/orders/food-served', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target_id: String(tableId), served }),
+      })
+      if (!response.ok) throw new Error(`Server status returned ${response.status}`)
+      try {
+        const channel = new BroadcastChannel('mlu-pos-sync')
+        channel.postMessage({ type: 'food-served', id: tableId })
+        channel.close()
+      } catch {
+        // Cross-tab sync is optional; other devices pick it up on their next refresh.
+      }
+      return true
+    } catch {
+      apply(!served)
+      refreshActiveOrdersRef.current?.()
+      return false
+    }
+  }, [])
 
   const updateBillItems = (destinationId, items) => {
     const status = statusForTarget(items)
@@ -1039,6 +1073,7 @@ export function POSProvider({ children }) {
         getActiveBills,
         assignOrder,
         updateBillItems,
+        setFoodServed,
         decrementBillItem,
         updateBillItemPrice,
         processPayment,

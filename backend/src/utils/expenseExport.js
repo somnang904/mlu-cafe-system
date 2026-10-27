@@ -2,6 +2,7 @@ const ExcelJS = require('exceljs')
 const { actorLabel, formatMoney, parseReportRange, pdfSafe, roundMoney } = require('./exportParams')
 const { drawDocumentHeader, drawNote, drawSectionTitle, drawTable, renderPdf } = require('./pdfLayout')
 const { EXPENSE_METHODS, EXPENSE_STATUSES, listExpenses } = require('./expenses')
+const { isAdminRole } = require('../constants/permissions')
 
 // English labels for the file (exports are always in English).
 const METHOD_LABELS = { cash: 'Cash', aba_khqr: 'ABA/KHQR', card: 'Card', bank_transfer: 'Bank transfer' }
@@ -27,10 +28,10 @@ function matchesSearch(expense, search) {
     .some((value) => String(value || '').toLowerCase().includes(search))
 }
 
-async function loadFilteredExpenses(db, filters) {
+async function loadFilteredExpenses(db, filters, createdBy = null) {
   const rows = await listExpenses(db, filters.period.startDate
-    ? { from: filters.period.startDate, toExclusive: filters.period.endDate, status: filters.status }
-    : { days: 'all', status: filters.status })
+    ? { from: filters.period.startDate, toExclusive: filters.period.endDate, status: filters.status, createdBy }
+    : { days: 'all', status: filters.status, createdBy })
   return rows.filter((expense) => (
     (!filters.categoryId || expense.category_id === filters.categoryId)
     && (!filters.method || expense.method === filters.method)
@@ -178,7 +179,8 @@ function buildExpensePdfBuffer(expenses, filters, categoryName, generatedBy) {
 
 async function createExpenseExport(db, query, user, kind) {
   const filters = parseExpenseFilters(query)
-  const expenses = await loadFilteredExpenses(db, filters)
+  // A cashier exports only the expenses they logged.
+  const expenses = await loadFilteredExpenses(db, filters, isAdminRole(user?.role) ? null : user?.id ?? -1)
   const categoryName = filters.categoryId
     ? (expenses[0]?.category || (await db.execute('SELECT name FROM expense_categories WHERE id = ?', [filters.categoryId]))[0][0]?.name || null)
     : null

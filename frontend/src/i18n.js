@@ -1,5 +1,6 @@
 import i18n from 'i18next'
 import { initReactI18next } from 'react-i18next'
+import { readSession } from './services/sessionStorage'
 
 const STORAGE_KEY = 'mlu_kitchen_cafe_lang'
 
@@ -424,6 +425,10 @@ const resources = {
         checkInArrived: 'Check in',
         openOrderTicket: 'Open order',
         addItems: 'Add / change items',
+        foodWaiting: 'Waiting for food',
+        foodServed: 'Food served',
+        foodToggle: 'Food brought to {{table}}',
+        foodSaveError: 'Could not save. Try again.',
         keepBooking: 'Keep',
         confirmCancel: 'Confirm cancel',
         cancelBooking: 'Cancel booking',
@@ -914,6 +919,7 @@ const resources = {
         offlineData: 'Showing offline inventory data. Reconnect the backend to sync live stock levels.',
       },
       reports: {
+        ownOnly: 'Showing only the sales you made and the expenses you logged.',
         subtitle: 'Income vs spending',
         filterHint: 'Choose a month for a daily view, or keep all months to see the year at a glance.',
         monthlyChartTitle: 'Monthly income vs spending',
@@ -962,6 +968,37 @@ const resources = {
           sales: 'Sales',
           items: 'Items',
           staff: 'Staff',
+          close: 'Close day',
+        },
+        dayClose: {
+          title: 'Close day - {{date}}',
+          scopeOwn: 'Your sales and the expenses you logged today.',
+          scopeShop: 'The whole shop today: every cashier\'s sales and all expenses.',
+          payments: 'Paid with',
+          itemsSold: 'Items sold',
+          orderCount: '{{count}} orders',
+          noSales: 'No sales yet.',
+          noData: 'No figures for this day.',
+          note: 'Note',
+          notePlaceholder: 'Anything to remember about today',
+          close: 'Close day',
+          closeAgain: 'Update close report',
+          closeHint: 'Saves today\'s figures so you can look back at them later.',
+          closeAgainHint: 'Already closed today; closing again replaces the saved figures with the ones above.',
+          closedAt: 'Closed {{time}}',
+          saved: 'Close report for {{date}} saved.',
+          saveError: 'Could not close the day.',
+          loadError: 'Could not load the day.',
+          history: 'Closed days',
+          noHistory: 'No days closed yet.',
+          date: 'Date',
+          closedBy: 'Closed by',
+          closedTime: 'Closed at',
+          view: 'View',
+          own: 'own sales',
+          shop: 'whole shop',
+          closedByLine: 'Closed by {{name}} ({{scope}}) · {{time}}',
+          print: 'Print',
         },
         periodLabel: 'Period',
         presets: {
@@ -1232,7 +1269,33 @@ const resources = {
           date: 'Date',
           category: 'Category',
           chooseCategory: 'Choose a category',
+          items: 'Items bought',
+          itemsHint: "Each item is added to its stock when you save. Add each item's price and the amount becomes their total.",
+          addItem: 'Add item',
+          chooseItem: 'Choose an item',
+          newIngredient: '+ New ingredient',
+          newIngredientName: 'New ingredient name',
+          unit: 'Unit',
+          chooseFromList: 'Choose from the list instead',
+          item: 'Item',
+          searchItem: 'Type to search an item…',
+          createIngredient: 'Create new ingredient "{{name}}"',
+          newIngredientNote: 'New ingredient - it is added to Ingredients when you save',
+          price: 'Price',
+          unitPrice: '{{price}} / {{unit}}',
+          itemsTotal: 'Total: {{amount}}',
+          amountFromItems: 'Total of the items',
+          quantity: 'Quantity',
+          removeItem: 'Remove {{name}}',
+          onHand: 'In stock: {{amount}}',
+          itemGroups: {
+            ingredient: 'Ingredients',
+            stock: 'Stock items',
+          },
+          itemsLoadError: 'Could not load the stock items.',
           errors: {
+            items: 'Choose an item and a quantity above 0 on every line. Once one item has a price, give every item a price.',
+            itemsRequired: 'Add at least one item you bought, with its quantity.',
             date: 'Choose the date.',
             title: 'Enter a title.',
             amount: 'Enter an amount above 0.',
@@ -2238,6 +2301,10 @@ const resources = {
         checkInArrived: 'ចុះឈ្មោះ',
         openOrderTicket: 'បើកការកុម្មង់',
         addItems: 'បន្ថែម / ប្ដូរមុខម្ហូប',
+        foodWaiting: 'កំពុងរង់ចាំម្ហូប',
+        foodServed: 'បានទទួលម្ហូបហើយ',
+        foodToggle: 'បានយកម្ហូបទៅ {{table}}',
+        foodSaveError: 'មិនអាចរក្សាទុកបានទេ។ សូមព្យាយាមម្តងទៀត។',
         keepBooking: 'រក្សា',
         confirmCancel: 'បញ្ជាក់បោះបង់',
         cancelBooking: 'បោះបង់ការកក់',
@@ -2723,6 +2790,7 @@ const resources = {
         numberRequired: 'បញ្ចូលលេខសូន្យ ឬច្រើនជាងនេះ។',
       },
       reports: {
+        ownOnly: 'បង្ហាញតែការលក់ដែលអ្នកបានលក់ និងការចំណាយដែលអ្នកបានបញ្ចូលប៉ុណ្ណោះ។',
         subtitle: 'ចំណូល និងចំណាយ',
         filterHint: 'ជ្រើសខែសម្រាប់ទិដ្ឋភាពប្រចាំថ្ងៃ ឬរក្សាគ្រប់ខែដើម្បីមើលឆ្នាំទាំងមូល។',
         monthlyChartTitle: 'ចំណូល vs ចំណាយប្រចាំខែ',
@@ -2771,6 +2839,37 @@ const resources = {
           sales: 'ការលក់',
           items: 'មុខម្ហូប',
           staff: 'បុគ្គលិក',
+          close: 'បិទថ្ងៃ',
+        },
+        dayClose: {
+          title: 'បិទថ្ងៃ - {{date}}',
+          scopeOwn: 'ការលក់របស់អ្នក និងការចំណាយដែលអ្នកបានបញ្ចូលថ្ងៃនេះ។',
+          scopeShop: 'ហាងទាំងមូលថ្ងៃនេះ៖ ការលក់របស់អ្នកគិតលុយទាំងអស់ និងការចំណាយទាំងអស់។',
+          payments: 'បង់តាម',
+          itemsSold: 'មុខទំនិញដែលបានលក់',
+          orderCount: '{{count}} ការបញ្ជាទិញ',
+          noSales: 'មិនទាន់មានការលក់ទេ។',
+          noData: 'គ្មានទិន្នន័យសម្រាប់ថ្ងៃនេះទេ។',
+          note: 'កំណត់ចំណាំ',
+          notePlaceholder: 'អ្វីដែលត្រូវចងចាំអំពីថ្ងៃនេះ',
+          close: 'បិទថ្ងៃ',
+          closeAgain: 'ធ្វើបច្ចុប្បន្នភាពរបាយការណ៍បិទថ្ងៃ',
+          closeHint: 'រក្សាទុកតួលេខថ្ងៃនេះ ដើម្បីមើលវិញពេលក្រោយ។',
+          closeAgainHint: 'បានបិទថ្ងៃនេះរួចហើយ។ ការបិទម្តងទៀតនឹងជំនួសតួលេខដែលបានរក្សាទុក ដោយតួលេខខាងលើ។',
+          closedAt: 'បានបិទ {{time}}',
+          saved: 'បានរក្សាទុករបាយការណ៍បិទថ្ងៃ {{date}}។',
+          saveError: 'មិនអាចបិទថ្ងៃបានទេ។',
+          loadError: 'មិនអាចផ្ទុកទិន្នន័យថ្ងៃនេះបានទេ។',
+          history: 'ថ្ងៃដែលបានបិទ',
+          noHistory: 'មិនទាន់មានថ្ងៃដែលបានបិទទេ។',
+          date: 'កាលបរិច្ឆេទ',
+          closedBy: 'បិទដោយ',
+          closedTime: 'ពេលបិទ',
+          view: 'មើល',
+          own: 'ការលក់ផ្ទាល់ខ្លួន',
+          shop: 'ហាងទាំងមូល',
+          closedByLine: 'បិទដោយ {{name}} ({{scope}}) · {{time}}',
+          print: 'បោះពុម្ព',
         },
         periodLabel: 'រយៈពេល',
         presets: {
@@ -3041,7 +3140,33 @@ const resources = {
           date: 'កាលបរិច្ឆេទ',
           category: 'ប្រភេទ',
           chooseCategory: 'ជ្រើសប្រភេទ',
+          items: 'មុខទំនិញដែលបានទិញ',
+          itemsHint: 'មុខទំនិញនីមួយៗនឹងត្រូវបន្ថែមទៅស្តុក ពេលរក្សាទុក។ បញ្ចូលតម្លៃមុខនីមួយៗ ហើយចំនួនទឹកប្រាក់នឹងជាសរុបរបស់វា។',
+          addItem: 'បន្ថែមមុខទំនិញ',
+          chooseItem: 'ជ្រើសមុខទំនិញ',
+          newIngredient: '+ គ្រឿងផ្សំថ្មី',
+          newIngredientName: 'ឈ្មោះគ្រឿងផ្សំថ្មី',
+          unit: 'ឯកតា',
+          chooseFromList: 'ជ្រើសពីបញ្ជីវិញ',
+          item: 'មុខទំនិញ',
+          searchItem: 'វាយដើម្បីស្វែងរកមុខទំនិញ…',
+          createIngredient: 'បង្កើតគ្រឿងផ្សំថ្មី "{{name}}"',
+          newIngredientNote: 'គ្រឿងផ្សំថ្មី - នឹងត្រូវបន្ថែមទៅគ្រឿងផ្សំ ពេលរក្សាទុក',
+          price: 'តម្លៃ',
+          unitPrice: '{{price}} / {{unit}}',
+          itemsTotal: 'សរុប៖ {{amount}}',
+          amountFromItems: 'សរុបពីមុខទំនិញ',
+          quantity: 'បរិមាណ',
+          removeItem: 'ដក {{name}} ចេញ',
+          onHand: 'ក្នុងស្តុក៖ {{amount}}',
+          itemGroups: {
+            ingredient: 'គ្រឿងផ្សំ',
+            stock: 'ទំនិញស្តុក',
+          },
+          itemsLoadError: 'មិនអាចផ្ទុកបញ្ជីមុខទំនិញបានទេ។',
           errors: {
+            items: 'សូមជ្រើសមុខទំនិញ និងបរិមាណធំជាង 0 គ្រប់ជួរ។ បើមុខមួយមានតម្លៃ សូមដាក់តម្លៃគ្រប់មុខ។',
+            itemsRequired: 'សូមបន្ថែមយ៉ាងហោចណាស់មុខទំនិញមួយដែលបានទិញ ព្រមទាំងបរិមាណ។',
             date: 'សូមជ្រើសកាលបរិច្ឆេទ។',
             title: 'សូមបញ្ចូលចំណងជើង។',
             amount: 'សូមបញ្ចូលចំនួនធំជាង 0។',
@@ -3652,11 +3777,19 @@ i18n.use(initReactI18next).init({
 
 applyDocumentLanguage(i18n.language)
 
+// The choice is remembered for signed-in staff; the login screen reuses the last one saved.
+function persistLanguage(lng) {
+  if (typeof window === 'undefined' || !readSession()) return
+  window.localStorage.setItem(STORAGE_KEY, lng)
+}
+
 i18n.on('languageChanged', (lng) => {
-  if (typeof window !== 'undefined') {
-    window.localStorage.setItem(STORAGE_KEY, lng)
-  }
+  persistLanguage(lng)
   applyDocumentLanguage(lng)
 })
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('mlu:session-changed', () => persistLanguage(i18n.language))
+}
 
 export default i18n

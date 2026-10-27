@@ -118,12 +118,25 @@ export function groupActiveRows(activeOrderRows) {
   }, {})
 }
 
-export function reconcileActiveOrders(prevTables, prevTakeOut, groupedOrders) {
+/** Targets ("3", "takeout") whose open order has had its food brought out. */
+export function servedTargets(activeOrderRows) {
+  const served = new Set()
+  for (const row of activeOrderRows || []) {
+    if (Number(row.food_served)) served.add(row.target_id != null ? String(row.target_id).trim() : 'takeout')
+  }
+  return served
+}
+
+/**
+ * `served` (from servedTargets) updates each table's foodServed; left out, tables keep theirs.
+ */
+export function reconcileActiveOrders(prevTables, prevTakeOut, groupedOrders, served = null) {
   const tables = prevTables.map((table) => {
     const serverItems = groupedOrders?.[table.id.toString()]
 
     if (serverItems?.length) {
-      return applyItemsToBill(table, serverItems, statusForItems(serverItems))
+      const next = applyItemsToBill(table, serverItems, statusForItems(serverItems))
+      return served ? { ...next, foodServed: served.has(table.id.toString()) } : next
     }
     if (table.status === 'paid' && !table.items?.length) {
       return table
@@ -134,6 +147,7 @@ export function reconcileActiveOrders(prevTables, prevTakeOut, groupedOrders) {
       orderSummary: null,
       orderTotal: null,
       items: [],
+      foodServed: false,
     }
   })
 

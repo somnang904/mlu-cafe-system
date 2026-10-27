@@ -131,7 +131,7 @@ const {
     endShift,
     listShiftHistory,
 } = require('./src/utils/shifts');
-const { normalizeCheckoutPayment } = require('./src/utils/cashDrawer');
+const { assertPaymentAmounts, normalizeCheckoutPayment } = require('./src/utils/cashDrawer');
 const {
     listExpenses,
     listExpenseCategories,
@@ -141,7 +141,10 @@ const {
     deleteExpense,
     expenseReceiptPath,
     summarizeExpensesToday,
+    assertExpenseVisible,
 } = require('./src/utils/expenses');
+const { listPurchasableItems } = require('./src/utils/expenseStock');
+const { previewDayClose, closeDay, listDayCloses, getDayClose } = require('./src/utils/dayClose');
 const { createExpenseExport } = require('./src/utils/expenseExport');
 const {
     auditFromRequest,
@@ -1173,6 +1176,7 @@ app.get('/api/orders/active', requirePosFloorAccess, async (req, res) => {
         const query = `
             SELECT o.id AS order_id, ${targetSelect} AS target_id, o.status,
                    COALESCE(o.bill_requested, 0) AS bill_requested,
+                   (o.food_served_at IS NOT NULL) AS food_served,
                    oi.menu_item_id, oi.quantity, oi.price, oi.notes,
                    COALESCE(m.name, oi.item_name, 'Custom item') AS name
             FROM orders o
@@ -1187,6 +1191,7 @@ app.get('/api/orders/active', requirePosFloorAccess, async (req, res) => {
             notes: row.notes || '',
             name: formatOrderLineName(row.name, row.notes),
             bill_requested: Number(row.bill_requested) ? 1 : 0,
+            food_served: Number(row.food_served) ? 1 : 0,
         })));
     } catch (error) {
         if (error.message && error.message.includes('bill_requested')) {
@@ -1207,6 +1212,7 @@ app.get('/api/orders/active', requirePosFloorAccess, async (req, res) => {
                     notes: row.notes || '',
                     name: formatOrderLineName(row.name, row.notes),
                     bill_requested: 0,
+                    food_served: 0,
                 })));
                 return;
             } catch (fallbackError) {
@@ -1317,6 +1323,8 @@ app.post('/api/orders', requireOrderWriteAccess, async (req, res) => {
                 await insertOrderItem(conn, id, item);
             }
             await combineDuplicateLines(conn, id);
+            // New food was ordered, so the table is waiting for it again.
+            await conn.execute('UPDATE orders SET food_served_at = NULL WHERE id = ?', [id]);
             const [lines] = await conn.execute(
                 'SELECT menu_item_id, quantity, notes FROM order_items WHERE order_id = ?',
                 [id],
@@ -1399,6 +1407,7 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
     let bank;
     try {
         bank = normalizePaymentBank(method, payment_bank);
+        assertPaymentAmounts({ receivedUsd: received_usd, receivedKhr: received_khr, changeUsd: change_usd });
     } catch (validationError) {
         return res.status(400).json({ message: validationError.message });
     }
@@ -1581,6 +1590,7 @@ app.post('/api/orders/split-checkout', requirePermission('payment'), async (req,
     let bank;
     try {
         bank = normalizePaymentBank(method, payment_bank);
+        assertPaymentAmounts({ receivedUsd: received_usd, receivedKhr: received_khr, changeUsd: change_usd });
     } catch (validationError) {
         return res.status(400).json({ message: validationError.message });
     }
@@ -1893,6 +1903,59 @@ app.delete('/api/orders/:id', requireAdmin, async (req, res) => {
     }
 });
 
+// Any line whose quantity went up (or is new): the table is waiting for food again.
+function orderedMoreFood(before, after) {
+    const key = (line) => `${line.menu_item_id ?? ''}|${line.item_name ?? ''}|${line.notes ?? ''}`;
+    const had = new Map();
+    for (const line of before) had.set(key(line), (had.get(key(line)) || 0) + Number(line.quantity || 0));
+    const has = new Map();
+    for (const line of after) has.set(key(line), (has.get(key(line)) || 0) + Number(line.quantity || 0));
+    return [...has].some(([lineKey, quantity]) => quantity > (had.get(lineKey) || 0));
+}
+
+// MARK A TABLE'S FOOD AS SERVED (or back to waiting)
+app.post('/api/orders/food-served', requirePosFloorAccess, async (req, res) => {
+    const { target_id, served } = req.body ?? {};
+    if (!target_id) {
+        return res.status(400).json({ message: 'Missing target_id' });
+    }
+    if (typeof served !== 'boolean') {
+        return res.status(400).json({ message: 'served must be true or false' });
+    }
+    let target;
+    try {
+        target = normalizeIncomingTarget(target_id);
+    } catch (validationError) {
+        return res.status(400).json({ message: validationError.message });
+    }
+    try {
+        const { sql, params } = pendingOrderWhereClause(target);
+        const servedSql = served ? 'NOW()' : 'NULL';
+        const [result] = await db.execute(`UPDATE orders SET food_served_at = ${servedSql} WHERE ${sql}`, params);
+        let updated = Number(result?.affectedRows) || 0;
+        // A table kept as Paid (guests still seated) has no open order: mark the order it just paid.
+        if (!updated && target.sourceType === 'Table') {
+            const [paid] = await db.execute(
+                `SELECT o.id FROM orders o JOIN tables t ON t.id = o.table_id
+                 WHERE o.table_id = ? AND t.status = 'Paid' AND o.status = 'Completed'
+                 ORDER BY o.id DESC LIMIT 1`,
+                [target.tableId],
+            );
+            if (paid[0]) {
+                await db.execute(`UPDATE orders SET food_served_at = ${servedSql} WHERE id = ?`, [paid[0].id]);
+                updated = 1;
+            }
+        }
+        if (!updated) {
+            return res.status(404).json({ message: 'No open order on this table' });
+        }
+        res.status(200).json({ served });
+    } catch (error) {
+        logOrderError('Error setting food_served_at', error, { target_id });
+        res.status(500).json({ message: 'Failed to update the table', errorId: logError(error, { route: `${req.method} ${req.originalUrl}` }) });
+    }
+});
+
 // 4. MARK TABLE AS BILL REQUESTED (PENDING BILL STATUS)
 app.post('/api/orders/bill-requested', requirePosFloorAccess, async (req, res) => {
     const { target_id } = req.body ?? {};
@@ -1997,6 +2060,10 @@ app.put('/api/orders/items', requireOrderWriteAccess, async (req, res) => {
             }
             await assertItemsOnSale(conn, items, id);
             const prices = await pickLinePrices(conn, id, items, { isAdmin: isAdminRole(req.user?.role) });
+            const [linesBefore] = await conn.execute(
+                'SELECT menu_item_id, item_name, notes, quantity FROM order_items WHERE order_id = ?',
+                [id],
+            );
             await conn.execute('DELETE FROM order_items WHERE order_id = ?', [id]);
             for (const [index, item] of items.entries()) {
                 await insertOrderItem(conn, id, item, { price: prices[index] });
@@ -2007,6 +2074,13 @@ app.put('/api/orders/items', requireOrderWriteAccess, async (req, res) => {
                 [id],
             );
             await reconcileOrderStock(conn, id, stockLines, req.user?.id ?? null, { blockShortage: true });
+            const [linesAfter] = await conn.execute(
+                'SELECT menu_item_id, item_name, notes, quantity FROM order_items WHERE order_id = ?',
+                [id],
+            );
+            if (orderedMoreFood(linesBefore, linesAfter)) {
+                await conn.execute('UPDATE orders SET food_served_at = NULL WHERE id = ?', [id]);
+            }
 
             if (items.length === 0) {
                 await conn.execute(
@@ -3169,6 +3243,11 @@ app.post('/api/system/backup/restore', requireAdmin, sensitiveOperationLimiter, 
 // ==========================================
 // 💰 EXPENSE / SPENDING TRACKING
 // ==========================================
+/** null for admins (every expense); the user's id for anyone else (only what they logged). */
+function expenseOwnerScope(req) {
+    return isAdminRole(req.user?.role) ? null : req.user?.id ?? -1;
+}
+
 app.get('/api/expenses', requireExpenseAccess, async (req, res) => {
     try {
         // from/to (inclusive YYYY-MM-DD) wins over days.
@@ -3177,9 +3256,13 @@ app.get('/api/expenses', requireExpenseAccess, async (req, res) => {
             return res.status(400).json({ message: 'Invalid date range. Use from=YYYY-MM-DD&to=YYYY-MM-DD.' });
         }
         const status = typeof req.query.status === 'string' ? req.query.status : null;
+        // Cashiers see only the expenses they logged; admins see the whole shop's.
+        const createdBy = expenseOwnerScope(req);
         const expenses = await listExpenses(
             db,
-            range ? { from: range.start, toExclusive: range.endExclusive, status } : { days: req.query.days, status },
+            range
+                ? { from: range.start, toExclusive: range.endExclusive, status, createdBy }
+                : { days: req.query.days, status, createdBy },
         );
         res.status(200).json(expenses);
     } catch (error) {
@@ -3199,9 +3282,19 @@ app.get('/api/expense-categories', requireExpenseWriteAccess, async (req, res) =
 });
 
 // Expenses page cards that don't follow the period: all unpaid bills, and the monthly repeats.
+// Ingredients and stock items an expense can add to stock (the form's item picker).
+app.get('/api/expenses/stock-items', requireExpenseAccess, async (_req, res) => {
+    try {
+        res.status(200).json(await listPurchasableItems(db));
+    } catch (error) {
+        const errorId = logError(error, { route: 'GET /api/expenses/stock-items' });
+        res.status(500).json({ message: 'Failed to load stock items', errorId });
+    }
+});
+
 app.get('/api/expenses/overview', requireExpenseAccess, async (req, res) => {
     try {
-        res.status(200).json(await expenseOverview(db));
+        res.status(200).json(await expenseOverview(db, { createdBy: expenseOwnerScope(req) }));
     } catch (error) {
         const errorId = logError(error, { route: `${req.method} ${req.originalUrl}` });
         res.status(500).json({ message: 'Failed to load the expense overview', errorId });
@@ -3255,6 +3348,7 @@ app.post('/api/expenses/receipt', requireExpenseWriteAccess, (req, res) => {
 
 app.get('/api/expenses/:id/receipt', requireExpenseAccess, async (req, res) => {
     try {
+        await assertExpenseVisible(db, req.params.id, expenseOwnerScope(req));
         const filePath = await expenseReceiptPath(db, req.params.id, receiptsDir);
         if (!filePath) return res.status(404).json({ message: 'No receipt for this expense' });
         res.setHeader('Cache-Control', 'private, max-age=300');
@@ -3273,7 +3367,8 @@ function removeReceiptFile(file) {
 
 app.put('/api/expenses/:id', requireExpenseAccess, async (req, res) => {
     try {
-        const { expense, previous, removedReceipt } = await updateExpense(db, req.params.id, req.body ?? {}, { receiptsDir });
+        await assertExpenseVisible(db, req.params.id, expenseOwnerScope(req));
+        const { expense, previous, removedReceipt } = await updateExpense(db, req.params.id, req.body ?? {}, { receiptsDir, user: req.user });
         removeReceiptFile(removedReceipt);
         await auditFromRequest(db, req, {
             action: 'expense_update',
@@ -3419,13 +3514,14 @@ app.post('/api/expenses', requireExpenseWriteAccess, async (req, res) => {
 
 app.delete('/api/expenses/:id', requireExpenseAccess, async (req, res) => {
     try {
+        await assertExpenseVisible(db, req.params.id, expenseOwnerScope(req));
         const expenseId = Number.parseInt(req.params.id, 10);
         const [rows] = await db.execute(
             'SELECT id, category, description, amount, expense_date FROM expenses WHERE id = ? LIMIT 1',
             [expenseId],
         );
         const previous = rows[0] || null;
-        const receiptFile = await deleteExpense(db, req.params.id);
+        const receiptFile = await deleteExpense(db, req.params.id, { user: req.user });
         removeReceiptFile(receiptFile);
         await auditFromRequest(db, req, {
             action: 'expense_delete',
@@ -3453,9 +3549,26 @@ const requireReservationsAccess = requireAnyPermission('reservations', 'table')
 const requireTableManage = requireAdmin
 const requireReportsAccess = requirePermission('reports')
 
+/** Adds foodServed to tables kept as Paid, from the order each one last paid. */
+async function withPaidFoodServed(tables) {
+    const paidIds = tables.filter((table) => String(table.status).toLowerCase() === 'paid').map((table) => table.id);
+    if (!paidIds.length) return tables;
+    const [rows] = await db.execute(
+        `SELECT table_id, food_served_at FROM orders
+         WHERE status = 'Completed' AND table_id IN (${paidIds.map(() => '?').join(',')})
+         ORDER BY id DESC`,
+        paidIds,
+    );
+    const served = new Map();
+    for (const row of rows) {
+        if (!served.has(Number(row.table_id))) served.set(Number(row.table_id), row.food_served_at != null);
+    }
+    return tables.map((table) => (served.has(Number(table.id)) ? { ...table, foodServed: served.get(Number(table.id)) } : table));
+}
+
 app.get('/api/tables', requireReservationsAccess, async (_req, res) => {
     try {
-        const tables = await listFloorTables(db)
+        const tables = await withPaidFoodServed(await listFloorTables(db))
         const floor = await getLiveFloorReservations(db)
         const standard = tables.filter((table) => table.section !== 'vip')
         const vip = tables.filter((table) => table.section === 'vip')
@@ -3981,6 +4094,10 @@ app.delete('/api/tables/:id', requireTableManage, async (req, res) => {
 });
 
 app.get('/api/reports', requireReportsAccess, async (req, res) => {
+    // Whole-shop totals; cashiers get their own figures from /orders/history and /expenses.
+    if (!isAdminRole(req.user?.role)) {
+        return res.status(403).json({ message: 'Only administrators can see the whole-shop report' });
+    }
     try {
         const report = await buildSalesReport(db, { days: req.query.days })
         res.status(200).json(report)
@@ -3989,6 +4106,53 @@ app.get('/api/reports', requireReportsAccess, async (req, res) => {
         res.status(500).json({ message: 'Failed to load sales report', errorId: logError(error, { route: `${req.method} ${req.originalUrl}` }) })
     }
 })
+
+// ==========================================
+// 🌙 END-OF-DAY CLOSE REPORTS (cashier: own sales; admin: whole shop)
+// ==========================================
+function sendDayCloseError(res, req, error, fallback) {
+    if (error?.status && error.status < 500) return res.status(error.status).json({ message: error.message });
+    const errorId = logError(error, { route: `${req.method} ${req.originalUrl}` });
+    return res.status(500).json({ message: fallback, errorId });
+}
+
+app.get('/api/day-close/preview', requireReportsAccess, async (req, res) => {
+    try {
+        res.status(200).json(await previewDayClose(db, req.user, req.query.date));
+    } catch (error) {
+        sendDayCloseError(res, req, error, 'Failed to load the day');
+    }
+});
+
+app.get('/api/day-close', requireReportsAccess, async (req, res) => {
+    try {
+        res.status(200).json(await listDayCloses(db, req.user, req.query.limit));
+    } catch (error) {
+        sendDayCloseError(res, req, error, 'Failed to load close reports');
+    }
+});
+
+app.get('/api/day-close/:id', requireReportsAccess, async (req, res) => {
+    try {
+        res.status(200).json(await getDayClose(db, req.user, req.params.id));
+    } catch (error) {
+        sendDayCloseError(res, req, error, 'Failed to load the close report');
+    }
+});
+
+app.post('/api/day-close', requireReportsAccess, async (req, res) => {
+    try {
+        const close = await closeDay(db, req.user, req.body ?? {});
+        await auditFromRequest(db, req, {
+            action: 'day_close',
+            module: 'Reports',
+            description: `Closed ${close.date} (${close.scope === 'shop' ? 'whole shop' : 'own sales'}): net sales $${close.net_sales.toFixed(2)}, ${close.orders} orders.`,
+        });
+        res.status(200).json(close);
+    } catch (error) {
+        sendDayCloseError(res, req, error, 'Failed to close the day');
+    }
+});
 
 app.get('/api/reports/export/:kind', requireReportsAccess, sensitiveOperationLimiter, async (req, res) => {
     const kind = req.params.kind === 'excel' ? 'xlsx' : req.params.kind

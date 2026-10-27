@@ -6,6 +6,8 @@ import {
   BaggageClaim,
   CalendarClock,
   Check,
+  CircleCheck,
+  CookingPot,
   CreditCard,
   Crown,
   GitMerge,
@@ -875,6 +877,35 @@ const TABLE_ICON_COLOR = {
   paid: 'text-sky-600 dark:text-sky-400',
 }
 
+/** Whether the food has been brought to the table; ordering more food sets it back to waiting. */
+function FoodServedToggle({ bill, onNotify }) {
+  const { t } = useTranslation()
+  const { setFoodServed } = usePOS()
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={Boolean(bill.foodServed)}
+      aria-label={t('tables.foodToggle', { table: bill.name })}
+      onClick={async (event) => {
+        event.stopPropagation()
+        const saved = await setFoodServed(bill.id, !bill.foodServed)
+        if (!saved) onNotify?.(t('tables.foodSaveError'))
+      }}
+      className={`inline-flex w-full cursor-pointer select-none items-center justify-center gap-2 rounded-xl border py-2 text-sm font-semibold transition active:scale-[0.99] ${
+        bill.foodServed
+          ? 'border-emerald-500 bg-emerald-500/15 text-emerald-700 hover:bg-emerald-500/25 dark:text-emerald-300'
+          : 'border-amber-400 bg-amber-50 text-amber-800 hover:bg-amber-100 dark:border-amber-600/70 dark:bg-amber-950/30 dark:text-amber-300 dark:hover:bg-amber-900/40'
+      }`}
+    >
+      {bill.foodServed
+        ? <CircleCheck className="h-4 w-4" aria-hidden />
+        : <CookingPot className="h-4 w-4 animate-pulse" aria-hidden />}
+      {bill.foodServed ? t('tables.foodServed') : t('tables.foodWaiting')}
+    </button>
+  )
+}
+
 function TableCard({
   bill,
   reservation,
@@ -887,6 +918,7 @@ function TableCard({
   onDeleteTable,
   mergedNames = [],
   onUnmerge,
+  onNotify,
 }) {
   const { t } = useTranslation()
   const { isAdmin, canCancelOrders } = useAuth()
@@ -1063,6 +1095,8 @@ function TableCard({
             <p className="text-xs font-medium text-sky-700 dark:text-sky-300">
               {t('payment.keepSeatedDesc')}
             </p>
+            {/* Guests can pay before their food comes out. */}
+            <FoodServedToggle bill={bill} onNotify={onNotify} />
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
@@ -1105,6 +1139,7 @@ function TableCard({
 
         {isActive && hasItems && (
           <div className="mt-4 space-y-2">
+            <FoodServedToggle bill={bill} onNotify={onNotify} />
             <button
               type="button"
               onClick={(event) => {
@@ -1568,6 +1603,7 @@ export default function Table() {
               onDeleteTable={setDeleteTarget}
               mergedNames={mergedNamesByHost[table.id]}
               onUnmerge={handleUnmergeTables}
+              onNotify={showToast}
             />
           ))}
         </div>
@@ -1590,6 +1626,7 @@ export default function Table() {
               onDeleteTable={setDeleteTarget}
               mergedNames={mergedNamesByHost[table.id]}
               onUnmerge={handleUnmergeTables}
+              onNotify={showToast}
             />
           ))}
         </div>
