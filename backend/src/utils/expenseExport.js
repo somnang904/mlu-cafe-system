@@ -157,11 +157,13 @@ function buildExpensePdfBuffer(expenses, filters, categoryName, generatedBy) {
       y,
       [
         { label: 'Date', width: 62 },
-        { label: 'Description', width: 170 },
-        { label: 'Category', width: 80 },
+        { label: 'Description', width: 130 },
+        { label: 'Category', width: 70 },
         { label: 'Method', width: 66 },
         { label: 'Status', width: 46 },
         { label: 'Amount', width: 66, align: 'right' },
+        // A riel expense also shows the riel that was paid.
+        { label: 'Riel', width: 70, align: 'right' },
       ],
       expenses.map((expense) => ({
         values: [
@@ -171,6 +173,7 @@ function buildExpensePdfBuffer(expenses, filters, categoryName, generatedBy) {
           METHOD_LABELS[expense.method],
           STATUS_LABELS[expense.status],
           formatMoney(expense.amount),
+          expense.currency === 'KHR' && expense.amount_khr ? `${Number(expense.amount_khr).toLocaleString('en-US')} KHR` : '',
         ],
       })),
     )

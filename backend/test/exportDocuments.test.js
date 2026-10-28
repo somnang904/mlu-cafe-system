@@ -175,8 +175,9 @@ test('report with compare adds previous and change columns', async () => {
   const workbook = new ExcelJS.Workbook()
   await workbook.xlsx.load(buffer)
   const sheet = workbook.getWorksheet('Summary')
-  assert.deepEqual(sheet.getRow(1).values.slice(1), ['Metric', 'October 2026', 'Previous (September 2026)', 'Change'])
-  assert.deepEqual(sheet.getRow(2).values.slice(1), ['Sales', 120, 100, '+20.0%'])
+  assert.deepEqual(sheet.getRow(1).values.slice(1), ['Metric', 'October 2026', 'Previous (September 2026)', 'Change', 'Riel (៛, $1 = 4,100 ៛)'])
+  // The riel column is this period at the default rate (no rate in the data): 120 × 4,100.
+  assert.deepEqual(sheet.getRow(2).values.slice(1), ['Sales', 120, 100, '+20.0%', 492000])
   // No base to compare with.
   assert.equal(sheet.getRow(5).getCell(4).value, 'n/a')
   const pdf = await buildReportPdfBuffer(data, ['income', 'expenses'], 'admin')

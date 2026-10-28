@@ -1,14 +1,20 @@
 import { useTranslation } from 'react-i18next'
 import { ArrowDownRight, ArrowRight, ArrowUpRight } from 'lucide-react'
-import { formatPercent } from './reportFormat'
+import { formatMoney, formatPercent } from './reportFormat'
+import { formatKhr, usdToKhr } from '../../utils/currency'
+import { useExchangeRate } from '../../hooks/useExchangeRate'
 
 /**
  * One KPI. With `change` (a % from percentChange, or null when there is nothing to compare with)
  * it shows the trend: green when it moved the good way, red otherwise. `goodWhen="down"` is for
  * money going out (expenses, refunds), where a rise is bad. `onClick` makes the whole card a link.
+ * `usd` (a dollar amount) adds the same money in riel under the value, at the shop's rate.
+ * `paid` ({ usd, khr }: the money as it was paid, dollars and riel) replaces that riel line with
+ * the two real amounts, for money that is paid in either currency (sales, expenses).
  */
-export default function KpiCard({ label, value, hint, icon: Icon, accent, change, compare = false, goodWhen = 'up', onClick }) {
+export default function KpiCard({ label, value, usd, paid, hint, icon: Icon, accent, change, compare = false, goodWhen = 'up', onClick }) {
   const { t } = useTranslation()
+  const rate = useExchangeRate()
   const Tag = onClick ? 'button' : 'div'
 
   let trend = null
@@ -45,6 +51,15 @@ export default function KpiCard({ label, value, hint, icon: Icon, accent, change
         <div className="min-w-0">
           <p className="text-muted text-sm">{label}</p>
           <p className="text-heading mt-1.5 truncate text-2xl font-bold tabular-nums">{value}</p>
+          {paid ? (
+            <div className="mt-1 space-y-0.5 text-sm font-semibold tabular-nums">
+              <p className="text-muted truncate">{t('reports.inDollars', { amount: formatMoney(paid.usd || 0) })}</p>
+              <p className="truncate text-forest-600 dark:text-forest-400">{t('reports.inRiel', { amount: formatKhr(paid.khr || 0) })}</p>
+            </div>
+          ) : usd != null && Number.isFinite(Number(usd)) ? (
+            // `|| 0` turns -0 (no refunds) into 0, so it does not read "-0 ៛".
+            <p className="text-muted mt-0.5 truncate text-sm font-semibold tabular-nums">{formatKhr(usdToKhr(usd, rate) || 0)}</p>
+          ) : null}
         </div>
         <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-white ${accent}`}>
           <Icon className="h-5 w-5" aria-hidden />
