@@ -1,5 +1,7 @@
 const ExcelJS = require('exceljs')
 const { isAdminRole } = require('../constants/permissions')
+const { getExchangeRate } = require('./exchangeRate')
+const { summarizeCashOrders, DEFAULT_EXCHANGE_RATE } = require('./cashDrawer')
 const {
   actorLabel,
   formatMoney,
@@ -156,15 +158,110 @@ function expenseMap(expenses, grain) {
   return map
 }
 
+// amount is dollars (riel expenses converted); khr is the riel actually paid for riel expenses
+// and usd the dollars of the dollar expenses only.
 function categoryTotals(expenses) {
   const totals = new Map()
   for (const expense of expenses) {
     const category = expense.category || 'Others'
-    totals.set(category, roundMoney((totals.get(category) || 0) + Number(expense.amount || 0)))
+    const entry = totals.get(category) || { amount: 0, khr: 0, usd: 0 }
+    entry.amount = roundMoney(entry.amount + Number(expense.amount || 0))
+    if (expense.currency === 'KHR' && expense.amount_khr) entry.khr += Number(expense.amount_khr)
+    else entry.usd = roundMoney(entry.usd + Number(expense.amount || 0))
+    totals.set(category, entry)
   }
   return [...totals.entries()]
-    .map(([category, amount]) => ({ category, amount }))
+    .map(([category, entry]) => ({ category, amount: entry.amount, khr: entry.khr, usd: entry.usd }))
     .sort((a, b) => b.amount - a.amount || a.category.localeCompare(b.category))
+}
+
+/**
+ * Money taken in the period: cash kept in the drawer in dollars and in riel (what was paid in
+ * each currency, less change given), and what came in by bank / ABA.
+ */
+async function moneyTaken(db, period, staffId) {
+  const range = rangeSql('updated_at', period)
+  const mine = staffId != null ? ' AND staff_id = ?' : ''
+  const [rows] = await db.execute(
+    `SELECT ${TOTAL_SQL} AS total, received_usd, received_khr, change_usd, exchange_rate,
+            COALESCE(NULLIF(payment_method, ''), 'Cash') AS method
+     FROM orders
+     WHERE ${SOLD} AND ${range.sql}${mine}`,
+    staffId != null ? [...range.params, staffId] : range.params,
+  )
+  const cash = rows.filter((row) => String(row.method).toLowerCase() === 'cash')
+  const drawer = summarizeCashOrders(cash)
+  const bank = rows.filter((row) => String(row.method).toLowerCase() !== 'cash')
+  const refundRange = rangeSql(REFUND_DATE, period)
+  const [refunded] = await db.execute(
+    `SELECT ${TOTAL_SQL} AS total, received_usd, received_khr, exchange_rate,
+            COALESCE(NULLIF(payment_method, ''), 'Cash') AS method
+     FROM orders
+     WHERE ${REFUNDED} AND ${refundRange.sql}${mine}`,
+    staffId != null ? [...refundRange.params, staffId] : refundRange.params,
+  )
+  const sales = byCurrency(rows)
+  const refunds = byCurrency(refunded)
+  return {
+    cashUsd: drawer.netUsd,
+    cashKhr: drawer.netKhr,
+    salesUsd: sales.usd,
+    salesKhr: sales.khr,
+    refundsUsd: refunds.usd,
+    refundsKhr: refunds.khr,
+    bankUsd: roundMoney(bank.reduce((sum, row) => sum + Number(row.total || 0), 0)),
+  }
+}
+
+/**
+ * Bills split by the currency the customer paid in: a bill paid in dollars (or by bank) counts in
+ * dollars, a bill paid in riel counts as its value in riel, and a mixed cash payment counts the
+ * dollars handed over in dollars and the rest of the bill in riel.
+ */
+function byCurrency(orders) {
+  let salesUsd = 0
+  let salesKhr = 0
+  for (const order of orders) {
+    const total = Number(order.total) || 0
+    const khr = Number(order.received_khr) || 0
+    if (String(order.method).toLowerCase() !== 'cash' || khr <= 0) {
+      salesUsd += total
+      continue
+    }
+    const usd = Math.min(total, Number(order.received_usd) || 0)
+    const rate = Number(order.exchange_rate) > 0 ? Number(order.exchange_rate) : DEFAULT_EXCHANGE_RATE
+    salesUsd += usd
+    salesKhr += Math.round(((total - usd) * rate) / 100) * 100
+  }
+  return { usd: roundMoney(salesUsd), khr: salesKhr }
+}
+
+function toKhr(usd, rate) {
+  return Math.round(Number(usd || 0) * rate) || 0
+}
+
+/**
+ * A summary metric in riel. Expenses use the riel actually paid for riel expenses (10,000 ៛ stays
+ * 10,000 ៛, not $2.44 converted back); net profit follows from that. The rest is dollars × rate.
+ */
+function rielFor(metric, value, data) {
+  const rate = rateOf(data)
+  // Spending rows from before the riel split have only `amount`: all of it counts as dollars.
+  const expensesKhr = (data.spending || []).reduce(
+    (sum, row) => sum + (row.khr || 0) + toKhr(row.usd ?? row.amount, rate),
+    0,
+  )
+  if (metric === 'Expenses') return Math.round(expensesKhr)
+  if (metric === 'Net profit') return toKhr(netOf(data.summary), rate) - Math.round(expensesKhr)
+  return toKhr(value, rate)
+}
+
+function rateOf(data) {
+  return Number(data.rate) > 0 ? Number(data.rate) : DEFAULT_EXCHANGE_RATE
+}
+
+function formatKhrText(khr) {
+  return `${Math.round(Number(khr) || 0).toLocaleString('en-US')} KHR`
 }
 
 async function loadExpensesInScope(db, period, staffId = null) {
@@ -200,6 +297,8 @@ async function loadReportData(db, period, staffId = null) {
       breakdown,
       breakdownLabel: grain === 'day' ? 'Daily breakdown' : 'Monthly breakdown',
       spending: categoryTotals(expenses),
+      rate: await getExchangeRate(db),
+      taken: await moneyTaken(db, period, staffId),
     }
   }
 
@@ -224,6 +323,8 @@ async function loadReportData(db, period, staffId = null) {
     breakdown,
     breakdownLabel: 'Monthly breakdown',
     spending: categoryTotals(expenses),
+    rate: await getExchangeRate(db),
+    taken: await moneyTaken(db, period, staffId),
   }
 }
 
@@ -323,11 +424,19 @@ async function buildReportWorkbook(data, sections) {
   const workbook = new ExcelJS.Workbook()
   workbook.creator = 'Mlu Kitchen & Cafe Siem Reap'
   const summary = summaryRows(data, sections)
+  const rate = rateOf(data)
   if (summary.length) {
+    // The last column is this period in riel at the shop's rate.
+    const rielHeader = `Riel (៛, $1 = ${rate.toLocaleString('en-US')} ៛)`
     const headers = data.previous
-      ? ['Metric', data.period.label, `Previous (${data.previous.period.label})`, 'Change']
-      : ['Metric', 'Value']
-    const sheet = addSheet(workbook, 'Summary', headers, summary, [])
+      ? ['Metric', data.period.label, `Previous (${data.previous.period.label})`, 'Change', rielHeader]
+      : ['Metric', 'Value', rielHeader]
+    const rows = summary.map((values) => [
+      ...values,
+      COUNT_METRICS.has(values[0]) ? null : rielFor(values[0], values[1], data),
+    ])
+    const rielIndex = headers.length
+    const sheet = addSheet(workbook, 'Summary', headers, rows, [])
     sheet.eachRow((row, rowNumber) => {
       if (rowNumber === 1) return
       const metric = row.getCell(1).value
@@ -339,6 +448,25 @@ async function buildReportWorkbook(data, sections) {
           cell.numFmt = '$#,##0.00'
         }
       }
+      const riel = row.getCell(rielIndex)
+      if (typeof riel.value === 'number') riel.numFmt = '#,##0" ៛"'
+    })
+  }
+  if (sections.includes('income') && data.taken) {
+    const sheet = addSheet(
+      workbook,
+      'Money taken',
+      ['Paid with', 'Amount', 'Currency'],
+      [
+        ['Cash in US dollars (kept in the drawer)', data.taken.cashUsd, 'USD'],
+        ['Cash in riel (kept in the drawer)', data.taken.cashKhr, 'KHR'],
+        ['Bank / ABA', data.taken.bankUsd, 'USD'],
+      ],
+      [],
+    )
+    sheet.eachRow((row, rowNumber) => {
+      if (rowNumber === 1) return
+      row.getCell(2).numFmt = row.getCell(3).value === 'KHR' ? '#,##0" ៛"' : '$#,##0.00'
     })
   }
   if (sections.includes('monthly')) {
@@ -351,13 +479,16 @@ async function buildReportWorkbook(data, sections) {
     )
   }
   if (sections.includes('spending')) {
-    addSheet(
+    const sheet = addSheet(
       workbook,
       'Spending by category',
-      ['Category', 'Amount'],
-      data.spending.map((row) => [row.category, row.amount]),
+      ['Category', 'Amount', 'Paid in riel (៛)'],
+      data.spending.map((row) => [row.category, row.amount, row.khr || null]),
       [2],
     )
+    sheet.eachRow((row, rowNumber) => {
+      if (rowNumber > 1 && typeof row.getCell(3).value === 'number') row.getCell(3).numFmt = '#,##0" ៛"'
+    })
   }
   return workbook.xlsx.writeBuffer()
 }
@@ -386,20 +517,43 @@ function buildReportPdfBuffer(data, sections, generatedBy) {
         y,
         data.previous
           ? [
-              { label: 'Metric', width: 150 },
-              { label: 'This period', width: 110, align: 'right' },
-              { label: 'Previous', width: 110, align: 'right' },
-              { label: 'Change', width: 90, align: 'right' },
+              { label: 'Metric', width: 120 },
+              { label: 'This period', width: 95, align: 'right' },
+              { label: 'Previous', width: 95, align: 'right' },
+              { label: 'Change', width: 75, align: 'right' },
+              { label: 'Riel', width: 95, align: 'right' },
             ]
           : [
-              { label: 'Metric', width: 220 },
-              { label: 'Value', width: 140, align: 'right' },
+              { label: 'Metric', width: 200 },
+              { label: 'Value', width: 120, align: 'right' },
+              { label: 'Riel', width: 120, align: 'right' },
             ],
-        summary.map(([metric, value, before, change]) => ({
-          values: data.previous
-            ? [metric, formatValue(metric, value), formatValue(metric, before), change]
-            : [metric, formatValue(metric, value)],
-        })),
+        summary.map(([metric, value, before, change]) => {
+          const riel = COUNT_METRICS.has(metric) ? '' : formatKhrText(rielFor(metric, value, data))
+          return {
+            values: data.previous
+              ? [metric, formatValue(metric, value), formatValue(metric, before), change, riel]
+              : [metric, formatValue(metric, value), riel],
+          }
+        }),
+      )
+      y = drawNote(doc, y, `Riel at the shop's rate: $1 = ${rateOf(data).toLocaleString('en-US')} KHR.`)
+    }
+
+    if (sections.includes('income') && data.taken) {
+      y = drawSectionTitle(doc, y, 'Money taken')
+      y = drawTable(
+        doc,
+        y,
+        [
+          { label: 'Paid with', width: 260 },
+          { label: 'Amount', width: 140, align: 'right' },
+        ],
+        [
+          { values: ['Cash in US dollars (kept in the drawer)', formatMoney(data.taken.cashUsd)] },
+          { values: ['Cash in riel (kept in the drawer)', formatKhrText(data.taken.cashKhr)] },
+          { values: ['Bank / ABA', formatMoney(data.taken.bankUsd)] },
+        ],
       )
     }
 
@@ -437,11 +591,12 @@ function buildReportPdfBuffer(data, sections, generatedBy) {
         doc,
         y,
         [
-          { label: 'Category', width: 260 },
-          { label: 'Amount', width: 120, align: 'right' },
+          { label: 'Category', width: 220 },
+          { label: 'Amount', width: 110, align: 'right' },
+          { label: 'Paid in riel', width: 120, align: 'right' },
         ],
         data.spending.map((row) => ({
-          values: [row.category, formatMoney(row.amount)],
+          values: [row.category, formatMoney(row.amount), row.khr ? formatKhrText(row.khr) : ''],
         })),
       )
     }

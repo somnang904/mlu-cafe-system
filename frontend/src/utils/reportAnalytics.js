@@ -6,6 +6,7 @@ import {
   isSoldOrder,
   normalizeOrderDate,
 } from './salesHistoryAnalytics'
+import { DEFAULT_EXCHANGE_RATE, roundKhrCash } from './currency'
 import { dayKeysBetween, inRange, monthKeysBetween, rangeGrain } from './reportRange'
 
 function money(value) {
@@ -14,6 +15,26 @@ function money(value) {
 
 function orderTotal(order) {
   return Number.parseFloat(order?.total || 0) || 0
+}
+
+/**
+ * The bill split by the currency the customer paid in: dollars (or bank) count in dollars, riel
+ * counts as the bill's value in riel, and a mixed cash payment counts the dollars handed over in
+ * dollars and the rest of the bill in riel.
+ */
+function paidByCurrency(order) {
+  const total = orderTotal(order)
+  const khr = Number(order?.received_khr) || 0
+  if (String(order?.payment_method || 'Cash').toLowerCase() !== 'cash' || khr <= 0) return { usd: total, khr: 0 }
+  const usd = Math.min(total, Number(order.received_usd) || 0)
+  const rate = Number(order.exchange_rate) > 0 ? Number(order.exchange_rate) : DEFAULT_EXCHANGE_RATE
+  return { usd, khr: roundKhrCash((total - usd) * rate) }
+}
+
+/** An expense in the currency it was entered in. */
+function spentByCurrency(expense) {
+  if (expense?.currency === 'KHR' && expense.amount_khr != null) return { usd: 0, khr: Number(expense.amount_khr) || 0 }
+  return { usd: Number(expense?.amount) || 0, khr: 0 }
 }
 
 function expenseDay(expense) {
@@ -34,28 +55,52 @@ export function expensesInRange(expenses, from, to) {
 /** KPI figures: sales, refunds, net sales, expenses, net profit (net sales − expenses), orders. */
 export function summarizeRange(orders, expenses, from, to) {
   let sales = 0
+  let salesUsd = 0
+  let salesKhr = 0
   let salesOrders = 0
   let refunds = 0
+  let refundsUsd = 0
+  let refundsKhr = 0
   let refundOrders = 0
   for (const order of orders || []) {
     if (!isSoldOrder(order)) continue
     if (inRange(normalizeOrderDate(order), from, to)) {
       sales += orderTotal(order)
+      const paid = paidByCurrency(order)
+      salesUsd += paid.usd
+      salesKhr += paid.khr
       salesOrders += 1
     }
     if (inRange(getRefundDateKey(order), from, to)) {
       refunds += orderTotal(order)
+      const paid = paidByCurrency(order)
+      refundsUsd += paid.usd
+      refundsKhr += paid.khr
       refundOrders += 1
     }
   }
-  const spending = expensesInRange(expenses, from, to).reduce((sum, expense) => sum + (Number(expense.amount) || 0), 0)
+  const inRangeExpenses = expensesInRange(expenses, from, to)
+  const spending = inRangeExpenses.reduce((sum, expense) => sum + (Number(expense.amount) || 0), 0)
+  const spent = inRangeExpenses.map(spentByCurrency)
   const net = money(sales - refunds)
+  const expensesUsd = money(spent.reduce((sum, part) => sum + part.usd, 0))
+  const expensesKhr = spent.reduce((sum, part) => sum + part.khr, 0)
   return {
     sales: money(sales),
+    salesUsd: money(salesUsd),
+    salesKhr,
     refunds: money(refunds),
+    refundsUsd: money(refundsUsd),
+    refundsKhr,
     net,
+    netUsd: money(salesUsd - refundsUsd),
+    netKhr: salesKhr - refundsKhr,
     expenses: money(spending),
+    expensesUsd,
+    expensesKhr,
     profit: money(net - spending),
+    profitUsd: money(salesUsd - refundsUsd - expensesUsd),
+    profitKhr: salesKhr - refundsKhr - expensesKhr,
     orders: salesOrders,
     refundOrders,
   }

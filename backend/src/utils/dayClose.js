@@ -105,7 +105,15 @@ async function buildDaySnapshot(db, date, staffId) {
   const data = await loadReportData(db, period, staffId)
   return {
     date,
-    summary: data.summary,
+    summary: {
+      ...data.summary,
+      salesUsd: data.taken.salesUsd,
+      salesKhr: data.taken.salesKhr,
+      refundsUsd: data.taken.refundsUsd,
+      refundsKhr: data.taken.refundsKhr,
+      expensesUsd: roundMoney(data.spending.reduce((sum, row) => sum + (row.usd || 0), 0)),
+      expensesKhr: data.spending.reduce((sum, row) => sum + (row.khr || 0), 0),
+    },
     payments: await paymentBreakdown(db, period, staffId),
     items: await itemsSold(db, period, staffId),
     spending: data.spending,

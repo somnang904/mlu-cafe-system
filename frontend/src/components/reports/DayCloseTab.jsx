@@ -34,6 +34,17 @@ function paymentLabel(row, t) {
   return row.bank ? `${row.method} · ${row.bank}` : row.method
 }
 
+/** Dollars and riel as paid; days closed before that split was saved show the riel equivalent. */
+function moneyAsPaid(total, usd, khr) {
+  return usd == null ? { usd: total } : { paid: { usd, khr } }
+}
+
+/** first − the rest, or null when any part is missing (a day closed before the split was saved). */
+function minus(first, ...rest) {
+  if ([first, ...rest].some((value) => value == null)) return null
+  return Math.round(rest.reduce((sum, value) => sum - value, first) * 100) / 100
+}
+
 /** The figures of one day: totals, how it was paid, items sold and spending. */
 function DaySnapshot({ snapshot }) {
   const { t } = useTranslation()
@@ -42,17 +53,18 @@ function DaySnapshot({ snapshot }) {
   return (
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        <KpiCard label={t('reports.sales')} value={formatMoney(summary.revenue)} icon={TrendingUp} accent="bg-forest-500" />
+        <KpiCard label={t('reports.sales')} value={formatMoney(summary.revenue)} {...moneyAsPaid(summary.revenue, summary.salesUsd, summary.salesKhr)} icon={TrendingUp} accent="bg-forest-500" />
         <KpiCard
           label={t('reports.refunds')}
           value={formatMoney(-summary.refunds)}
+          {...moneyAsPaid(-summary.refunds, summary.refundsUsd == null ? null : -summary.refundsUsd, -summary.refundsKhr)}
           hint={t('reports.refundsHint', { count: summary.refundOrders })}
           icon={RotateCcw}
           accent="bg-red-600"
         />
-        <KpiCard label={t('reports.netSales')} value={formatMoney(summary.net)} icon={BarChart3} accent="bg-emerald-700" />
-        <KpiCard label={t('reports.expenses')} value={formatMoney(summary.expenses)} icon={TrendingDown} accent="bg-orange-700" />
-        <KpiCard label={t('reports.netProfit')} value={formatMoney(summary.profit)} icon={Wallet} accent={summary.profit < 0 ? 'bg-red-600' : 'bg-emerald-700'} />
+        <KpiCard label={t('reports.netSales')} value={formatMoney(summary.net)} {...moneyAsPaid(summary.net, minus(summary.salesUsd, summary.refundsUsd), minus(summary.salesKhr, summary.refundsKhr))} icon={BarChart3} accent="bg-emerald-700" />
+        <KpiCard label={t('reports.expenses')} value={formatMoney(summary.expenses)} {...moneyAsPaid(summary.expenses, summary.expensesUsd, summary.expensesKhr)} icon={TrendingDown} accent="bg-orange-700" />
+        <KpiCard label={t('reports.netProfit')} value={formatMoney(summary.profit)} {...moneyAsPaid(summary.profit, minus(summary.salesUsd, summary.refundsUsd, summary.expensesUsd), minus(summary.salesKhr, summary.refundsKhr, summary.expensesKhr))} icon={Wallet} accent={summary.profit < 0 ? 'bg-red-600' : 'bg-emerald-700'} />
         <KpiCard label={t('reports.ordersFulfilled')} value={String(summary.orders)} icon={ShoppingBag} accent="bg-emerald-700" />
       </div>
 

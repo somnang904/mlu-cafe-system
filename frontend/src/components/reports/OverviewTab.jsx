@@ -34,6 +34,7 @@ export default function OverviewTab({ summary, previous, compare, chart, payment
         <KpiCard
           label={t('reports.sales')}
           value={formatMoney(summary.sales)}
+          paid={{ usd: summary.salesUsd, khr: summary.salesKhr }}
           icon={TrendingUp}
           accent="bg-forest-500"
           compare={compare}
@@ -42,6 +43,7 @@ export default function OverviewTab({ summary, previous, compare, chart, payment
         <KpiCard
           label={t('reports.refunds')}
           value={formatMoney(-summary.refunds)}
+          paid={{ usd: -summary.refundsUsd, khr: -summary.refundsKhr }}
           hint={t('reports.refundsHint', { count: summary.refundOrders })}
           icon={RotateCcw}
           accent="bg-red-600"
@@ -52,6 +54,7 @@ export default function OverviewTab({ summary, previous, compare, chart, payment
         <KpiCard
           label={t('reports.netSales')}
           value={formatMoney(summary.net)}
+          paid={{ usd: summary.netUsd, khr: summary.netKhr }}
           hint={t('reports.netSalesHint')}
           icon={BarChart3}
           accent="bg-forest-600"
@@ -61,6 +64,7 @@ export default function OverviewTab({ summary, previous, compare, chart, payment
         <KpiCard
           label={t('reports.expenses')}
           value={formatMoney(summary.expenses)}
+          paid={{ usd: summary.expensesUsd, khr: summary.expensesKhr }}
           hint={t('reports.openExpensesHint')}
           icon={TrendingDown}
           accent="bg-amber-700"
@@ -72,6 +76,7 @@ export default function OverviewTab({ summary, previous, compare, chart, payment
         <KpiCard
           label={t('reports.netProfit')}
           value={formatMoney(summary.profit)}
+          paid={{ usd: summary.profitUsd, khr: summary.profitKhr }}
           hint={t('reports.netProfitHint')}
           icon={Wallet}
           accent={summary.profit >= 0 ? 'bg-forest-700' : 'bg-red-600'}
